@@ -29,7 +29,7 @@ import {
   type PermissionOption,
 } from "./permission.shared"
 import { toolDiffView, toolFiletype } from "./tool"
-import type { RunBlockTheme, RunFooterTheme } from "./theme"
+import { transparent, type RunBlockTheme, type RunFooterTheme } from "./theme"
 import type { PermissionReply, RunDiffStyle } from "./types"
 
 type RejectArea = {
@@ -55,7 +55,7 @@ function buttons(
           <box
             paddingLeft={1}
             paddingRight={1}
-            backgroundColor={option === selected ? theme.highlight : theme.surface}
+            backgroundColor={option === selected ? theme.highlight : transparent}
             onMouseOver={() => {
               if (!disabled) onHover(option)
             }}

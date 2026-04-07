@@ -54,6 +54,8 @@ export type RunTheme = {
   block: RunBlockTheme
 }
 
+export const transparent = RGBA.fromValues(0, 0, 0, 0)
+
 function alpha(color: RGBA, value: number): RGBA {
   const a = Math.max(0, Math.min(1, value))
   return RGBA.fromValues(color.r, color.g, color.b, a)
@@ -77,18 +79,27 @@ function mode(bg: RGBA): "dark" | "light" {
   return "dark"
 }
 
-function fade(color: RGBA, fallback: number, scale: number, limit: number): RGBA {
+function fade(color: RGBA, base: RGBA, fallback: number, scale: number, limit: number): RGBA {
   if (color.a === 0) {
     return alpha(color, fallback)
   }
 
-  return alpha(color, Math.min(limit, color.a * scale))
+  const target = Math.min(limit, color.a * scale)
+  const mix = Math.min(1, target / color.a)
+
+  return RGBA.fromValues(
+    base.r + (color.r - base.r) * mix,
+    base.g + (color.g - base.g) * mix,
+    base.b + (color.b - base.b) * mix,
+    color.a,
+  )
 }
 
 function map(theme: TuiThemeCurrent, syntax?: SyntaxStyle): RunTheme {
+  const bg = theme.background
   const pane = theme.backgroundElement
-  const surface = fade(pane, 0.18, 0.76, 0.9)
-  const line = fade(pane, 0.24, 0.90, 0.98)
+  const surface = fade(pane, bg, 0.18, 0.76, 0.9)
+  const line = fade(pane, bg, 0.24, 0.9, 0.98)
 
   return {
     background: theme.background,
