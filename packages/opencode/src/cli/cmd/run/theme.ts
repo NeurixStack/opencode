@@ -15,6 +15,7 @@ import type { EntryKind } from "./types"
 
 type Tone = {
   body: ColorInput
+  start?: ColorInput
 }
 
 export type RunEntryTheme = Record<EntryKind, Tone>
@@ -128,7 +129,8 @@ function map(theme: TuiThemeCurrent, syntax?: SyntaxStyle): RunTheme {
         body: theme.textMuted,
       },
       tool: {
-        body: theme.warning,
+        body: theme.text,
+        start: theme.textMuted,
       },
       error: {
         body: theme.error,
@@ -162,9 +164,10 @@ const seed = {
   error: rgba("#ef4444"),
 }
 
-function tone(body: ColorInput): Tone {
+function tone(body: ColorInput, start?: ColorInput): Tone {
   return {
     body,
+    start,
   }
 }
 
@@ -186,7 +189,7 @@ export const RUN_THEME_FALLBACK: RunTheme = {
     user: tone(seed.highlight),
     assistant: tone(seed.text),
     reasoning: tone(seed.muted),
-    tool: tone(seed.warning),
+    tool: tone(seed.text, seed.muted),
     error: tone(seed.error),
   },
   block: {

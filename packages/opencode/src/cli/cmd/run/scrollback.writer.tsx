@@ -172,6 +172,12 @@ function look(commit: StreamCommit, theme: RunEntryTheme): Paint {
     }
   }
 
+  if (commit.kind === "tool" && commit.phase === "start") {
+    return {
+      fg: theme.tool.start ?? theme.tool.body,
+    }
+  }
+
   if (commit.kind === "assistant") {
     return { fg: theme.assistant.body }
   }
