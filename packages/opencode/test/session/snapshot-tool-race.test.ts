@@ -33,6 +33,7 @@ import { Agent as AgentSvc } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
 import { Config } from "../../src/config/config"
+import { Env } from "../../src/env"
 import { FileTime } from "../../src/file/time"
 import { LSP } from "../../src/lsp"
 import { MCP } from "../../src/mcp"
@@ -137,6 +138,7 @@ function makeHttp() {
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
   const registry = ToolRegistry.layer.pipe(
     Layer.provide(Skill.defaultLayer),
+    Layer.provide(Env.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
     Layer.provide(Ripgrep.defaultLayer),

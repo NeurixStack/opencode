@@ -95,6 +95,7 @@ export namespace ToolRegistry {
     | Ripgrep.Service
     | Format.Service
     | Truncate.Service
+    | Env.Service
   > = Layer.effect(
     Service,
     Effect.gen(function* () {
@@ -103,6 +104,7 @@ export namespace ToolRegistry {
       const agents = yield* Agent.Service
       const skill = yield* Skill.Service
       const truncate = yield* Truncate.Service
+      const env = yield* Env.Service
 
       const invalid = yield* InvalidTool
       const task = yield* TaskTool
@@ -272,13 +274,14 @@ export namespace ToolRegistry {
       })
 
       const tools: Interface["tools"] = Effect.fn("ToolRegistry.tools")(function* (input) {
+        const e2e = !!(yield* env.get("OPENCODE_E2E_LLM_URL"))
         const filtered = (yield* all()).filter((tool) => {
           if (tool.id === CodeSearchTool.id || tool.id === WebSearchTool.id) {
             return input.providerID === ProviderID.opencode || Flag.OPENCODE_ENABLE_EXA
           }
 
           const usePatch =
-            !!Env.get("OPENCODE_E2E_LLM_URL") ||
+            e2e ||
             (input.modelID.includes("gpt-") && !input.modelID.includes("oss") && !input.modelID.includes("gpt-4"))
           if (tool.id === ApplyPatchTool.id) return usePatch
           if (tool.id === EditTool.id || tool.id === WriteTool.id) return !usePatch
@@ -342,6 +345,7 @@ export namespace ToolRegistry {
       Layer.provide(CrossSpawnSpawner.defaultLayer),
       Layer.provide(Ripgrep.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
+      Layer.provide(Env.defaultLayer),
     ),
   )
 }

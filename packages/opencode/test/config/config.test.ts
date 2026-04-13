@@ -2,6 +2,7 @@ import { test, expect, describe, mock, afterEach, beforeEach, spyOn } from "bun:
 import { Deferred, Effect, Fiber, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Config } from "../../src/config/config"
+import { Env } from "../../src/env"
 import { Instance } from "../../src/project/instance"
 import { Auth } from "../../src/auth"
 import { AccessToken, Account, AccountID, OrgID } from "../../src/account"
@@ -37,6 +38,7 @@ const layer = Config.layer.pipe(
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(emptyAuth),
   Layer.provide(emptyAccount),
+  Layer.provide(Env.defaultLayer),
   Layer.provideMerge(infra),
 )
 
@@ -334,6 +336,7 @@ test("resolves env templates in account config with account token", async () => 
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(emptyAuth),
     Layer.provide(fakeAccount),
+    Layer.provide(Env.defaultLayer),
     Layer.provideMerge(infra),
   )
 
@@ -1826,6 +1829,7 @@ test("project config overrides remote well-known config", async () => {
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),
+    Layer.provide(Env.defaultLayer),
     Layer.provideMerge(infra),
   )
 
@@ -1881,6 +1885,7 @@ test("wellknown URL with trailing slash is normalized", async () => {
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(fakeAuth),
     Layer.provide(emptyAccount),
+    Layer.provide(Env.defaultLayer),
     Layer.provideMerge(infra),
   )
 

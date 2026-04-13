@@ -1161,13 +1161,15 @@ export namespace Config {
     }),
   )
 
-  export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Auth.Service | Account.Service> =
+  type Reqs = Env.Service
+  export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Auth.Service | Account.Service | Reqs> =
     Layer.effect(
       Service,
       Effect.gen(function* () {
         const fs = yield* AppFileSystem.Service
         const authSvc = yield* Auth.Service
         const accountSvc = yield* Account.Service
+        const env = yield* Env.Service
 
         const readConfigFile = Effect.fnUntraced(function* (filepath: string) {
           return yield* fs.readFileString(filepath).pipe(
@@ -1482,7 +1484,7 @@ export namespace Config {
               )
               if (Option.isSome(tokenOpt)) {
                 process.env["OPENCODE_CONSOLE_TOKEN"] = tokenOpt.value
-                Env.set("OPENCODE_CONSOLE_TOKEN", tokenOpt.value)
+                yield* env.set("OPENCODE_CONSOLE_TOKEN", tokenOpt.value)
               }
 
               activeOrgName = activeOrg.org.name
@@ -1659,5 +1661,6 @@ export namespace Config {
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(Auth.defaultLayer),
     Layer.provide(Account.defaultLayer),
+    Layer.provide(Env.defaultLayer),
   )
 }
