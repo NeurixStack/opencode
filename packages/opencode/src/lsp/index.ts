@@ -12,7 +12,7 @@ import { Instance } from "../project/instance"
 import { Flag } from "@/flag/flag"
 import { Process } from "../util/process"
 import { spawn as lspspawn } from "./launch"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, PubSub, Stream } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { Filesystem } from "@/util/filesystem"
 
@@ -139,10 +139,10 @@ export namespace LSP {
     clients: LSPClient.Info[]
     servers: Record<string, LSPServer.Info>
     broken: Set<string>
+    pulse: PubSub.PubSub<void>
     pruning: Promise<void> | undefined
     spawning: Map<string, Promise<LSPClient.Info | undefined>>
     subs: Map<string, { sub: FSWatcher; names: Set<string> }>
-    timer: ReturnType<typeof setTimeout> | undefined
   }
 
   export interface Interface {
@@ -217,19 +217,25 @@ export namespace LSP {
             clients: [],
             servers,
             broken: new Set(),
+            pulse: yield* PubSub.unbounded<void>(),
             pruning: undefined,
             spawning: new Map(),
             subs: new Map(),
-            timer: undefined,
           }
 
+          yield* Stream.fromPubSub(s.pulse).pipe(
+            Stream.debounce("50 millis"),
+            Stream.runForEach(() => Effect.promise(() => scan(s))),
+            Effect.forkScoped,
+          )
+
           yield* Effect.addFinalizer(() =>
-            Effect.promise(async () => {
-              if (s.timer) clearTimeout(s.timer)
+            Effect.gen(function* () {
+              yield* PubSub.shutdown(s.pulse).pipe(Effect.ignore)
               for (const item of s.subs.values()) {
                 item.sub.close()
               }
-              await Promise.all(s.clients.map((client) => client.shutdown()))
+              yield* Effect.promise(() => Promise.all(s.clients.map((client) => client.shutdown())))
             }),
           )
 
@@ -363,7 +369,7 @@ export namespace LSP {
                   const name = String(file)
                   if (!s.subs.get(dir)?.names.has(name)) return
                 }
-                kick(s)
+                fire(s)
               }),
             )
             sub.on(
@@ -372,7 +378,7 @@ export namespace LSP {
                 if (s.subs.get(dir)?.sub !== sub) return
                 s.subs.delete(dir)
                 sub.close()
-                kick(s)
+                fire(s)
               }),
             )
             s.subs.set(dir, { sub, names })
@@ -380,12 +386,8 @@ export namespace LSP {
         }
       }
 
-      function kick(s: State) {
-        if (s.timer) clearTimeout(s.timer)
-        s.timer = setTimeout(() => {
-          s.timer = undefined
-          void scan(s)
-        }, 50)
+      function fire(s: State) {
+        Effect.runFork(PubSub.publish(s.pulse, undefined).pipe(Effect.ignore))
       }
 
       async function scan(s: State) {
