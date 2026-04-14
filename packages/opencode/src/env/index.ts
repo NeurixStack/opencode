@@ -1,4 +1,5 @@
 import { InstanceState } from "@/effect/instance-state"
+import { makeRuntime } from "@/effect/run-service"
 import { Context, Effect, Layer } from "effect"
 
 export namespace Env {
@@ -45,20 +46,9 @@ export namespace Env {
   )
 
   export const defaultLayer = layer
+  const rt = makeRuntime(Service, layer)
 
-  export const get = Effect.fn("Env.get")(function* (key: string) {
-    return yield* (yield* Service).get(key)
-  })
-
-  export const all = Effect.fn("Env.all")(function* () {
-    return yield* (yield* Service).all()
-  })
-
-  export const set = Effect.fn("Env.set")(function* (key: string, value: string) {
-    yield* (yield* Service).set(key, value)
-  })
-
-  export const remove = Effect.fn("Env.remove")(function* (key: string) {
-    yield* (yield* Service).remove(key)
-  })
+  export function set(key: string, value: string) {
+    return rt.runSync((svc) => svc.set(key, value))
+  }
 }
