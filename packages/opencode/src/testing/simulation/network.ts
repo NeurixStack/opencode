@@ -71,8 +71,18 @@ export interface Options {
 }
 
 interface State {
+  readonly initialEntries: readonly ResponseEntry[]
   readonly entries: readonly ResponseEntry[]
   readonly allowLoopback: boolean
+}
+
+export interface Snapshot {
+  readonly allowLoopback: boolean
+  readonly routes: ReadonlyArray<{
+    readonly kind: ResponseEntry["kind"]
+    readonly matcher: string
+    readonly method?: string | readonly string[]
+  }>
 }
 
 export class SimulationNetworkError extends Schema.TaggedErrorClass<SimulationNetworkError>()(
@@ -86,6 +96,8 @@ export class SimulationNetworkError extends Schema.TaggedErrorClass<SimulationNe
 
 export interface Interface {
   readonly register: (entry: ResponseEntry) => Effect.Effect<void>
+  readonly reset: () => Effect.Effect<void>
+  readonly snapshot: () => Effect.Effect<Snapshot>
   readonly handle: (request: RequestInfo) => Effect.Effect<Response, SimulationNetworkError>
 }
 
@@ -106,6 +118,12 @@ function matches(matcher: Matcher, request: RequestInfo) {
   const methods = matcher.method === undefined ? [] : Array.isArray(matcher.method) ? matcher.method : [matcher.method]
   if (methods.length > 0 && !methods.some((method) => method.toUpperCase() === request.method.toUpperCase())) return false
   return matchesUrl(matcher.url, request)
+}
+
+function matcherLabel(matcher: Matcher) {
+  if (typeof matcher.url === "string") return matcher.url
+  if (matcher.url instanceof RegExp) return matcher.url.source
+  return "<predicate>"
 }
 
 function isLoopback(url: URL) {
@@ -239,12 +257,29 @@ function toHttpClientError(request: Parameters<typeof HttpClientResponse.fromWeb
 export function make(options: Options = {}) {
   return Effect.gen(function* () {
     const state = yield* Ref.make<State>({
+      initialEntries: options.entries ?? [],
       entries: options.entries ?? [],
       allowLoopback: options.allowLoopback ?? true,
     })
 
     const register = Effect.fn("SimulationNetwork.register")(function* (entry: ResponseEntry) {
       yield* Ref.update(state, (current) => ({ ...current, entries: [...current.entries, entry] }))
+    })
+
+    const reset = Effect.fn("SimulationNetwork.reset")(function* () {
+      yield* Ref.update(state, (current) => ({ ...current, entries: current.initialEntries }))
+    })
+
+    const snapshot = Effect.fn("SimulationNetwork.snapshot")(function* () {
+      const current = yield* Ref.get(state)
+      return {
+        allowLoopback: current.allowLoopback,
+        routes: current.entries.map((entry) => ({
+          kind: entry.kind,
+          matcher: matcherLabel(entry.matcher),
+          ...(entry.matcher.method === undefined ? {} : { method: entry.matcher.method }),
+        })),
+      } satisfies Snapshot
     })
 
     const handle = Effect.fn("SimulationNetwork.handle")(function* (request: RequestInfo) {
@@ -261,7 +296,7 @@ export function make(options: Options = {}) {
       })
     })
 
-    return Service.of({ register, handle })
+    return Service.of({ register, reset, snapshot, handle })
   })
 }
 

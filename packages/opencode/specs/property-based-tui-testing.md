@@ -196,6 +196,8 @@ Implementation shape:
 - Add simulation control state under `packages/opencode/src/testing/simulation/service.ts`.
 - Add HTTP routes under a simulation-gated path like `/experimental/simulation/*`.
 - Keep the route inaccessible unless simulation mode is explicitly enabled.
+- First pass uses a raw route wrapper at `packages/opencode/src/server/routes/instance/httpapi/simulation.ts` to avoid SDK regeneration while the API shape is still moving.
+- Current control service can reset state, seed filesystem files, register static network responses, and return a snapshot.
 - Register/configure a local mock provider/model through the normal provider path.
 - The mock model reads scripts from simulation control state.
 - No JSON-in-prompt fallback.
@@ -230,10 +232,10 @@ Keep the old useful rule: step `0` runs before tool results, step `N` runs after
 
 Todos:
 
-- [ ] Define simulation mode activation flag/env.
-- [ ] Add simulation control state and reset semantics.
-- [ ] Add gated simulation endpoints.
-- [ ] Decide raw route vs typed HttpApi route. If typed, regenerate JS SDK.
+- [x] Define simulation mode activation flag/env.
+- [x] Add simulation control state and reset semantics.
+- [x] Add gated simulation endpoints for reset, filesystem seed, network register, and snapshot.
+- [x] Decide raw route vs typed HttpApi route. Raw route for first pass; no SDK regeneration yet.
 - [ ] Implement mock provider/model on the normal provider path.
 - [ ] Port the useful stream chunk behavior from the old branch to the current AI SDK interface.
 - [ ] Make missing scripts fail with a typed simulation error.

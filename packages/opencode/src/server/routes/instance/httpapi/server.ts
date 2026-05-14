@@ -64,6 +64,7 @@ import { Workspace } from "@/control-plane/workspace"
 import { SimulationFileSystem } from "@/testing/simulation/filesystem"
 import { SimulationNetwork } from "@/testing/simulation/network"
 import { SimulationNetworkRoutes } from "@/testing/simulation/network-routes"
+import { Simulation } from "@/testing/simulation/service"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@/server/cors"
 import { serveUIEffect } from "@/server/shared/ui"
 import { ServerAuth } from "@/server/auth"
@@ -92,6 +93,7 @@ import { workspaceHandlers } from "./handlers/workspace"
 import { instanceContextLayer, instanceRouterMiddleware } from "./middleware/instance-context"
 import { workspaceRouterMiddleware, workspaceRoutingLayer } from "./middleware/workspace-routing"
 import { disposeMiddleware } from "./lifecycle"
+import { simulationRoute } from "./simulation"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { compressionLayer } from "./middleware/compression"
 import { corsVaryFix } from "./middleware/cors-vary"
@@ -305,6 +307,7 @@ export function createSimulatedRoutes(corsOptions?: CorsOptions): ReturnType<typ
     Workspace.layer,
     Worktree.layer,
     Bus.layer,
+    Simulation.layer,
     HttpServer.layerServices,
   ).pipe(
     Layer.provideMerge(AccountRepo.layer),
@@ -316,7 +319,7 @@ export function createSimulatedRoutes(corsOptions?: CorsOptions): ReturnType<typ
     Layer.provideMerge(simulationBoundary),
   )
 
-  return Layer.mergeAll(rootApiRoutes, eventApiRoutes, instanceRoutes, docRoute, uiRoute).pipe(
+  return Layer.mergeAll(rootApiRoutes, eventApiRoutes, instanceRoutes, docRoute, uiRoute, simulationRoute).pipe(
     Layer.provide(simulatedServices),
     Layer.provideMerge(Layer.succeed(CorsConfig)(corsOptions)),
     Layer.provideMerge(InstanceLayer.layer),
