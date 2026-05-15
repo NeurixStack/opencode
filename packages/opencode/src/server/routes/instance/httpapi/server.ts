@@ -74,11 +74,13 @@ import { SimulationFileSystem } from "@/testing/simulation/filesystem"
 import { SimulationNetwork } from "@/testing/simulation/network"
 import { SimulationNetworkRoutes } from "@/testing/simulation/network-routes"
 import { SimulationProvider } from "@/testing/simulation/provider"
+import { SimulationSpawner } from "@/testing/simulation/spawner"
 import { Simulation } from "@/testing/simulation/service"
 import { CorsConfig, isAllowedCorsOrigin, type CorsOptions } from "@/server/cors"
 import { serveUIEffect } from "@/server/shared/ui"
 import { ServerAuth } from "@/server/auth"
 import { InstanceHttpApi, RootHttpApi } from "./api"
+import { InMemoryFs } from "just-bash"
 import { PublicApi } from "./public"
 import { authorizationLayer, authorizationRouterMiddleware } from "./middleware/authorization"
 import { EventApi } from "./groups/event"
@@ -194,6 +196,27 @@ const uiRoute = HttpRouter.use((router) =>
   }),
 ).pipe(Layer.provide(authOnlyRouterLayer))
 
+const simulationShareNextLayer = Layer.succeed(
+  ShareNext.Service,
+  ShareNext.Service.of({
+    init: () => Effect.void,
+    url: () => Effect.succeed("https://opncd.ai"),
+    request: () =>
+      Effect.succeed({
+        headers: {},
+        baseUrl: "https://opncd.ai",
+        api: {
+          create: "/api/shares",
+          sync: (shareID) => `/api/shares/${shareID}/sync`,
+          remove: (shareID) => `/api/shares/${shareID}`,
+          data: (shareID) => `/api/shares/${shareID}/data`,
+        },
+      }),
+    create: () => Effect.succeed({ id: "", url: "", secret: "" }),
+    remove: () => Effect.void,
+  }),
+)
+
 type RouteRequirements =
   | HttpRouter.HttpRouter
   | HttpRouter.Request<"Error", unknown>
@@ -263,12 +286,21 @@ function createProductionRoutes(
 }
 
 export function createSimulatedRoutes(corsOptions?: CorsOptions): ReturnType<typeof createProductionRoutes> {
+  const fs = new InMemoryFs()
   const simulationBoundary = Layer.mergeAll(
-    SimulationFileSystem.layer({ root: "/opencode" }),
+    SimulationFileSystem.layer({ root: "/opencode", fs }),
+    SimulationSpawner.layer({ root: "/opencode", fs }),
     SimulationNetwork.layer({ entries: SimulationNetworkRoutes.defaults(), allowLoopback: true }),
   )
 
-  const simulatedRoutes = Layer.mergeAll(rootApiRoutes, eventApiRoutes, instanceRoutes, docRoute, uiRoute, simulationRoute)
+  const simulatedRoutes = Layer.mergeAll(
+    rootApiRoutes,
+    eventApiRoutes,
+    instanceRoutes,
+    docRoute,
+    uiRoute,
+    simulationRoute,
+  )
 
   const withRouteAndLeafServices = simulatedRoutes.pipe(
     Layer.provideMerge(errorLayer),
@@ -288,7 +320,7 @@ export function createSimulatedRoutes(corsOptions?: CorsOptions): ReturnType<typ
     Layer.provideMerge(Pty.layer),
     Layer.provideMerge(PtyTicket.layer),
     Layer.provideMerge(SessionShare.layer),
-    Layer.provideMerge(ShareNext.layer),
+    Layer.provideMerge(simulationShareNextLayer),
     Layer.provideMerge(Workspace.layer),
     Layer.provideMerge(Worktree.layer),
     Layer.provideMerge(HttpServer.layerServices),
@@ -349,7 +381,6 @@ export function createSimulatedRoutes(corsOptions?: CorsOptions): ReturnType<typ
     Layer.provideMerge(Env.layer),
     Layer.provideMerge(Bus.layer),
     Layer.provideMerge(Global.layer),
-    Layer.provideMerge(CrossSpawnSpawner.layer),
     Layer.provideMerge(NodePath.layer),
     Layer.provideMerge(simulationBoundary),
     Layer.provideMerge(Layer.succeed(CorsConfig)(corsOptions)),
