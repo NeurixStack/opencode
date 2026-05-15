@@ -28,6 +28,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import * as DateTime from "effect/DateTime"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { SimulationDebugLog } from "../testing/simulation/debug-log"
 
 const DOOM_LOOP_THRESHOLD = 3
 const log = Log.create({ service: "session.processor" })
@@ -212,6 +213,7 @@ export const layer = Layer.effect(
       })
 
       const handleEvent = Effect.fnUntraced(function* (value: StreamEvent) {
+        SimulationDebugLog.write("processor.handleEvent", { type: value.type })
         switch (value.type) {
           case "start":
             yield* status.set(ctx.sessionID, { type: "busy" })
@@ -719,15 +721,23 @@ export const layer = Layer.effect(
       })
 
       const process = Effect.fn("SessionProcessor.process")(function* (streamInput: LLM.StreamInput) {
+        SimulationDebugLog.write("processor.process.start", {
+          providerID: streamInput.model.providerID,
+          modelID: streamInput.model.id,
+        })
         slog.info("process")
         ctx.needsCompaction = false
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
 
+        SimulationDebugLog.write("JWL processing")
+
         return yield* Effect.gen(function* () {
           yield* Effect.gen(function* () {
+            SimulationDebugLog.write("JWL inside")
             ctx.currentText = undefined
             ctx.reasoningMap = {}
             const stream = llm.stream(streamInput)
+            SimulationDebugLog.write("processor.stream.created")
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),

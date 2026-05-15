@@ -24,6 +24,7 @@ import { ExportCommand } from "./cli/cmd/export"
 import { ImportCommand } from "./cli/cmd/import"
 import { AttachCommand } from "./cli/cmd/tui/attach"
 import { TuiThreadCommand } from "./cli/cmd/tui/thread"
+import { SimulateCommand } from "./cli/cmd/tui/simulate"
 import { AcpCommand } from "./cli/cmd/acp"
 import { EOL } from "os"
 import { WebCommand } from "./cli/cmd/web"
@@ -40,6 +41,7 @@ import { Heap } from "./cli/heap"
 import { drizzle } from "drizzle-orm/bun-sqlite"
 import { ensureProcessMetadata } from "@opencode-ai/core/util/opencode-process"
 import { isRecord } from "@/util/record"
+import { Flag } from "@opencode-ai/core/flag/flag"
 
 const processMetadata = ensureProcessMetadata("main")
 
@@ -67,7 +69,7 @@ function show(out: string) {
   process.stderr.write(out)
 }
 
-const cli = yargs(args)
+const baseCli = yargs(args)
   .parserConfiguration({ "populate--": true })
   .scriptName("opencode")
   .wrap(100)
@@ -178,6 +180,8 @@ const cli = yargs(args)
   .command(SessionCommand)
   .command(PluginCommand)
   .command(DbCommand)
+
+const cli = (Flag.OPENCODE_SIMULATION || Flag.OPENCODE_SIMULATION_BACKEND ? baseCli.command(SimulateCommand) : baseCli)
   .fail((msg, err) => {
     if (
       msg?.startsWith("Unknown argument") ||

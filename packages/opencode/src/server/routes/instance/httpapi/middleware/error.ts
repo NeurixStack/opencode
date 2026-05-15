@@ -3,8 +3,22 @@ import * as Log from "@opencode-ai/core/util/log"
 import { ConfigError } from "@/config/error"
 import { Cause, Effect } from "effect"
 import { HttpRouter, HttpServerError, HttpServerRespondable, HttpServerResponse } from "effect/unstable/http"
+import fs from "fs/promises"
 
 const log = Log.create({ service: "server" })
+const errorLogPath = "/tmp/opencode-http-errors.log"
+
+function writeHttpError(cause: Cause.Cause<unknown>, error: unknown) {
+  void fs.appendFile(
+    errorLogPath,
+    JSON.stringify({
+      time: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      cause: Cause.pretty(cause),
+    }) + "\n",
+  )
+}
 
 // Keep typed HttpApi failures on their declared error path; this boundary only replaces defect-only empty 500s.
 export const errorLayer = HttpRouter.middleware<{ handles: unknown }>()((effect) =>

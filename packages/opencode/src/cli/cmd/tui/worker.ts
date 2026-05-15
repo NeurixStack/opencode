@@ -13,8 +13,18 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { ensureProcessMetadata } from "@opencode-ai/core/util/opencode-process"
 import { Effect } from "effect"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
+import { SimulationDebugLog } from "../../../testing/simulation/debug-log"
+import fs from "fs/promises"
 
 ensureProcessMetadata("worker")
+if (process.env.OPENCODE_SIMULATION_CWD) {
+  process.env.PWD = process.env.OPENCODE_SIMULATION_CWD
+  Object.defineProperty(process, "cwd", {
+    value: () => process.env.OPENCODE_SIMULATION_CWD!,
+    configurable: true,
+  })
+}
+void fs.writeFile("/tmp/opencode-http-errors.log", "")
 
 await Log.init({
   print: process.argv.includes("--print-logs"),
@@ -41,6 +51,12 @@ process.on("uncaughtException", (e) => {
 
 // Subscribe to global events and forward them via RPC
 GlobalBus.on("event", (event) => {
+  SimulationDebugLog.write("worker.global.event", {
+    directory: event.directory,
+    workspace: event.workspace,
+    type: event.payload?.type,
+    syncType: event.payload?.syncEvent?.type,
+  })
   Rpc.emit("global.event", event)
 })
 
@@ -48,6 +64,7 @@ let server: Awaited<ReturnType<typeof Server.listen>> | undefined
 
 export const rpc = {
   async fetch(input: { url: string; method: string; headers: Record<string, string>; body?: string }) {
+    SimulationDebugLog.write("worker.fetch.start", { method: input.method, url: input.url })
     const headers = { ...input.headers }
     const auth = ServerAuth.header()
     if (auth && !headers["authorization"] && !headers["Authorization"]) {
@@ -60,6 +77,7 @@ export const rpc = {
     })
     const response = await Server.Default().app.fetch(request)
     const body = await response.text()
+    SimulationDebugLog.write("worker.fetch.end", { method: input.method, url: input.url, status: response.status })
     return {
       status: response.status,
       headers: Object.fromEntries(response.headers.entries()),

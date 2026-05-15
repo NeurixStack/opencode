@@ -168,6 +168,7 @@ export function tui(input: {
   renderer?: CliRenderer
   mode?: "dark" | "light"
   onReady?: (ctx: { renderer: CliRenderer }) => void | Promise<void | { simulationMcpUrl?: string }>
+  onStop?: (stop: () => Promise<void>) => void
 }) {
   // promise to prevent immediate exit
   // oxlint-disable-next-line no-async-promise-executor -- intentional: async executor used for sequential setup before resolve
@@ -236,7 +237,7 @@ export function tui(input: {
                                             <PromptHistoryProvider>
                                               <PromptRefProvider>
                                                 <EditorContextProvider>
-                                                  <App onSnapshot={input.onSnapshot} />
+                                                  <AppLifecycle onSnapshot={input.onSnapshot} onStop={input.onStop} />
                                                 </EditorContextProvider>
                                               </PromptRefProvider>
                                             </PromptHistoryProvider>
@@ -263,6 +264,12 @@ export function tui(input: {
     const ready = await input.onReady?.({ renderer })
     if (ready?.simulationMcpUrl) setSimulationMcpUrl(ready.simulationMcpUrl)
   })
+}
+
+function AppLifecycle(props: { onSnapshot?: () => Promise<string[]>; onStop?: (stop: () => Promise<void>) => void }) {
+  const exit = useExit()
+  props.onStop?.(() => exit())
+  return <App onSnapshot={props.onSnapshot} />
 }
 
 function App(props: { onSnapshot?: () => Promise<string[]> }) {

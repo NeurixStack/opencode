@@ -38,6 +38,7 @@ import { Tool } from "@/tool/tool"
 import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
+import { errorMessage } from "@/util/error"
 import { Shell } from "@/shell/shell"
 import { ShellID } from "@/tool/shell/id"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -1812,7 +1813,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const [skills, env, instructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model),
-              instruction.system().pipe(Effect.orDie),
+              instruction.system().pipe(
+                Effect.tapError((error) =>
+                  bus.publish(Session.Event.Error, {
+                    sessionID,
+                    error: new NamedError.Unknown({ message: errorMessage(error) }, { cause: error }).toObject(),
+                  }),
+                ),
+                Effect.orDie,
+              ),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [...env, ...instructions, ...(skills ? [skills] : [])]

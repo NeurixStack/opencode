@@ -23,6 +23,7 @@ import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
+import { SimulationDebugLog } from "../testing/simulation/debug-log"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
@@ -408,14 +409,25 @@ const live: Layer.Layer<
       Stream.scoped(
         Stream.unwrap(
           Effect.gen(function* () {
+            SimulationDebugLog.write("llm.stream.start", {
+              providerID: input.model.providerID,
+              modelID: input.model.id,
+              small: input.small,
+              messages: input.messages.length,
+              tools: Object.keys(input.tools).length,
+              stack: new Error().stack,
+            })
             const ctrl = yield* Effect.acquireRelease(
               Effect.sync(() => new AbortController()),
               (ctrl) => Effect.sync(() => ctrl.abort()),
             )
 
             const result = yield* run({ ...input, abort: ctrl.signal })
+            SimulationDebugLog.write("llm.stream.result")
 
-            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e))))
+            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e)))).pipe(
+              Stream.tap((event) => Effect.sync(() => SimulationDebugLog.write("llm.stream.event", { type: event }))),
+            )
           }),
         ),
       )

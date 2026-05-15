@@ -21,8 +21,6 @@ import {
   sanitizedProcessEnv,
 } from "@opencode-ai/core/util/opencode-process"
 import { validateSession } from "./validate-session"
-import { Flag } from "@opencode-ai/core/flag/flag"
-import { TuiSimulation } from "./simulation"
 
 declare global {
   const OPENCODE_WORKER_PATH: string
@@ -231,60 +229,26 @@ export const TuiThreadCommand = cmd({
 
       try {
         const { tui } = await import("./app")
-        const simulationRenderer = Flag.OPENCODE_SIMULATION ? await TuiSimulation.createSimulationRenderer() : undefined
-        const simulationMcpMode = Flag.OPENCODE_SIMULATION
-          ? "stdio"
-          : Flag.OPENCODE_SIMULATION_BACKEND
-            ? "remote"
-            : undefined
-        let simulationMcp: Awaited<ReturnType<typeof import("./simulation-mcp").TuiSimulationMcp.createSimulationMcpServer>> | undefined
-        try {
-          await tui({
-            url: transport.url,
-            async onSnapshot() {
-              const tui = writeHeapSnapshot("tui.heapsnapshot")
-              const server = await client.call("snapshot", undefined)
-              return [tui, server]
-            },
-            config,
-            directory: cwd,
-            fetch: transport.fetch,
-            events: transport.events,
-            renderer: simulationRenderer?.renderer,
-            mode: simulationRenderer ? "dark" : undefined,
-            onReady: simulationMcpMode
-              ? async (ctx) => {
-                  const module = await import("./simulation-mcp")
-                  const harness = simulationRenderer
-                    ? module.TuiSimulationMcp.harnessFromSimulationRenderer(simulationRenderer)
-                    : module.TuiSimulationMcp.harnessFromRenderer(ctx.renderer)
-                  if (simulationRenderer) await simulationRenderer.renderOnce()
-                  simulationMcp = await module.TuiSimulationMcp.createSimulationMcpServer({
-                    mode: simulationMcpMode,
-                    harness,
-                    controlUrl: transport.url,
-                    controlFetch: transport.fetch,
-                  })
-                  return { simulationMcpUrl: simulationMcp.url }
-                }
-              : simulationRenderer
-                ? async () => {
-                    await simulationRenderer.renderOnce()
-                  }
-                : undefined,
-            args: {
-              continue: args.continue,
-              sessionID: args.session,
-              agent: args.agent,
-              model: args.model,
-              prompt,
-              fork: args.fork,
-            },
-          })
-        } finally {
-          await simulationMcp?.stop()
-          simulationRenderer?.destroy()
-        }
+        await tui({
+          url: transport.url,
+          async onSnapshot() {
+            const tui = writeHeapSnapshot("tui.heapsnapshot")
+            const server = await client.call("snapshot", undefined)
+            return [tui, server]
+          },
+          config,
+          directory: cwd,
+          fetch: transport.fetch,
+          events: transport.events,
+          args: {
+            continue: args.continue,
+            sessionID: args.session,
+            agent: args.agent,
+            model: args.model,
+            prompt,
+            fork: args.fork,
+          },
+        })
       } finally {
         await stop()
       }

@@ -26,6 +26,22 @@ export interface SimulationMcpOptions {
   readonly controlFetch?: typeof fetch
 }
 
+export interface SimulationMcpRuntimeState {
+  readonly harness: SimulationMcpHarness
+  readonly controlUrl: string
+  readonly controlFetch?: typeof fetch
+}
+
+export interface RestartableSimulationMcpOptions {
+  readonly mode: SimulationMcpMode
+  readonly runtime: {
+    readonly current: () => SimulationMcpRuntimeState | undefined
+    readonly restart: () => Promise<unknown>
+  }
+}
+
+type Options = SimulationMcpOptions | RestartableSimulationMcpOptions
+
 export interface SimulationMcpServer {
   readonly mode: SimulationMcpMode
   readonly url?: string
@@ -167,27 +183,39 @@ function toolResult(value: unknown) {
   }
 }
 
-function state(options: SimulationMcpOptions) {
+function current(options: Options) {
+  if ("runtime" in options) {
+    const value = options.runtime.current()
+    if (value) return value
+    throw new Error("Simulation TUI is not ready")
+  }
+  return options
+}
+
+function state(options: Options) {
+  const running = current(options)
   return {
     focused: {
-      renderable: options.harness.renderer.currentFocusedRenderable?.num,
-      editor: Boolean(options.harness.renderer.currentFocusedEditor),
+      renderable: running.harness.renderer.currentFocusedRenderable?.num,
+      editor: Boolean(running.harness.renderer.currentFocusedEditor),
     },
-    elements: SimulationActions.elements(options.harness.renderer),
-    actions: SimulationActions.actions(options.harness.renderer),
+    elements: SimulationActions.elements(running.harness.renderer),
+    actions: SimulationActions.actions(running.harness.renderer),
   }
 }
 
-function snapshot(options: SimulationMcpOptions) {
+function snapshot(options: Options) {
+  const running = current(options)
   return {
-    screen: options.harness.screen(),
-    spans: options.harness.spans(),
+    screen: running.harness.screen(),
+    spans: running.harness.spans(),
     ui: state(options),
   }
 }
 
-async function control(options: SimulationMcpOptions, method: string, pathname: string, body?: unknown) {
-  const response = await (options.controlFetch ?? fetch)(new URL(pathname, options.controlUrl), {
+async function control(options: Options, method: string, pathname: string, body?: unknown) {
+  const running = current(options)
+  const response = await (running.controlFetch ?? fetch)(new URL(pathname, running.controlUrl), {
     method,
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -198,7 +226,7 @@ async function control(options: SimulationMcpOptions, method: string, pathname: 
   throw new Error(typeof data?.error === "string" ? data.error : `Simulation control request failed: ${response.status}`)
 }
 
-function createServer(options: SimulationMcpOptions) {
+function createServer(options: Options) {
   const server = new McpServer(
     { name: "opencode-simulation", version: InstallationVersion },
     {
@@ -208,10 +236,10 @@ function createServer(options: SimulationMcpOptions) {
   )
 
   server.registerResource("screen", "simulation://screen", { mimeType: "text/plain" }, () => ({
-    contents: [{ uri: "simulation://screen", mimeType: "text/plain", text: options.harness.screen() }],
+    contents: [{ uri: "simulation://screen", mimeType: "text/plain", text: current(options).harness.screen() }],
   }))
   server.registerResource("spans", "simulation://spans", { mimeType: "application/json" }, () => ({
-    contents: [{ uri: "simulation://spans", mimeType: "application/json", text: JSON.stringify(options.harness.spans()) }],
+    contents: [{ uri: "simulation://spans", mimeType: "application/json", text: JSON.stringify(current(options).harness.spans()) }],
   }))
   server.registerResource("ui-state", "simulation://ui-state", { mimeType: "application/json" }, () => ({
     contents: [{ uri: "simulation://ui-state", mimeType: "application/json", text: JSON.stringify(state(options)) }],
@@ -239,16 +267,16 @@ function createServer(options: SimulationMcpOptions) {
   }))
 
   server.registerTool("simulation_screen_get", { description: "Get the current TUI screen buffer." }, () =>
-    toolResult({ screen: options.harness.screen() }),
+    toolResult({ screen: current(options).harness.screen() }),
   )
   server.registerTool("simulation_spans_get", { description: "Get the current structured TUI spans." }, () =>
-    toolResult(options.harness.spans()),
+    toolResult(current(options).harness.spans()),
   )
   server.registerTool("simulation_ui_state_get", { description: "Get elements, focus state, and generated actions." }, () =>
     toolResult(state(options)),
   )
   server.registerTool("simulation_render_once", { description: "Force one render and return current state." }, async () => {
-    await options.harness.renderOnce()
+    await current(options).harness.renderOnce()
     return toolResult(snapshot(options))
   })
   server.registerTool(
@@ -258,7 +286,7 @@ function createServer(options: SimulationMcpOptions) {
       inputSchema: z.object({ action: ActionSchema }),
     },
     async (input) => {
-      await SimulationActions.execute(options.harness, input.action)
+      await SimulationActions.execute(current(options).harness, input.action)
       return toolResult(snapshot(options))
     },
   )
@@ -269,10 +297,16 @@ function createServer(options: SimulationMcpOptions) {
       inputSchema: z.object({ actions: z.array(ActionSchema).max(50) }),
     },
     async (input) => {
-      for (const action of input.actions) await SimulationActions.execute(options.harness, action)
+      for (const action of input.actions) await SimulationActions.execute(current(options).harness, action)
       return toolResult(snapshot(options))
     },
   )
+
+  if ("runtime" in options) {
+    server.registerTool("simulation_restart", { description: "Restart the simulated TUI and backend while keeping MCP alive." }, async () =>
+      toolResult(await options.runtime.restart()),
+    )
+  }
 
   server.registerTool("simulation_control_reset", { description: "Reset backend simulation state." }, async () =>
     toolResult(await control(options, "POST", "/experimental/simulation/reset")),
@@ -308,7 +342,7 @@ function createServer(options: SimulationMcpOptions) {
   return server
 }
 
-export async function createSimulationMcpServer(options: SimulationMcpOptions): Promise<SimulationMcpServer> {
+export async function createSimulationMcpServer(options: Options): Promise<SimulationMcpServer> {
   if (options.mode === "stdio") {
     const server = createServer(options)
     const transport = new StdioServerTransport()

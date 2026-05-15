@@ -3,6 +3,7 @@ import { simulateReadableStream } from "ai"
 import { Effect, Layer } from "effect"
 import { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
+import { SimulationDebugLog } from "./debug-log"
 import { Simulation, type LLMScript } from "./service"
 
 const providerID = ProviderID.make("simulation")
@@ -81,6 +82,7 @@ function stream(script: LLMScript) {
     )
   }
   chunks.push({ type: "finish", finishReason: finishReason(script), usage: usage(script) })
+  SimulationDebugLog.write("provider.stream.chunks", { chunks: chunks.map((chunk) => chunk.type) })
 
   return simulateReadableStream({
     chunks,
@@ -128,7 +130,9 @@ function language(simulation: Simulation.Interface): LanguageModelV3 {
       }
     },
     async doStream(_options: LanguageModelV3CallOptions) {
+      SimulationDebugLog.write("provider.doStream.start")
       const script = await nextScript(simulation)
+      SimulationDebugLog.write("provider.doStream.script", { steps: script.steps.map((step) => step.map((item) => item.type)) })
       return { stream: stream(script) }
     },
   }
