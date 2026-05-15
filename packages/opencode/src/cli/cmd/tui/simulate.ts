@@ -21,7 +21,7 @@ import { fileURLToPath } from "url"
 import { writeHeapSnapshot } from "v8"
 
 type RpcClient = ReturnType<typeof Rpc.client<typeof rpc>>
-const simulatedDirectory = "/"
+const simulatedDirectory = "/opencode"
 const simulatedCwdEnv = "OPENCODE_SIMULATION_CWD"
 
 function fakeCwd(directory: string) {

@@ -16,7 +16,6 @@ export interface SimulationMcpHarness {
   readonly mockMouse: SimulationActions.MockMouse
   readonly renderOnce: () => Promise<void>
   readonly screen: () => string
-  readonly spans: () => CapturedFrame
 }
 
 export interface SimulationMcpOptions {
@@ -55,7 +54,6 @@ type RenderBuffer = {
   readonly width: number
   readonly height: number
   getRealCharBytes(includeAnsi?: boolean): Uint8Array
-  getSpanLines(): CapturedFrame["lines"]
 }
 
 const decoder = new TextDecoder()
@@ -159,16 +157,6 @@ export function harnessFromRenderer(renderer: CliRenderer): SimulationMcpHarness
       await renderer.idle()
     },
     screen: () => decoder.decode(currentBuffer(renderer).getRealCharBytes(true)),
-    spans: () => {
-      const buffer = currentBuffer(renderer)
-      const cursor = renderer.getCursorState()
-      return {
-        cols: buffer.width,
-        rows: buffer.height,
-        cursor: [cursor.x, cursor.y] as [number, number],
-        lines: buffer.getSpanLines(),
-      }
-    },
   }
 }
 
@@ -208,7 +196,6 @@ function snapshot(options: Options) {
   const running = current(options)
   return {
     screen: running.harness.screen(),
-    spans: running.harness.spans(),
     ui: state(options),
   }
 }
@@ -238,9 +225,6 @@ function createServer(options: Options) {
   server.registerResource("screen", "simulation://screen", { mimeType: "text/plain" }, () => ({
     contents: [{ uri: "simulation://screen", mimeType: "text/plain", text: current(options).harness.screen() }],
   }))
-  server.registerResource("spans", "simulation://spans", { mimeType: "application/json" }, () => ({
-    contents: [{ uri: "simulation://spans", mimeType: "application/json", text: JSON.stringify(current(options).harness.spans()) }],
-  }))
   server.registerResource("ui-state", "simulation://ui-state", { mimeType: "application/json" }, () => ({
     contents: [{ uri: "simulation://ui-state", mimeType: "application/json", text: JSON.stringify(state(options)) }],
   }))
@@ -268,9 +252,6 @@ function createServer(options: Options) {
 
   server.registerTool("simulation_screen_get", { description: "Get the current TUI screen buffer." }, () =>
     toolResult({ screen: current(options).harness.screen() }),
-  )
-  server.registerTool("simulation_spans_get", { description: "Get the current structured TUI spans." }, () =>
-    toolResult(current(options).harness.spans()),
   )
   server.registerTool("simulation_ui_state_get", { description: "Get elements, focus state, and generated actions." }, () =>
     toolResult(state(options)),
