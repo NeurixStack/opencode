@@ -67,7 +67,7 @@ export const WebCommand = effectCmd({
         UI.println(
           UI.Style.TEXT_INFO_BOLD + "  mDNS:              ",
           UI.Style.TEXT_NORMAL,
-          `${opts.mdnsDomain}:${server.port}`,
+          `${opts.mdns === true ? "opencode.local" : opts.mdns.domain}:${server.port}`,
         )
       }
 

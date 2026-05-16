@@ -47,7 +47,7 @@ export function resolveNetworkOptionsNoConfig(args: NetworkOptions, config?: Con
   const mdnsExplicitlySet = process.argv.includes("--mdns")
   const mdnsDomainExplicitlySet = process.argv.includes("--mdns-domain")
   const mdns = mdnsExplicitlySet ? args.mdns : (config?.server?.mdns ?? args.mdns)
-  const mdnsDomain = mdnsDomainExplicitlySet ? args["mdns-domain"] : (config?.server?.mdnsDomain ?? args["mdns-domain"])
+  const mdnsDomain = mdnsDomainExplicitlySet ? args["mdns-domain"] : config?.server?.mdnsDomain
   const port = portExplicitlySet ? args.port : (config?.server?.port ?? args.port)
   const hostname = hostnameExplicitlySet
     ? args.hostname
@@ -58,5 +58,5 @@ export function resolveNetworkOptionsNoConfig(args: NetworkOptions, config?: Con
   const argsCors = Array.isArray(args.cors) ? args.cors : args.cors ? [args.cors] : []
   const cors = [...configCors, ...argsCors]
 
-  return { type: "tcp" as const, hostname, port, mdns, mdnsDomain, cors }
+  return { type: "tcp" as const, hostname, port, mdns: mdns ? (mdnsDomain ? { domain: mdnsDomain } : true) : undefined, cors }
 }

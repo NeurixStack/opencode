@@ -45,8 +45,7 @@ export type TcpListenOptions = CorsOptions & {
   type: "tcp"
   port: number
   hostname: string
-  mdns?: boolean
-  mdnsDomain?: string
+  mdns?: true | { domain: string }
 }
 
 export type SocketListenOptions = CorsOptions & {
@@ -208,7 +207,7 @@ function setupMdns(opts: TcpListenOptions, port: number, scope: Scope.Scope) {
       opts.mdns && port && opts.hostname !== "127.0.0.1" && opts.hostname !== "localhost" && opts.hostname !== "::1"
     if (publish) {
       const unpublish = yield* Effect.cached(Effect.sync(() => MDNS.unpublish()))
-      yield* Effect.sync(() => MDNS.publish(port, opts.mdnsDomain))
+      yield* Effect.sync(() => MDNS.publish(port, opts.mdns === true ? undefined : opts.mdns.domain))
       yield* Scope.addFinalizer(scope, unpublish)
       return unpublish
     }
