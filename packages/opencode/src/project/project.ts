@@ -199,8 +199,10 @@ export const layer: Layer.Layer<
       const data: DiscoveryResult = yield* Effect.gen(function* () {
         const dotgitMatches = yield* fs.up({ targets: [".git"], start: directory }).pipe(Effect.orDie)
         const dotgit = dotgitMatches[0]
+        log.info("fromDirectory dotgit discovery", { directory, dotgit, matches: dotgitMatches })
 
         if (!dotgit) {
+          log.info("fromDirectory no dotgit", { directory, fakeVcs })
           return {
             id: ProjectID.global,
             worktree: "/",
@@ -212,8 +214,10 @@ export const layer: Layer.Layer<
         let sandbox = pathSvc.dirname(dotgit)
         const gitBinary = yield* Effect.sync(() => which("git"))
         let id = yield* readCachedProjectId(dotgit)
+        log.info("fromDirectory dotgit found", { directory, dotgit, sandbox, gitBinary, cachedProjectId: id })
 
         if (!gitBinary) {
+          log.info("fromDirectory no git binary", { directory, sandbox, fakeVcs })
           return {
             id: id ?? ProjectID.global,
             worktree: sandbox,
@@ -223,7 +227,9 @@ export const layer: Layer.Layer<
         }
 
         const commonDir = yield* git(["rev-parse", "--git-common-dir"], { cwd: sandbox })
+        log.info("fromDirectory git common-dir", { directory, sandbox, code: commonDir.code, text: commonDir.text, stderr: commonDir.stderr })
         if (commonDir.code !== 0) {
+          log.info("fromDirectory git common-dir failed", { directory, sandbox, fakeVcs })
           return {
             id: id ?? ProjectID.global,
             worktree: sandbox,
@@ -235,13 +241,24 @@ export const layer: Layer.Layer<
         const bareCheck = yield* git(["config", "--bool", "core.bare"], { cwd: sandbox })
         const isBareRepo = bareCheck.code === 0 && bareCheck.text.trim() === "true"
         const worktree = common === sandbox ? sandbox : isBareRepo ? common : pathSvc.dirname(common)
+        log.info("fromDirectory git repository metadata", {
+          directory,
+          sandbox,
+          common,
+          bareCheckCode: bareCheck.code,
+          bareCheckText: bareCheck.text,
+          isBareRepo,
+          worktree,
+        })
 
         if (id == null) {
           id = yield* readCachedProjectId(common)
+          log.info("fromDirectory common cached project id", { directory, common, cachedProjectId: id })
         }
 
         if (!id) {
           const revList = yield* git(["rev-list", "--max-parents=0", "HEAD"], { cwd: sandbox })
+          log.info("fromDirectory git rev-list roots", { directory, sandbox, code: revList.code, text: revList.text, stderr: revList.stderr })
           const roots = revList.text
             .split("\n")
             .filter(Boolean)
@@ -255,11 +272,14 @@ export const layer: Layer.Layer<
         }
 
         if (!id) {
+          log.info("fromDirectory no project id", { directory, sandbox, worktree })
           return { id: ProjectID.global, worktree: sandbox, sandbox, vcs: "git" as const }
         }
 
         const topLevel = yield* git(["rev-parse", "--show-toplevel"], { cwd: sandbox })
+        log.info("fromDirectory git top-level", { directory, sandbox, code: topLevel.code, text: topLevel.text, stderr: topLevel.stderr })
         if (topLevel.code !== 0) {
+          log.info("fromDirectory git top-level failed", { directory, sandbox, fakeVcs })
           return {
             id,
             worktree: sandbox,
@@ -269,8 +289,10 @@ export const layer: Layer.Layer<
         }
         sandbox = resolveGitPath(sandbox, topLevel.text.trim())
 
+        log.info("fromDirectory discovered git project", { directory, id, sandbox, worktree })
         return { id, sandbox, worktree, vcs: "git" as const }
       })
+      log.info("fromDirectory discovery result", data)
 
       // Phase 2: upsert
       const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, data.id)).get())
@@ -292,6 +314,7 @@ export const layer: Layer.Layer<
         vcs: data.vcs,
         time: { ...existing.time, updated: Date.now() },
       }
+      log.info("fromDirectory existing project row", { directory, hasExisting: Boolean(row), existing })
       if (data.sandbox !== result.worktree && !result.sandboxes.includes(data.sandbox))
         result.sandboxes.push(data.sandbox)
       result.sandboxes = yield* Effect.forEach(

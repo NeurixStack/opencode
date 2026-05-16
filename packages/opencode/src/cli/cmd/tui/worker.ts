@@ -1,6 +1,7 @@
 import { Installation } from "@/installation"
 import { Server } from "@/server/server"
 import * as Log from "@opencode-ai/core/util/log"
+import { Global } from "@opencode-ai/core/global"
 import { InstanceRuntime } from "@/project/instance-runtime"
 import { Rpc } from "@/util/rpc"
 import { upgrade } from "@/cli/upgrade"
@@ -19,6 +20,15 @@ import fs from "fs/promises"
 ensureProcessMetadata("worker")
 if (process.env.OPENCODE_SIMULATION_CWD) {
   process.env.PWD = process.env.OPENCODE_SIMULATION_CWD
+  process.env.OPENCODE_TEST_HOME = process.env.OPENCODE_SIMULATION_CWD
+  Global.Path.data = `${process.env.OPENCODE_SIMULATION_CWD}/.local/share/opencode`
+  Global.Path.cache = `${process.env.OPENCODE_SIMULATION_CWD}/.cache/opencode`
+  Global.Path.config = `${process.env.OPENCODE_SIMULATION_CWD}/.config/opencode`
+  Global.Path.state = `${process.env.OPENCODE_SIMULATION_CWD}/.local/state/opencode`
+  Global.Path.tmp = `${process.env.OPENCODE_SIMULATION_CWD}/tmp/opencode`
+  Global.Path.bin = `${Global.Path.cache}/bin`
+  Global.Path.log = `${Global.Path.data}/log`
+  Global.Path.repos = `${Global.Path.data}/repos`
   Object.defineProperty(process, "cwd", {
     value: () => process.env.OPENCODE_SIMULATION_CWD!,
     configurable: true,

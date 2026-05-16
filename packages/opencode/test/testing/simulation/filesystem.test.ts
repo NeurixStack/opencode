@@ -25,6 +25,8 @@ describe("SimulationFileSystem", () => {
       const fs = yield* AppFileSystem.Service
 
       expect(yield* fs.readFileString(path.join(root, "README.md"))).toBe("hello")
+      expect(yield* fs.readFileString(path.join(root, "src/index.ts"))).toBe("export const value = 1\n")
+      expect(yield* fs.isDir(path.join(root, "src"))).toBe(true)
       yield* fs.writeWithDirs(path.join(root, "tmp", "result.txt"), "done")
 
       expect(yield* fs.readFileString(path.join(root, "tmp", "result.txt"))).toBe("done")
@@ -52,6 +54,15 @@ describe("SimulationFileSystem", () => {
       const exit = yield* fs.readFileString("/etc/passwd").pipe(Effect.exit)
 
       expect(Exit.isFailure(exit)).toBe(true)
+    }),
+  )
+
+  it.effect("returns no upward matches when search starts outside the simulated root", () =>
+    Effect.gen(function* () {
+      const fs = yield* AppFileSystem.Service
+
+      expect(yield* fs.up({ targets: [".opencode"], start: "/Users/james", stop: "/Users/james" })).toEqual([])
+      expect(yield* fs.globUp("*.json", "/Users/james", "/Users/james")).toEqual([])
     }),
   )
 

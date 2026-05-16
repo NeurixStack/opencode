@@ -37,7 +37,25 @@ describe("SimulationSpawner", () => {
     }),
   )
 
-  it.effect("rejects non-shell commands", () =>
+  it.effect("fakes git discovery commands", () =>
+    Effect.gen(function* () {
+      const spawner = yield* ChildProcessSpawner
+      const [common, topLevel, revision] = yield* Effect.all(
+        [
+          spawner.spawn(ChildProcess.make("git", ["rev-parse", "--git-common-dir"], { cwd: root })).pipe(Effect.scoped),
+          spawner.spawn(ChildProcess.make("git", ["rev-parse", "--show-toplevel"], { cwd: root })).pipe(Effect.scoped),
+          spawner.spawn(ChildProcess.make("git", ["rev-list", "--max-parents=0", "HEAD"], { cwd: root })).pipe(Effect.scoped),
+        ],
+        { concurrency: 3 },
+      )
+
+      expect(yield* Stream.mkString(Stream.decodeText(common.stdout))).toBe(".git\n")
+      expect(yield* Stream.mkString(Stream.decodeText(topLevel.stdout))).toBe("/opencode\n")
+      expect(yield* Stream.mkString(Stream.decodeText(revision.stdout))).toBe("0000000000000000000000000000000000000000\n")
+    }),
+  )
+
+  it.effect("rejects unsupported non-shell commands", () =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner
       const exit = yield* spawner.spawn(ChildProcess.make("git", ["status"], { cwd: root })).pipe(Effect.scoped, Effect.exit)

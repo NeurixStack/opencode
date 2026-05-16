@@ -53,6 +53,11 @@ export function make(options: Options) {
     return Effect.fail(normalized)
   }
 
+  const normalizeSearchStart = (file: string) => {
+    const resolved = path.resolve(root, file)
+    if (resolved === root || AppFileSystem.contains(root, resolved)) return resolved
+  }
+
   const normalizePair = (method: string, fromPath: string, toPath: string) =>
     Effect.all([normalizeEffect(method, fromPath), normalizeEffect(method, toPath)] as const)
 
@@ -68,7 +73,10 @@ export function make(options: Options) {
   fs.mkdirSync(root, { recursive: true })
   for (const [file, content] of Object.entries(options.files ?? {})) {
     const normalized = normalize("seed", file)
-    if (typeof normalized === "string") fs.writeFileSync(normalized, content, { encoding: "utf8" })
+    if (typeof normalized === "string") {
+      fs.mkdirSync(path.dirname(normalized), { recursive: true })
+      fs.writeFileSync(normalized, content, { encoding: "utf8" })
+    }
   }
 
   const base = FileSystem.make({
@@ -272,8 +280,9 @@ export function make(options: Options) {
     up: (methodOptions) =>
       Effect.gen(function* () {
         const result: string[] = []
-        let current = yield* normalizeEffect("up", methodOptions.start)
-        const normalizedStop = methodOptions.stop ? yield* normalizeEffect("up", methodOptions.stop) : undefined
+        let current = normalizeSearchStart(methodOptions.start)
+        if (!current) return result
+        const normalizedStop = methodOptions.stop ? normalizeSearchStart(methodOptions.stop) : undefined
         while (true) {
           for (const target of methodOptions.targets) {
             const file = path.join(current, target)
@@ -289,8 +298,9 @@ export function make(options: Options) {
     globUp: (pattern, start, stop) =>
       Effect.gen(function* () {
         const result: string[] = []
-        let current = yield* normalizeEffect("globUp", start)
-        const normalizedStop = stop ? yield* normalizeEffect("globUp", stop) : undefined
+        let current = normalizeSearchStart(start)
+        if (!current) return result
+        const normalizedStop = stop ? normalizeSearchStart(stop) : undefined
         while (true) {
           result.push(...(yield* glob(pattern, { cwd: current, absolute: true, include: "file", dot: true })))
           if (normalizedStop === current) break
