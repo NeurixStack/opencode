@@ -19,35 +19,55 @@ globalThis.AI_SDK_LOG_WARNINGS = false
 
 const log = Log.create({ service: "server" })
 
-export type Listener = {
+export type TcpListener = {
+  type: "tcp"
   hostname: string
   port: number
   url: URL
-  socket?: string
   stop: (close?: boolean) => Promise<void>
 }
+
+export type SocketListener = {
+  type: "socket"
+  socket: string
+  url: URL
+  stop: (close?: boolean) => Promise<void>
+}
+
+export type Listener = TcpListener | SocketListener
 
 type ServerApp = {
   fetch(request: Request): Response | Promise<Response>
   request(input: string | URL | Request, init?: RequestInit): Response | Promise<Response>
 }
 
-type ListenOptions = CorsOptions & {
+export type TcpListenOptions = CorsOptions & {
+  type?: "tcp"
   port: number
   hostname: string
-  socket?: string
   mdns?: boolean
   mdnsDomain?: string
 }
+
+export type SocketListenOptions = CorsOptions & {
+  type: "socket"
+  socket: string
+}
+
+export type ListenOptions = TcpListenOptions | SocketListenOptions
 type ListenerState = {
   scope: Scope.Scope
   server: Context.Service.Shape<typeof HttpServer.HttpServer>
   http: ListenerServer
   websockets: WebSocketTracker.Interface
 }
-type EffectListener = Omit<Listener, "stop"> & {
+type EffectTcpListener = Omit<TcpListener, "stop"> & {
   stop: (close?: boolean) => Effect.Effect<void>
 }
+type EffectSocketListener = Omit<SocketListener, "stop"> & {
+  stop: (close?: boolean) => Effect.Effect<void>
+}
+type EffectListener = EffectTcpListener | EffectSocketListener
 
 interface ListenerServer {
   readonly closeAll: Effect.Effect<void>
@@ -74,21 +94,32 @@ export async function openapi() {
 
 export let url: URL
 
+export function listen(opts: TcpListenOptions): Promise<TcpListener>
+export function listen(opts: SocketListenOptions): Promise<SocketListener>
 export async function listen(opts: ListenOptions): Promise<Listener> {
   const listener = await Effect.runPromise(listenEffect(opts))
+  const stop = (close?: boolean) => Effect.runPromiseExit(listener.stop(close)).then(() => undefined)
+  if (listener.type === "socket") {
+    return {
+      type: "socket" as const,
+      socket: listener.socket,
+      url: listener.url,
+      stop,
+    }
+  }
   return {
+    type: "tcp" as const,
     hostname: listener.hostname,
     port: listener.port,
     url: listener.url,
-    socket: listener.socket,
-    stop: (close?: boolean) => Effect.runPromiseExit(listener.stop(close)).then(() => undefined),
+    stop,
   }
 }
 
 const listenEffect: (opts: ListenOptions) => Effect.Effect<EffectListener, unknown> = Effect.fn("Server.listen")(
   function* (opts: ListenOptions) {
     const state = yield* startWithPortFallback(opts)
-    if (opts.socket) return yield* makeSocketListener(state, opts.socket)
+    if (opts.type === "socket") return yield* makeSocketListener(state, opts.socket)
 
     const address = yield* tcpAddress(state)
     const listenerUrl = makeURL(opts.hostname, address.port)
@@ -97,6 +128,7 @@ const listenEffect: (opts: ListenOptions) => Effect.Effect<EffectListener, unkno
     const unpublishMdns = yield* setupMdns(opts, address.port, state.scope)
 
     return {
+      type: "tcp" as const,
       hostname: opts.hostname,
       port: address.port,
       url: listenerUrl,
@@ -123,7 +155,7 @@ function listenerLayer(opts: ListenOptions, port: number) {
 }
 
 function startWithPortFallback(opts: ListenOptions) {
-  if (opts.socket) return startListener(opts, 0)
+  if (opts.type === "socket") return startListener(opts, 0)
   if (opts.port !== 0) return startListener(opts, opts.port)
   // Match the legacy listener port-resolution behavior: explicit `0` prefers
   // 4096 first, then any free port.
@@ -152,8 +184,7 @@ function makeSocketListener(state: ListenerState, socket: string) {
     url = listenerUrl
 
     return {
-      hostname: "localhost",
-      port: 0,
+      type: "socket" as const,
       socket,
       url: listenerUrl,
       stop: yield* makeStop(state, Effect.void),
@@ -176,7 +207,7 @@ function makeURL(hostname: string, port: number) {
   return result
 }
 
-function setupMdns(opts: ListenOptions, port: number, scope: Scope.Scope) {
+function setupMdns(opts: TcpListenOptions, port: number, scope: Scope.Scope) {
   return Effect.gen(function* () {
     const publish =
       opts.mdns && port && opts.hostname !== "127.0.0.1" && opts.hostname !== "localhost" && opts.hostname !== "::1"
@@ -237,7 +268,7 @@ function serverLayer(opts: ListenOptions, port: number) {
 }
 
 function nodeListenOptions(opts: ListenOptions, port: number) {
-  if (opts.socket) return { path: opts.socket, gracefulShutdownTimeout: "1 second" as const }
+  if (opts.type === "socket") return { path: opts.socket, gracefulShutdownTimeout: "1 second" as const }
   return { port, host: opts.hostname, gracefulShutdownTimeout: "1 second" as const }
 }
 

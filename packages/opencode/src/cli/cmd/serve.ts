@@ -25,10 +25,12 @@ export const ServeCommand = effectCmd({
       if (conflicts.length) yield* fail(`--socket cannot be used with ${conflicts.join(", ")}`)
     }
     const opts = yield* resolveNetworkOptions(args)
-    const server = yield* Effect.promise(() =>
-      Server.listen(args.socket ? { ...opts, socket: resolveSocketPath(args.socket) } : opts),
-    )
-    if (server.socket) {
+    const server = args.socket
+      ? yield* Effect.promise(() =>
+          Server.listen({ type: "socket", socket: resolveSocketPath(args.socket), cors: opts.cors }),
+        )
+      : yield* Effect.promise(() => Server.listen(opts))
+    if (server.type === "socket") {
       console.log(`opencode server listening on socket ${server.socket}`)
       yield* Effect.never
     }

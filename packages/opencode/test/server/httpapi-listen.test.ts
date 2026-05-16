@@ -136,7 +136,7 @@ async function expectSocketRejected(url: URL, init?: { headers?: Record<string, 
   )
 }
 
-function stop(listener: Awaited<ReturnType<typeof startListener>>, label: string) {
+function stop(listener: { stop(close?: boolean): Promise<void> }, label: string) {
   return withTimeout(listener.stop(true), 10_000, label)
 }
 
@@ -293,9 +293,9 @@ describe("HttpApi Server.listen", () => {
       process.platform === "win32"
         ? `\\\\.\\pipe\\opencode-test-${process.pid}-${Date.now()}`
         : path.join(tmp.path, "opencode.sock")
-    const listener = await Server.listen({ hostname: "127.0.0.1", port: 0, socket })
+    const listener = await Server.listen({ type: "socket", socket })
     try {
-      expect(listener.port).toBe(0)
+      expect(listener.type).toBe("socket")
       expect(listener.socket).toBe(socket)
 
       const response = await requestSocketRoot(socket)
