@@ -1,5 +1,7 @@
 import { expect } from "bun:test"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { AuthWellKnown } from "@opencode-ai/core/auth-well-known"
+import { Substitution } from "@opencode-ai/core/substitution"
 import { Effect, Layer } from "effect"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -23,8 +25,13 @@ import { PLUGIN_AGENT } from "../fixture/agent-plugin.constants"
 const pluginUrl = pathToFileURL(path.join(import.meta.dir, "..", "fixture", "agent-plugin.ts")).href
 
 const provider = ProviderTest.fake()
+const emptyAuthWellKnown = Layer.mock(AuthWellKnown.Service)({
+  configs: () => Effect.succeed([]),
+})
 const configLayer = Config.layer.pipe(
   Layer.provide(AppFileSystem.defaultLayer),
+  Layer.provide(emptyAuthWellKnown),
+  Layer.provide(Substitution.defaultLayer),
   Layer.provide(Env.defaultLayer),
   Layer.provide(AuthTest.empty),
   Layer.provide(AccountTest.empty),
