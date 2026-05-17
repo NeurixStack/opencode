@@ -13,6 +13,9 @@ import { InstanceState } from "@/effect/instance-state"
 import { containsPath } from "@/project/instance-context"
 import { NonNegativeInt } from "@opencode-ai/core/schema"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { InstanceRef } from "@/effect/instance-ref"
+import { makeRuntime } from "@/effect/run-service"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 
 const log = Log.create({ service: "lsp" })
 
@@ -150,6 +153,7 @@ export const makeLayer = (supported: LSPServer.Info[]) =>
     Effect.gen(function* () {
       const config = yield* Config.Service
       const flags = yield* RuntimeFlags.Service
+      const appFs = yield* AppFileSystem.Service
 
       const state = yield* InstanceState.make<State>(
         Effect.fn("LSP.state")(function* (ctx) {
@@ -238,13 +242,15 @@ export const makeLayer = (supported: LSPServer.Info[]) =>
             if (!handle) return undefined
             log.info("spawned lsp server", { serverID: server.id, root })
 
-            const client = await LSPClient.create({
-              serverID: server.id,
-              server: handle,
-              root,
-              directory: ctx.directory,
-              instance: ctx,
-            }).catch(async (err) => {
+            const client = await Effect.runPromise(
+              LSPClient.create({
+                serverID: server.id,
+                server: handle,
+                root,
+                directory: ctx.directory,
+                instance: ctx,
+              }).pipe(Effect.provideService(AppFileSystem.Service, appFs)),
+            ).catch(async (err) => {
               s.broken.add(key)
               await Process.stop(handle.process)
               log.error(`Failed to initialize LSP client ${server.id}`, { error: err })
@@ -297,7 +303,9 @@ export const makeLayer = (supported: LSPServer.Info[]) =>
             if (!client) continue
 
             result.push(client)
-            await Bus.publish(ctx, Event.Updated, {})
+            void busRuntime.runPromise((bus) =>
+              bus.publish(Event.Updated, {}).pipe(Effect.provideService(InstanceRef, ctx)),
+            )
           }
 
           return result
@@ -508,7 +516,11 @@ export const makeLayer = (supported: LSPServer.Info[]) =>
 
 export const layer = makeLayer(builtinServers)
 
-export const defaultLayer = layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer))
+export const defaultLayer = layer.pipe(
+  Layer.provide(Config.defaultLayer),
+  Layer.provide(RuntimeFlags.defaultLayer),
+  Layer.provide(AppFileSystem.defaultLayer),
+)
 
 export * as Diagnostic from "./diagnostic"
 

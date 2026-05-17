@@ -6,6 +6,7 @@ import { Config } from "@/config/config"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { LSP } from "@/lsp/lsp"
 import * as LSPServer from "@/lsp/server"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { awaitWithTimeout, testEffect } from "../lib/effect"
@@ -13,14 +14,22 @@ import { awaitWithTimeout, testEffect } from "../lib/effect"
 const it = testEffect(Layer.mergeAll(LSP.defaultLayer, CrossSpawnSpawner.defaultLayer))
 const experimentalTyIt = testEffect(
   Layer.mergeAll(
-    LSP.layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(RuntimeFlags.layer({ experimentalLspTy: true }))),
+    LSP.layer.pipe(
+      Layer.provide(Config.defaultLayer),
+      Layer.provide(RuntimeFlags.layer({ experimentalLspTy: true })),
+      Layer.provide(AppFileSystem.defaultLayer),
+    ),
     CrossSpawnSpawner.defaultLayer,
   ),
 )
 const fakeServerPath = path.join(__dirname, "../fixture/lsp/fake-lsp-server.js")
 const disabledDownloadIt = testEffect(
   Layer.mergeAll(
-    LSP.layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(RuntimeFlags.layer({ disableLspDownload: true }))),
+    LSP.layer.pipe(
+      Layer.provide(Config.defaultLayer),
+      Layer.provide(RuntimeFlags.layer({ disableLspDownload: true })),
+      Layer.provide(AppFileSystem.defaultLayer),
+    ),
     CrossSpawnSpawner.defaultLayer,
   ),
 )

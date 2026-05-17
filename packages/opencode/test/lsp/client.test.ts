@@ -5,6 +5,8 @@ import { tmpdir, withTestInstance } from "../fixture/fixture"
 import { LSPClient } from "@/lsp/client"
 import * as LSPServer from "@/lsp/server"
 import * as Log from "@opencode-ai/core/util/log"
+import { Effect } from "effect"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 
 function spawnFakeServer() {
   const { spawn } = require("child_process")
@@ -15,6 +17,12 @@ function spawnFakeServer() {
     }),
   }
 }
+
+// LSPClient.create is an Effect that yields AppFileSystem so the production
+// real-fs layer or a simulated one can satisfy file reads. Tests use the
+// default real-disk layer.
+const createClient = (input: Parameters<typeof LSPClient.create>[0]) =>
+  Effect.runPromise(LSPClient.create(input).pipe(Effect.provide(AppFileSystem.defaultLayer)))
 
 describe("LSPClient interop", () => {
   beforeEach(async () => {
@@ -27,7 +35,7 @@ describe("LSPClient interop", () => {
     const client = await withTestInstance({
       directory: process.cwd(),
       fn: (ctx) =>
-        LSPClient.create({
+        createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: process.cwd(),
@@ -51,7 +59,7 @@ describe("LSPClient interop", () => {
     const client = await withTestInstance({
       directory: process.cwd(),
       fn: (ctx) =>
-        LSPClient.create({
+        createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: process.cwd(),
@@ -75,7 +83,7 @@ describe("LSPClient interop", () => {
     const client = await withTestInstance({
       directory: process.cwd(),
       fn: (ctx) =>
-        LSPClient.create({
+        createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: process.cwd(),
@@ -99,7 +107,7 @@ describe("LSPClient interop", () => {
     const client = await withTestInstance({
       directory: process.cwd(),
       fn: (ctx) =>
-        LSPClient.create({
+        createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: process.cwd(),
@@ -127,7 +135,7 @@ describe("LSPClient interop", () => {
     const client = await withTestInstance({
       directory: process.cwd(),
       fn: (ctx) =>
-        LSPClient.create({
+        createClient({
           serverID: "fake",
           server: {
             ...(handle as unknown as LSPServer.Handle),
@@ -157,7 +165,7 @@ describe("LSPClient interop", () => {
     await withTestInstance({
       directory: tmp.path,
       fn: async (ctx) => {
-        const client = await LSPClient.create({
+        const client = await createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: tmp.path,
@@ -201,7 +209,7 @@ describe("LSPClient interop", () => {
     await withTestInstance({
       directory: tmp.path,
       fn: async (ctx) => {
-        const client = await LSPClient.create({
+        const client = await createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: tmp.path,
@@ -248,7 +256,7 @@ describe("LSPClient interop", () => {
     await withTestInstance({
       directory: tmp.path,
       fn: async (ctx) => {
-        const client = await LSPClient.create({
+        const client = await createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: tmp.path,
@@ -296,7 +304,7 @@ describe("LSPClient interop", () => {
     await withTestInstance({
       directory: tmp.path,
       fn: async (ctx) => {
-        const client = await LSPClient.create({
+        const client = await createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: tmp.path,
@@ -345,7 +353,7 @@ describe("LSPClient interop", () => {
     await withTestInstance({
       directory: tmp.path,
       fn: async (ctx) => {
-        const client = await LSPClient.create({
+        const client = await createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: tmp.path,
@@ -399,7 +407,7 @@ describe("LSPClient interop", () => {
     await withTestInstance({
       directory: tmp.path,
       fn: async (ctx) => {
-        const client = await LSPClient.create({
+        const client = await createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: tmp.path,
@@ -464,7 +472,7 @@ describe("LSPClient interop", () => {
     await withTestInstance({
       directory: tmp.path,
       fn: async (ctx) => {
-        const client = await LSPClient.create({
+        const client = await createClient({
           serverID: "fake",
           server: handle as unknown as LSPServer.Handle,
           root: tmp.path,

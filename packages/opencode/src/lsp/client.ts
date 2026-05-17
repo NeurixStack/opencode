@@ -11,6 +11,7 @@ import { Effect, Schema } from "effect"
 import type * as LSPServer from "./server"
 import { withTimeout } from "../util/timeout"
 import { Filesystem } from "@/util/filesystem"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { InstanceRef } from "@/effect/instance-ref"
 import { makeRuntime } from "@/effect/run-service"
 import type { InstanceContext } from "@/project/instance-context"
@@ -30,7 +31,7 @@ const TEXT_DOCUMENT_SYNC_INCREMENTAL = 2
 const log = Log.create({ service: "lsp.client" })
 const busRuntime = makeRuntime(Bus.Service, Bus.layer)
 
-export type Info = NonNullable<Awaited<ReturnType<typeof create>>>
+export type Info = NonNullable<Effect.Success<ReturnType<typeof create>>>
 
 export type Diagnostic = VSCodeDiagnostic
 
@@ -138,13 +139,18 @@ function shouldSeedDiagnosticsOnFirstPush(serverID: string) {
   return serverID === "typescript"
 }
 
-export async function create(input: {
+export const create = Effect.fn("LSPClient.create")(function* (input: {
   serverID: string
   server: LSPServer.Handle
   root: string
   directory: string
   instance: InstanceContext
 }) {
+  const appFs = yield* AppFileSystem.Service
+  // Bridge: read file content through AppFileSystem (so the simulated backend
+  // can satisfy file reads from the in-memory FS instead of real disk).
+  const readText = (p: string) => Effect.runPromise(appFs.readFileString(p) as Effect.Effect<string, Error>)
+  return yield* Effect.promise(async () => {
   const logger = log.clone().tag("serverID", input.serverID)
   logger.info("starting client")
   const instance = input.instance
@@ -596,7 +602,7 @@ export async function create(input: {
         request.path = Filesystem.normalizePath(
           path.isAbsolute(request.path) ? request.path : path.resolve(input.directory, request.path),
         )
-        const text = await Filesystem.readText(request.path)
+        const text = await readText(request.path)
         const extension = path.extname(request.path)
         const languageId = LANGUAGE_EXTENSIONS[extension] ?? "plaintext"
 
@@ -702,6 +708,7 @@ export async function create(input: {
   logger.info("initialized")
 
   return result
-}
+  })
+})
 
 export * as LSPClient from "./client"

@@ -335,6 +335,9 @@ export function createSimulatedRoutes(corsOptions?: CorsOptions): ReturnType<typ
       files: {
         ".git/HEAD": "ref: refs/heads/main\n",
         ".git/config": '[core]\n\trepositoryformatversion = 0\n\tbare = false\n[branch "main"]\n',
+        // Enable built-in LSP servers (e.g. the simulated typescript stub) so
+        // tools like `edit` / `write` get diagnostics in the simulated chain.
+        "opencode.json": JSON.stringify({ $schema: "https://opencode.ai/config.json", lsp: true }, null, 2) + "\n",
       },
     }),
     // SimulationFileSystem.layer no longer provides FileSystem.FileSystem; satisfy
