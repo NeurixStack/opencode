@@ -1,0 +1,19 @@
+Simulation script runner.
+
+Usage:
+  bun run.ts <script.json> [options]
+
+Options:
+  --mcp <url>              MCP endpoint (default http://127.0.0.1:43110/mcp)
+  --chunk <n>              Actions per step batch (default 3)
+  --max-steps <n>          Hard cap on step calls (default unlimited)
+  --level <lvl>            Stop level: DEBUG|INFO|WARN|ERROR (default ERROR)
+  --message-includes <s>   Only stop when message includes substring
+  --service-includes <s>   Only stop when tag.service includes substring
+  --reset                  Reset sim state + restart TUI before load
+  --no-reset               Skip reset (default)
+  --keep-going             Don't stop on errors; continue to end
+  --quiet                  Suppress per-batch progress
+  --json                   Emit JSON summary at the end
+  --check-every <n>        Check logs every N batches (default 1)
+

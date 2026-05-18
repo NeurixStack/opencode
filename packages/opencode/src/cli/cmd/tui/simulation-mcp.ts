@@ -373,36 +373,131 @@ async function discoverInstances(input: { startPort?: number; maxPorts?: number;
   return { instances: instances(), discovered: found, scanned: { startPort, maxPorts, consecutiveFailures } }
 }
 
+type ScriptAction = z.infer<typeof ScriptActionSchema>
+type ScriptCounts = { uiActions: number; fileWrites: number; llmScriptsQueued: number; waits: number }
+
+async function executeAction(options: Options, action: ScriptAction, counts: ScriptCounts) {
+  if (action.type === "writeFile") {
+    await control(options, "POST", "/experimental/simulation/filesystem/write", {
+      path: action.path,
+      content: action.content,
+    })
+    counts.fileWrites++
+    return
+  }
+  if (action.type === "enqueueLLM") {
+    await control(options, "POST", "/experimental/simulation/llm/enqueue", { scripts: action.scripts })
+    counts.llmScriptsQueued += action.scripts.length
+    return
+  }
+  if (action.type === "wait") {
+    await new Promise((resolve) => setTimeout(resolve, action.ms ?? 1_000))
+    await current(options).harness.renderOnce()
+    counts.waits++
+    return
+  }
+  await SimulationActions.execute(current(options).harness, action)
+  counts.uiActions++
+}
+
 async function runScript(options: Options, file: string) {
   const parsed = ScriptSchema.parse(await Bun.file(file).json())
   const actions = Array.isArray(parsed) ? parsed : parsed.actions
-  const counts = { uiActions: 0, fileWrites: 0, llmScriptsQueued: 0, waits: 0 }
-
-  for (const action of actions) {
-    if (action.type === "writeFile") {
-      await control(options, "POST", "/experimental/simulation/filesystem/write", {
-        path: action.path,
-        content: action.content,
-      })
-      counts.fileWrites++
-      continue
-    }
-    if (action.type === "enqueueLLM") {
-      await control(options, "POST", "/experimental/simulation/llm/enqueue", { scripts: action.scripts })
-      counts.llmScriptsQueued += action.scripts.length
-      continue
-    }
-    if (action.type === "wait") {
-      await new Promise((resolve) => setTimeout(resolve, action.ms ?? 1_000))
-      await current(options).harness.renderOnce()
-      counts.waits++
-      continue
-    }
-    await SimulationActions.execute(current(options).harness, action)
-    counts.uiActions++
-  }
-
+  const counts: ScriptCounts = { uiActions: 0, fileWrites: 0, llmScriptsQueued: 0, waits: 0 }
+  for (const action of actions) await executeAction(options, action, counts)
   return { file, actions: actions.length, ...counts, snapshot: snapshot(options) }
+}
+
+// ─── Step-controlled script execution ───────────────────────────────────────
+//
+// `simulation_script_load` parses a script and stores its actions in process
+// memory keyed by a generated id. The script is NOT executed yet. Subsequent
+// calls to `simulation_script_step` advance the cursor by one or more actions
+// at a time, returning the snapshot and updated counts after each batch. This
+// lets MCP clients drive scripts at their own pace and inspect state between
+// steps. Only one script is active at a time per process; loading a new one
+// while a previous one is still pending requires either consuming it to
+// completion, calling `simulation_script_cancel`, or specifying replace=true.
+
+interface LoadedScript {
+  readonly id: string
+  readonly file: string | null
+  readonly actions: ScriptAction[]
+  cursor: number
+  readonly counts: ScriptCounts
+  readonly loadedAt: string
+}
+
+let loaded: LoadedScript | undefined
+let loadSeq = 0
+
+function loadedSummary(state: LoadedScript) {
+  return {
+    id: state.id,
+    file: state.file,
+    total: state.actions.length,
+    cursor: state.cursor,
+    remaining: state.actions.length - state.cursor,
+    done: state.cursor >= state.actions.length,
+    counts: { ...state.counts },
+    loadedAt: state.loadedAt,
+  }
+}
+
+async function loadScript(input: {
+  file?: string
+  script?: unknown
+  replace?: boolean
+}) {
+  if (loaded && loaded.cursor < loaded.actions.length && !input.replace) {
+    throw new Error(
+      `A script is already loaded (id=${loaded.id}, ${loaded.actions.length - loaded.cursor} actions remaining). Pass replace=true or call simulation_script_cancel first.`,
+    )
+  }
+  const raw = input.file
+    ? await Bun.file(input.file).json()
+    : (input.script ?? (() => {
+        throw new Error("simulation_script_load requires either `file` or `script`.")
+      })())
+  const parsed = ScriptSchema.parse(raw)
+  const actions = Array.isArray(parsed) ? parsed : parsed.actions
+  loaded = {
+    id: `script-${(++loadSeq).toString(36)}`,
+    file: input.file ?? null,
+    actions: [...actions] as ScriptAction[],
+    cursor: 0,
+    counts: { uiActions: 0, fileWrites: 0, llmScriptsQueued: 0, waits: 0 },
+    loadedAt: new Date().toISOString(),
+  }
+  return loadedSummary(loaded)
+}
+
+async function stepScript(options: Options, input: { steps?: number; renderEach?: boolean }) {
+  if (!loaded) throw new Error("No script loaded. Call simulation_script_load first.")
+  const max = input.steps ?? 1
+  const executed: ScriptAction[] = []
+  for (let i = 0; i < max && loaded.cursor < loaded.actions.length; i++) {
+    const action = loaded.actions[loaded.cursor]!
+    executed.push(action)
+    await executeAction(options, action, loaded.counts)
+    loaded.cursor++
+    if (input.renderEach && i < max - 1) await current(options).harness.renderOnce()
+  }
+  return {
+    executed,
+    state: loadedSummary(loaded),
+    snapshot: snapshot(options),
+  }
+}
+
+function cancelScript() {
+  const was = loaded ? loadedSummary(loaded) : null
+  loaded = undefined
+  return { cancelled: was !== null, was }
+}
+
+function statusScript() {
+  return loaded ? loadedSummary(loaded) : null
 }
 
 async function runOnTargets<A>(
@@ -504,6 +599,48 @@ function createServer(options: Options) {
     async (input) => toolResult(await runScript(options, input.path)),
   )
 
+  server.registerTool(
+    "simulation_script_load",
+    {
+      description:
+        "Load a simulation script into memory WITHOUT executing it. Pass `path` to load from a JSON file on disk, or `script` to load inline JSON. Returns the parsed action count and a script id. Use `simulation_script_step` to execute actions one (or N) at a time. Only one script may be loaded at once unless `replace` is true.",
+      inputSchema: z.object({
+        path: z.string().optional(),
+        script: z.any().optional(),
+        replace: z.boolean().optional(),
+      }),
+    },
+    async (input) => toolResult(await loadScript({ file: input.path, script: input.script, replace: input.replace })),
+  )
+
+  server.registerTool(
+    "simulation_script_step",
+    {
+      description:
+        "Execute the next action(s) of the loaded script and return the snapshot afterwards. Defaults to one step. Pass `steps` to advance multiple actions in a single call (1-100). When `renderEach` is true, the simulated TUI is forced to render between steps.",
+      inputSchema: z.object({
+        steps: z.number().int().min(1).max(100).optional(),
+        renderEach: z.boolean().optional(),
+      }),
+    },
+    async (input) => toolResult(await stepScript(options, { steps: input.steps, renderEach: input.renderEach })),
+  )
+
+  server.registerTool(
+    "simulation_script_status",
+    {
+      description:
+        "Return the currently-loaded script's progress: id, total actions, cursor, remaining, and execution counts. Returns null when nothing is loaded.",
+    },
+    async () => toolResult({ status: statusScript() }),
+  )
+
+  server.registerTool(
+    "simulation_script_cancel",
+    { description: "Discard the currently-loaded script (if any). Subsequent step calls fail until a new script is loaded." },
+    async () => toolResult(cancelScript()),
+  )
+
   if ("runtime" in options) {
     server.registerTool("simulation_restart", { description: "Restart the simulated TUI and backend while keeping MCP alive." }, async () =>
       toolResult(await options.runtime.restart()),
@@ -580,6 +717,45 @@ function createServer(options: Options) {
       SimulationNetworkLog.clear()
       return toolResult({ cleared: true })
     },
+  )
+
+  server.registerTool(
+    "simulation_log_get",
+    {
+      description:
+        "Return the in-memory log buffer captured by `@opencode-ai/core/util/log` inside the simulated backend (capped at 5000 most recent entries). Filter by `level` to return only entries at or above that level. Also supports optional `limit` and substring filters.",
+      inputSchema: z.object({
+        level: z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).optional(),
+        limit: z.number().int().min(1).max(5000).optional(),
+        messageIncludes: z.string().optional(),
+        serviceIncludes: z.string().optional(),
+      }),
+    },
+    async (input) => {
+      const data = await control(options, "GET", "/experimental/simulation/log/entries")
+      let entries = (data?.entries ?? []) as Array<{
+        time: string
+        level: "DEBUG" | "INFO" | "WARN" | "ERROR"
+        tags: Record<string, unknown>
+        message: string
+      }>
+      if (input.level) {
+        const priority = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 } as const
+        const threshold = priority[input.level]
+        entries = entries.filter((e) => priority[e.level] >= threshold)
+      }
+      if (input.messageIncludes) entries = entries.filter((e) => e.message.includes(input.messageIncludes!))
+      if (input.serviceIncludes)
+        entries = entries.filter((e) => String(e.tags?.service ?? "").includes(input.serviceIncludes!))
+      if (typeof input.limit === "number") entries = entries.slice(-input.limit)
+      return toolResult({ entries, total: entries.length })
+    },
+  )
+
+  server.registerTool(
+    "simulation_log_clear",
+    { description: "Clear the simulated backend's in-memory log buffer." },
+    async () => toolResult(await control(options, "POST", "/experimental/simulation/log/clear")),
   )
 
   if (masterEnabled()) {

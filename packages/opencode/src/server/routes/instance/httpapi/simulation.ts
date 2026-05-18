@@ -1,6 +1,7 @@
 import { Simulation } from "@/testing/simulation/service"
 import { Effect } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
+import * as Log from "@opencode-ai/core/util/log"
 
 const ok = { ok: true }
 
@@ -56,6 +57,19 @@ export const simulationRoute = HttpRouter.use((router) =>
     )
 
     yield* router.add("GET", "/experimental/simulation/snapshot", () => json(simulation.snapshot()))
+
+    yield* router.add("GET", "/experimental/simulation/log/entries", () =>
+      Effect.succeed(HttpServerResponse.jsonUnsafe({ entries: Log.entries() })),
+    )
+
+    yield* router.add("POST", "/experimental/simulation/log/clear", () =>
+      Effect.succeed(
+        HttpServerResponse.jsonUnsafe(((): { cleared: true } => {
+          Log.clearEntries()
+          return { cleared: true }
+        })()),
+      ),
+    )
   }),
 )
 

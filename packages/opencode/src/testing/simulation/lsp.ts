@@ -161,9 +161,21 @@ export const SimulatedTypescript: LSPServer.Info = {
   // backend reports clients for the same files. The simulated root is just
   // the instance directory — we don't probe the filesystem here because the
   // simulated FS is in-memory and the only "project" is `/opencode`.
-  extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
+  extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".json", ".md"],
   root: async (_file, ctx) => ctx.directory,
   async spawn(_root, _ctx) {
+    // Real LSP server spawn is an actual `child_process.spawn` that crosses an
+    // I/O boundary and forces the surrounding `await` to truly yield to the
+    // microtask queue (and beyond). The simulated path is otherwise fully
+    // synchronous, which lets the calling Effect fiber's context survive
+    // `await server.spawn(...)` in cases where production would lose it.
+    //
+    // To make the simulation a faithful behavioral surrogate of the real
+    // server (and surface bugs like #27880), force a real async yield here
+    // via setTimeout so the awaiting fiber is fully torn down before we
+    // resume.
+    await new Promise<void>((resolve) => setTimeout(resolve, 500))
+
     const { process, serverInput, serverOutput } = createFakeProcess()
 
     const connection = createMessageConnection(

@@ -4,6 +4,7 @@
     { "type": "pressKey", "key": "b" },
     { "type": "writeFile", "path": "src/greeting.ts", "content": "export function greet(name: string) {\n  return `Hi, ${name}`\n}\n" },
     {
+      "_comment": "Three scripts enqueued: (1) main session prompt — long explanation + apply_patch tool call; (2) post-tool-result follow-up text; (3) title-generation small-model call. Title gen fires in parallel with the main call, so script order is by FIFO race winner. With three scripts queued the post-tool follow-up always finds a real script instead of falling back to the default 'Simulation mock response.'",
       "type": "enqueueLLM",
       "scripts": [
         {
@@ -34,6 +35,15 @@
             ]
           ],
           "usage": { "inputTokens": 140, "outputTokens": 16, "totalTokens": 156 },
+          "finish": "stop"
+        },
+        {
+          "steps": [
+            [
+              { "type": "text", "content": "Friendlier greeting" }
+            ]
+          ],
+          "usage": { "inputTokens": 20, "outputTokens": 4, "totalTokens": 24 },
           "finish": "stop"
         }
       ]

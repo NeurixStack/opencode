@@ -27,7 +27,6 @@ if (process.env.OPENCODE_SIMULATION_CWD) {
   Global.Path.state = `${process.env.OPENCODE_SIMULATION_CWD}/.local/state/opencode`
   Global.Path.tmp = `${process.env.OPENCODE_SIMULATION_CWD}/tmp/opencode`
   Global.Path.bin = `${Global.Path.cache}/bin`
-  Global.Path.log = `${Global.Path.data}/log`
   Global.Path.repos = `${Global.Path.data}/repos`
   Object.defineProperty(process, "cwd", {
     value: () => process.env.OPENCODE_SIMULATION_CWD!,
