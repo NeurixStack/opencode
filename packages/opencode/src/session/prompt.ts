@@ -82,6 +82,28 @@ const STRUCTURED_OUTPUT_SYSTEM_PROMPT = `IMPORTANT: The user has requested struc
 
 const log = Log.create({ service: "session.prompt" })
 const elog = EffectLogger.create({ service: "session.prompt" })
+const COMPACTION_WITHOUT_TAIL = "none"
+
+function latestAutoCompactionBoundary(messages: MessageV2.WithParts[]) {
+  const users = new Map(
+    messages.flatMap((message) => {
+      if (message.info.role !== "user") return []
+      const part = message.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction" && item.auto)
+      return part ? [[message.info.id, part] as const] : []
+    }),
+  )
+  const latest = messages
+    .flatMap((message) => {
+      if (message.info.role !== "assistant") return []
+      if (!message.info.summary || !message.info.finish || message.info.error) return []
+      if (!users.has(message.info.parentID)) return []
+      return [message.info]
+    })
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .at(-1)
+  if (!latest) return
+  return users.get(latest.parentID)?.tail_start_id ?? COMPACTION_WITHOUT_TAIL
+}
 
 type ReferencePromptMetadata = {
   name: string
@@ -1646,7 +1668,65 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const slog = elog.with({ sessionID })
         let structured: unknown
         let step = 0
+        let pendingAutoCompactionBoundary = latestAutoCompactionBoundary(yield* MessageV2.filterCompactedEffect(sessionID))
+        let awaitingAutoCompactionProgress = false
         const session = yield* sessions.get(sessionID).pipe(Effect.orDie)
+
+        const requestAutoCompaction = Effect.fn("SessionPrompt.requestAutoCompaction")(function* (input: {
+          lastUser: MessageV2.User
+          model: Provider.Model
+          messages: MessageV2.WithParts[]
+          overflow?: boolean
+          assistant?: MessageV2.Assistant
+        }) {
+          const boundary = latestAutoCompactionBoundary(input.messages)
+          // A completed auto-compaction only counts as progress when it advances
+          // the retained tail boundary. Otherwise another auto-trigger would loop.
+          if (!awaitingAutoCompactionProgress || boundary !== pendingAutoCompactionBoundary) {
+            pendingAutoCompactionBoundary = boundary
+            awaitingAutoCompactionProgress = true
+            yield* compaction.create({
+              sessionID,
+              agent: input.lastUser.agent,
+              model: input.lastUser.model,
+              auto: true,
+              overflow: input.overflow,
+            })
+            return true
+          }
+
+          const error = new MessageV2.ContextOverflowError({
+            message:
+              "Automatic compaction did not reduce the session below the model context limit. Remove large or uncompressible context, clear/restart the session, or run compaction again after reducing the conversation size.",
+          }).toObject()
+          yield* slog.info("auto compaction blocked", { boundary })
+          if (input.assistant) {
+            input.assistant.error = error
+            input.assistant.finish = "error"
+            input.assistant.time.completed ??= Date.now()
+            yield* sessions.updateMessage(input.assistant)
+          } else {
+            yield* sessions.updateMessage({
+              id: MessageID.ascending(),
+              parentID: input.lastUser.id,
+              role: "assistant",
+              mode: input.lastUser.agent,
+              agent: input.lastUser.agent,
+              variant: input.lastUser.model.variant,
+              path: { cwd: ctx.directory, root: ctx.worktree },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              modelID: input.model.id,
+              providerID: input.model.providerID,
+              time: { created: Date.now(), completed: Date.now() },
+              sessionID,
+              finish: "error",
+              error,
+            })
+          }
+          yield* bus.publish(Session.Event.Error, { sessionID, error })
+          return false
+        })
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })
@@ -1712,8 +1792,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             lastFinished.summary !== true &&
             (yield* compaction.isOverflow({ tokens: lastFinished.tokens, model }))
           ) {
-            yield* compaction.create({ sessionID, agent: lastUser.agent, model: lastUser.model, auto: true })
-            continue
+            if (yield* requestAutoCompaction({ lastUser, model, messages: msgs })) continue
+            break
           }
 
           const agent = yield* agents.get(lastUser.agent)
@@ -1852,13 +1932,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             if (result === "stop") return "break" as const
             if (result === "compact") {
-              yield* compaction.create({
-                sessionID,
-                agent: lastUser.agent,
-                model: lastUser.model,
-                auto: true,
+              const created = yield* requestAutoCompaction({
+                lastUser,
+                model,
+                messages: msgs,
+                assistant: handle.message,
                 overflow: !handle.message.finish,
               })
+              if (!created) return "break" as const
             }
             return "continue" as const
           }).pipe(

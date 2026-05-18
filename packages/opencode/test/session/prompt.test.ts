@@ -163,7 +163,37 @@ const blockingProcessor = Layer.succeed(
   }),
 )
 
-function makeHttp(input?: { processor?: "blocking" }) {
+const compactLoopProcessor = Layer.effect(
+  SessionProcessor.Service,
+  Effect.gen(function* () {
+    const sessions = yield* Session.Service
+    return SessionProcessor.Service.of({
+      create: (input) =>
+        Effect.succeed({
+          message: input.assistantMessage,
+          updateToolCall: () => Effect.succeed(undefined),
+          completeToolCall: () => Effect.void,
+          process: () =>
+            Effect.gen(function* () {
+              if (!input.assistantMessage.summary) return "compact" as const
+              input.assistantMessage.finish = "stop"
+              input.assistantMessage.time.completed = Date.now()
+              yield* sessions.updateMessage(input.assistantMessage)
+              yield* sessions.updatePart({
+                id: PartID.ascending(),
+                messageID: input.assistantMessage.id,
+                sessionID: input.assistantMessage.sessionID,
+                type: "text",
+                text: "summary",
+              })
+              return "continue" as const
+            }),
+        }),
+    })
+  }),
+)
+
+function makeHttp(input?: { processor?: "blocking" | "compact-loop" }) {
   const deps = Layer.mergeAll(
     Session.defaultLayer,
     Snapshot.defaultLayer,
@@ -199,15 +229,21 @@ function makeHttp(input?: { processor?: "blocking" }) {
     Layer.provideMerge(deps),
   )
   const trunc = Truncate.layer.pipe(Layer.provideMerge(deps))
-  const proc =
-    input?.processor === "blocking"
-      ? blockingProcessor
-      : SessionProcessor.layer.pipe(
+  const proc = (() => {
+    switch (input?.processor) {
+      case "blocking":
+        return blockingProcessor
+      case "compact-loop":
+        return compactLoopProcessor.pipe(Layer.provideMerge(deps))
+      default:
+        return SessionProcessor.layer.pipe(
           Layer.provide(summary),
           Layer.provide(Image.defaultLayer),
           Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
           Layer.provideMerge(deps),
         )
+    }
+  })()
   const compact = SessionCompaction.layer.pipe(
     Layer.provide(RuntimeFlags.layer({ experimentalEventSystem: true })),
     Layer.provideMerge(proc),
@@ -235,6 +271,7 @@ function makeHttp(input?: { processor?: "blocking" }) {
 
 const it = testEffect(makeHttp())
 const race = testEffect(makeHttp({ processor: "blocking" }))
+const compactLoop = testEffect(makeHttp({ processor: "compact-loop" }))
 const unix = process.platform !== "win32" ? it.instance : it.instance.skip
 
 // Config that registers a custom "test" provider with a "test-model" model
@@ -473,6 +510,34 @@ it.instance(
       const parts = result.parts.filter((p) => p.type === "text")
       expect(parts.some((p) => p.type === "text" && p.text === "world")).toBe(true)
       expect(yield* llm.hits).toHaveLength(1)
+    }),
+  { git: true },
+)
+
+compactLoop.instance(
+  "loop stops when auto-compaction does not make progress",
+  () =>
+    Effect.gen(function* () {
+      yield* useServerConfig(providerCfg)
+      const prompt = yield* SessionPrompt.Service
+      const sessions = yield* Session.Service
+      const chat = yield* sessions.create({ title: "Pinned" })
+      yield* prompt.prompt({
+        sessionID: chat.id,
+        agent: "build",
+        noReply: true,
+        parts: [{ type: "text", text: "keep going until compaction fails" }],
+      })
+
+      const result = yield* prompt.loop({ sessionID: chat.id })
+      expect(result.info.role).toBe("assistant")
+      if (result.info.role === "assistant") {
+        expect(result.info.finish).toBe("error")
+        expect(result.info.error?.name).toBe("ContextOverflowError")
+      }
+
+      const messages = yield* sessions.messages({ sessionID: chat.id })
+      expect(messages.flatMap((message) => message.parts).filter((part) => part.type === "compaction")).toHaveLength(2)
     }),
   { git: true },
 )
