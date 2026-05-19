@@ -51,19 +51,21 @@ describe("opencode acp (subprocess)", () => {
     "exits cleanly when stdin is closed (scope close)",
     ({ opencode }) =>
       Effect.gen(function* () {
-        const exitedPromise = yield* Effect.scoped(
+        const exited = yield* Effect.scoped(
           Effect.gen(function* () {
             const acp = yield* opencode.acp()
-            // Capture the Promise — scope-close fires the finalizer which
-            // ends stdin, and ACP should exit gracefully.
+            // Capture the Effect — scope-close shuts down stdinQueue, which
+            // propagates as stdin EOF; ACP exits gracefully. The exitCode
+            // Effect itself has no Scope requirement so yielding it after
+            // scope close is safe.
             return acp.exited
           }),
         )
 
-        const code = yield* Effect.promise(() => exitedPromise)
-        // Bun returns a number for normal exit. Anything goes for SIGTERM,
-        // but we still require resolution within the test timeout.
-        expect(typeof code === "number" || code === null).toBe(true)
+        const code = yield* exited
+        // Signal-killed processes surface as -1; clean EOF gives 0. Either
+        // way we just need a number — proves the process exited.
+        expect(typeof code).toBe("number")
       }),
     60_000,
   )

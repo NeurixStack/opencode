@@ -41,20 +41,20 @@ describe("opencode serve (subprocess)", () => {
     ({ opencode }) =>
       Effect.gen(function* () {
         // Inner scope so we can observe `.exited` resolving after it closes.
-        const exitedPromise = yield* Effect.scoped(
+        const exited = yield* Effect.scoped(
           Effect.gen(function* () {
             const server = yield* opencode.serve()
-            // Capture the Promise, not the resolved value — scope closes after
-            // this gen returns, at which point the finalizer kills the child.
+            // Capture the Effect, not its result — scope closes after this
+            // gen returns, at which point the finalizer kills the child.
+            // handle.exitCode itself has no Scope requirement, so yielding
+            // it after scope close is fine.
             return server.exited
           }),
         )
         // After scope close: finalizer fired, process must have exited.
-        const code = yield* Effect.promise(() => exitedPromise)
-        // Bun reports the exit code; SIGTERM-killed processes return non-null
-        // (typically 143 on POSIX). We just require resolution within a sane
-        // window — anything else means the kill didn't take.
-        expect(typeof code === "number" || code === null).toBe(true)
+        // Signal-killed processes surface as -1 (see ServeHandle.exited).
+        const code = yield* exited
+        expect(typeof code).toBe("number")
       }),
     60_000,
   )

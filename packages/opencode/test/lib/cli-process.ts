@@ -33,23 +33,13 @@ const cliEntry = path.join(opencodeRoot, "src/index.ts")
 
 export const testModelID = "test/test-model"
 
-// Wrap a Bun subprocess pipe (or any ReadableStream<Uint8Array>) as a Stream.
-// Centralizes the `evaluate` + `onError` boilerplate and tags errors with the
-// stream name so a stderr/stdout failure is greppable in logs.
-function fromBunStream(name: string, get: () => ReadableStream<Uint8Array>) {
-  return Stream.fromReadableStream({
-    evaluate: get,
-    onError: (cause) => new Error(`${name} stream error: ${String(cause)}`),
-  })
-}
-
 // Long-lived processes (serve, acp) all want the same stderr drain: read every
 // chunk, push to a tail buffer, swallow stream errors (the child closing the
 // pipe is normal). `log: true` surfaces a real protocol error to logs so a
 // regression doesn't silently disappear.
-function forkStderrDrain(stream: ReadableStream<Uint8Array>, into: string[]) {
+function forkStderrDrain(stream: Stream.Stream<Uint8Array, unknown>, into: string[]) {
   return Effect.forkScoped(
-    fromBunStream("stderr", () => stream).pipe(
+    stream.pipe(
       Stream.decodeText(),
       Stream.runForEach((chunk) => Effect.sync(() => into.push(chunk))),
       Effect.ignore({ log: true }),
@@ -117,9 +107,10 @@ export type ServeHandle = {
   readonly port: number
   // Sends SIGTERM. The scope finalizer also calls this, so tests rarely need
   // to invoke it directly — useful for tests that assert exit behavior.
-  readonly kill: () => void
-  // Resolves with the exit code once the process exits. Bun returns a number.
-  readonly exited: Promise<number>
+  readonly kill: Effect.Effect<void>
+  // Resolves with the exit code once the process exits. Signal-killed
+  // processes surface as -1 (vs cross-spawn-spawner raising a PlatformError).
+  readonly exited: Effect.Effect<number>
 }
 
 // `opencode acp` speaks newline-delimited JSON-RPC over stdin/stdout. It is
@@ -140,8 +131,10 @@ export type AcpHandle = {
   readonly receive: Effect.Effect<unknown>
   // Closes stdin. ACP exits cleanly on stdin EOF; the scope finalizer also
   // calls this, so tests only need it when asserting exit behavior.
-  readonly close: () => void
-  readonly exited: Promise<number>
+  readonly close: Effect.Effect<void>
+  // Resolves with the exit code once the process exits. Signal-killed
+  // processes surface as -1 (see ServeHandle.exited for the same convention).
+  readonly exited: Effect.Effect<number>
 }
 
 export type OpencodeCli = {
@@ -256,29 +249,22 @@ export function withCliFixture<A, E>(
       if (opts?.hostname) argv.push("--hostname", opts.hostname)
       if (opts?.extraArgs) argv.push(...opts.extraArgs)
 
-      // Acquire the subprocess; release sends SIGTERM and awaits exit on
-      // scope close. Wrapped in Effect.ignore so a flaky kill doesn't surface
-      // as a finalizer error during test teardown.
-      const proc = yield* Effect.acquireRelease(
-        Effect.sync(() =>
-          Bun.spawn(["bun", "run", "--conditions=browser", cliEntry, ...argv], {
-            cwd: home,
-            env: { ...process.env, ...env, ...opts?.env },
-            stdout: "pipe",
-            stderr: "pipe",
-          }),
-        ),
-        (p) =>
-          Effect.promise(() => {
-            p.kill()
-            return p.exited
-          }).pipe(Effect.ignore),
+      // ChildProcessSpawner.spawn returns a scoped handle whose acquireRelease
+      // finalizer sends SIGTERM and awaits exit on scope close — same lifecycle
+      // the old Bun.spawn + manual acquireRelease wrapper gave us, no plumbing.
+      const handle = yield* appProc.spawn(
+        ChildProcess.make("bun", ["run", "--conditions=browser", cliEntry, ...argv], {
+          cwd: home,
+          env: { ...env, ...opts?.env },
+          extendEnv: true,
+          stdin: "ignore",
+        }),
       )
 
       // Tail buffer so timeout failures can include stderr context. The fork
       // also keeps the OS pipe buffer from filling and wedging the child.
       const stderrChunks: string[] = []
-      yield* forkStderrDrain(proc.stderr, stderrChunks)
+      yield* forkStderrDrain(handle.stderr, stderrChunks)
 
       // Watch stdout line-by-line for the listening sentinel. Format
       // (see src/cli/cmd/serve.ts):
@@ -286,7 +272,7 @@ export function withCliFixture<A, E>(
       const readyRe = /listening on (http:\/\/([^\s:]+):(\d+))/
       const readyDeferred = yield* Deferred.make<{ url: string; hostname: string; port: number }>()
       yield* Effect.forkScoped(
-        fromBunStream("stdout", () => proc.stdout).pipe(
+        handle.stdout.pipe(
           Stream.decodeText(),
           Stream.splitLines,
           Stream.runForEach((line) => {
@@ -315,10 +301,14 @@ export function withCliFixture<A, E>(
         url: match.url,
         hostname: match.hostname,
         port: match.port,
-        kill: () => {
-          proc.kill()
-        },
-        exited: proc.exited as Promise<number>,
+        kill: handle.kill().pipe(Effect.ignore),
+        // handle.exitCode fails with PlatformError if the process was killed
+        // by signal (the normal scope-close path). Swallow → -1 so the test
+        // can still distinguish exited-vs-not without crashing.
+        exited: handle.exitCode.pipe(
+          Effect.orElseSucceed(() => -1),
+          Effect.map((c) => Number(c)),
+        ),
       } satisfies ServeHandle
     })
 
@@ -327,47 +317,30 @@ export function withCliFixture<A, E>(
       if (opts?.cwd) argv.push("--cwd", opts.cwd)
       if (opts?.extraArgs) argv.push(...opts.extraArgs)
 
-      // Acquire the subprocess. Release ends stdin (clean shutdown — ACP exits
-      // on stdin EOF) and falls back to SIGTERM if it doesn't exit promptly.
-      // Either way we await proc.exited so the test scope doesn't leak.
-      const proc = yield* Effect.acquireRelease(
-        Effect.sync(() =>
-          Bun.spawn(["bun", "run", "--conditions=browser", cliEntry, ...argv], {
-            cwd: opts?.cwd ?? home,
-            env: { ...process.env, ...env, ...opts?.env },
-            stdin: "pipe",
-            stdout: "pipe",
-            stderr: "pipe",
-          }),
-        ),
-        (p) =>
-          // Graceful shutdown: close stdin (ACP exits on EOF), give it a
-          // window to exit, then SIGTERM. The Effect.timeoutOrElse expresses
-          // exactly that race without raw setTimeout or Promise.race.
-          Effect.gen(function* () {
-            yield* Effect.sync(() => p.stdin.end())
-            yield* Effect.promise(() => p.exited).pipe(
-              Effect.timeoutOrElse({
-                duration: Duration.seconds(2),
-                orElse: () =>
-                  Effect.sync(() => {
-                    p.kill()
-                  }),
-              }),
-            )
-            yield* Effect.promise(() => p.exited)
-          }).pipe(Effect.ignore),
+      // stdin is fed by a Queue<Uint8Array>: send() offers bytes, close()
+      // shuts the queue down. The spawner drains the Queue-backed Stream into
+      // the child's stdin Sink (endOnDone: true by default), so a queue
+      // shutdown propagates as stdin EOF → ACP exits gracefully. Scope-close
+      // is the backstop via the spawner's kill finalizer.
+      const stdinQueue = yield* Queue.unbounded<Uint8Array>()
+      const handle = yield* appProc.spawn(
+        ChildProcess.make("bun", ["run", "--conditions=browser", cliEntry, ...argv], {
+          cwd: opts?.cwd ?? home,
+          env: { ...env, ...opts?.env },
+          extendEnv: true,
+          stdin: Stream.fromQueue(stdinQueue),
+        }),
       )
 
       const stderrChunks: string[] = []
-      yield* forkStderrDrain(proc.stderr, stderrChunks)
+      yield* forkStderrDrain(handle.stderr, stderrChunks)
 
       // Each ndjson line becomes one queue entry. JSON.parse failures are
       // surfaced as the raw string so a malformed protocol message doesn't
       // silently wedge the test in `receive`.
       const responses = yield* Queue.unbounded<unknown>()
       yield* Effect.forkScoped(
-        fromBunStream("stdout", () => proc.stdout).pipe(
+        handle.stdout.pipe(
           Stream.decodeText(),
           Stream.splitLines,
           Stream.runForEach((line) => {
@@ -384,20 +357,20 @@ export function withCliFixture<A, E>(
         ),
       )
 
+      const encoder = new TextEncoder()
       return {
-        // `proc.stdin.write` returns `number | Promise<number>`. The promise
-        // form is the backpressure signal — if we don't await it, rapid
-        // successive sends can interleave under pipe-buffer-full conditions
-        // and corrupt the ndjson framing.
         send: (msg: object) =>
-          Effect.promise(async () => {
-            const ret = proc.stdin.write(JSON.stringify(msg) + "\n")
-            if (typeof ret !== "number") await ret
-          }),
+          Queue.offer(stdinQueue, encoder.encode(JSON.stringify(msg) + "\n")).pipe(Effect.asVoid),
         receive: Queue.take(responses),
-        // proc.stdin.end() is idempotent in Bun; no try/catch needed.
-        close: () => proc.stdin.end(),
-        exited: proc.exited as Promise<number>,
+        // Queue shutdown → Stream.fromQueue completes → spawner ends stdin.
+        // Idempotent: shutting down an already-shut-down queue is a no-op.
+        close: Queue.shutdown(stdinQueue).pipe(Effect.asVoid),
+        // handle.exitCode fails with PlatformError on signal-kill; collapse
+        // to -1 to match the ServeHandle.exited convention.
+        exited: handle.exitCode.pipe(
+          Effect.orElseSucceed(() => -1),
+          Effect.map((c) => Number(c)),
+        ),
       } satisfies AcpHandle
     })
 
