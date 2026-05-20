@@ -2,7 +2,7 @@ import { SessionMessageTable, SessionTable } from "@/session/session.sql"
 import { and, asc, Database, desc, eq, gt, gte, isNull, like, lt, or, type SQL } from "@/storage/db"
 import { SessionMessage } from "@opencode-ai/core/session-message"
 import { Effect, Layer, Schema } from "effect"
-import { SessionStorage } from "./storage"
+import { SessionStorage } from "./session"
 
 const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Message)
 const decodeSessionRow = Schema.decodeUnknownSync(SessionStorage.SessionRow)
@@ -170,4 +170,4 @@ function fromSessionRow(row: typeof SessionTable.$inferSelect) {
   })
 }
 
-export * as SessionStorageSql from "./storage-sql"
+export * as SessionStorageSql from "./session-sql"

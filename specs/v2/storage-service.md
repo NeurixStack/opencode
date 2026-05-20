@@ -465,7 +465,7 @@ Avoid leaking Drizzle or SQLite error codes above the storage implementation. Fo
 
 The first implementation PR should be small and reversible:
 
-- Add `packages/opencode/src/v2/session/storage.ts` with the `SessionStorage` service shape.
+- Add `packages/opencode/src/v2/storage/session.ts` with the `SessionStorage` service shape.
 - Implement SQL and in-memory read backends for `get`, `list`, `messages`, and `context`.
 - Refactor `v2/session.ts` to consume `SessionStorage.Service` instead of raw Drizzle calls.
 - Keep table schemas and existing migrations unchanged.

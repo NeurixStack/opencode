@@ -10,8 +10,8 @@ import { optionalOmitUndefined } from "@opencode-ai/core/schema"
 import { EventV2 } from "@opencode-ai/core/event"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { ModelV2 } from "@opencode-ai/core/model"
-import { SessionStorage } from "./session/storage"
-import { SessionStorageSql } from "./session/storage-sql"
+import { SessionStorage } from "./storage/session"
+import { SessionStorageSql } from "./storage/session-sql"
 
 export const Delivery = Schema.Literals(["immediate", "deferred"]).annotate({
   identifier: "Session.Delivery",

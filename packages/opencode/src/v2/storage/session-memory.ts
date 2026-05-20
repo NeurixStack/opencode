@@ -1,6 +1,6 @@
 import { DateTime, Effect, Layer } from "effect"
 import { SessionMessage } from "@opencode-ai/core/session-message"
-import { SessionStorage } from "./storage"
+import { SessionStorage } from "./session"
 
 export const make = (state: {
   readonly sessions: Map<string, SessionStorage.SessionRow>
@@ -98,4 +98,4 @@ function compareRows(aID: string, aTime: number, bID: string, bTime: number, ord
   return order === "asc" ? result : -result
 }
 
-export * as SessionStorageMemory from "./storage-memory"
+export * as SessionStorageMemory from "./session-memory"

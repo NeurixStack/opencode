@@ -97,4 +97,4 @@ export function pageOrder(order: SortOrder, direction: PageDirection) {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/session/Storage") {}
 
-export * as SessionStorage from "./storage"
+export * as SessionStorage from "./session"
