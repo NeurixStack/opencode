@@ -1,4 +1,4 @@
-import { DateTime, Effect, Layer } from "effect"
+import { Context, DateTime, Effect, Layer } from "effect"
 import { SessionMessage } from "@opencode-ai/core/session-message"
 import { SessionStorage } from "./storage"
 
@@ -7,15 +7,18 @@ export interface State {
   readonly messages: Map<string, SessionMessage.Message[]>
 }
 
-export const makeState = (): State => ({
+export class StateService extends Context.Service<StateService, State>()("@opencode/v2/session/StorageMemoryState") {}
+
+const stateLayer = Layer.sync(StateService, () => ({
   sessions: new Map(),
   messages: new Map(),
-})
+}))
 
-export const layer = (state: State = makeState()) =>
-  Layer.succeed(
-    SessionStorage.Service,
-    SessionStorage.Service.of({
+const storageLayer = Layer.effect(
+  SessionStorage.Service,
+  Effect.gen(function* () {
+    const state = yield* StateService
+    return SessionStorage.Service.of({
       get: (sessionID) => Effect.sync(() => state.sessions.get(sessionID)),
       list: (input) =>
         Effect.sync(() => {
@@ -79,10 +82,13 @@ export const layer = (state: State = makeState()) =>
           const index = messages.findLastIndex((message) => message.type === "compaction")
           return index === -1 ? messages : messages.slice(index)
         }),
-    }),
-  )
+    })
+  }),
+)
 
-export const defaultLayer = layer()
+export const layer = storageLayer.pipe(Layer.provideMerge(stateLayer))
+
+export const defaultLayer = layer
 
 function compareCursor(
   id: string,
