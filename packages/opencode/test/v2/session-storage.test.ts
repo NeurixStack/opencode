@@ -19,6 +19,11 @@ const sessionB = SessionID.make("ses_storage_b")
 const sessionC = SessionID.make("ses_storage_c")
 const sessionD = SessionID.make("ses_storage_d")
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
+const memoryState: SessionStorageMemory.State = {
+  sessions: new Map(),
+  messages: new Map(),
+}
+const memoryLayer = Layer.sync(SessionStorage.Service, () => SessionStorageMemory.make(memoryState))
 
 interface Seeds<R> {
   readonly reset: Effect.Effect<void, never, R>
@@ -162,29 +167,27 @@ const sqlSeeds: Seeds<never> = {
 
 sessionStorageContract("SessionStorageSql", SessionStorageSql.defaultLayer, sqlSeeds)
 
-const memorySeeds: Seeds<SessionStorageMemory.StateService> = {
-  reset: Effect.gen(function* () {
-    const memoryState = yield* SessionStorageMemory.StateService
+const memorySeeds: Seeds<never> = {
+  reset: Effect.sync(() => {
     memoryState.sessions.clear()
     memoryState.messages.clear()
   }),
   project: Effect.void,
   session: (input) =>
-    Effect.gen(function* () {
-      const memoryState = yield* SessionStorageMemory.StateService
+    Effect.sync(() => {
       memoryState.sessions.set(input.id, makeSessionRow(input))
     }),
   userMessage: (input) =>
-    Effect.gen(function* () {
-      yield* appendMemoryMessage(makeUserMessage(input))
+    Effect.sync(() => {
+      appendMemoryMessage(makeUserMessage(input))
     }),
   compaction: (input) =>
-    Effect.gen(function* () {
-      yield* appendMemoryMessage(makeCompaction(input))
+    Effect.sync(() => {
+      appendMemoryMessage(makeCompaction(input))
     }),
 }
 
-sessionStorageContract("SessionStorageMemory", SessionStorageMemory.layer, memorySeeds)
+sessionStorageContract("SessionStorageMemory", memoryLayer, memorySeeds)
 
 function seedProject() {
   Database.use((db) =>
@@ -324,10 +327,7 @@ function seedMessage(
 }
 
 function appendMemoryMessage(message: SessionMessage.Message) {
-  return Effect.gen(function* () {
-    const memoryState = yield* SessionStorageMemory.StateService
-    const current = memoryState.messages.get(sessionA) ?? []
-    current.push(message)
-    memoryState.messages.set(sessionA, current)
-  })
+  const current = memoryState.messages.get(sessionA) ?? []
+  current.push(message)
+  memoryState.messages.set(sessionA, current)
 }
