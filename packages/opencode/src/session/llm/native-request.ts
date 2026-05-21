@@ -12,26 +12,25 @@ import {
 import type { ModelMessage } from "ai"
 import type { Provider } from "@/provider/provider"
 import { isRecord } from "@/util/record"
+import type { Prepared as PreparedRequest } from "./request"
 
 type ToolInput = {
   readonly description?: string
   readonly inputSchema?: unknown
 }
 
-export type RequestInput = {
+type GenerationInput = Omit<PreparedRequest["params"], "options">
+
+export type RequestInput = GenerationInput & {
   readonly model: Provider.Model
   readonly apiKey?: string
   readonly baseURL?: string
-  readonly system?: readonly string[]
-  readonly messages: readonly ModelMessage[]
+  readonly system?: PreparedRequest["system"]
+  readonly messages: PreparedRequest["messages"]
   readonly tools?: Record<string, ToolInput>
   readonly toolChoice?: "auto" | "required" | "none"
-  readonly temperature?: number
-  readonly topP?: number
-  readonly topK?: number
-  readonly maxOutputTokens?: number
   readonly providerOptions?: LLMRequest["providerOptions"]
-  readonly headers?: Record<string, string>
+  readonly headers?: PreparedRequest["headers"]
 }
 
 const providerMetadata = (value: unknown): ProviderMetadata | undefined => {

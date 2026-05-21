@@ -34,7 +34,6 @@ type PrepareInput = {
 }
 
 export type Prepared = {
-  readonly isOpenaiOauth: boolean
   readonly system: string[]
   readonly messages: ModelMessage[]
   readonly tools: Record<string, Tool>
@@ -123,7 +122,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     },
   )
 
-  const { headers } = yield* input.plugin.trigger(
+  const { headers: pluginHeaders } = yield* input.plugin.trigger(
     "chat.headers",
     {
       sessionID: input.sessionID,
@@ -161,7 +160,6 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     : undefined
 
   return {
-    isOpenaiOauth,
     system,
     messages,
     tools: Object.fromEntries(Object.entries(tools).toSorted(([a], [b]) => a.localeCompare(b))),
@@ -182,7 +180,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
             "User-Agent": USER_AGENT,
           }),
       ...input.model.headers,
-      ...headers,
+      ...pluginHeaders,
     },
   }
 })

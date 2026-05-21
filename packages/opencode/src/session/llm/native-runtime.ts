@@ -3,12 +3,13 @@ import type { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import { errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
-import { asSchema, type ModelMessage, type Tool } from "ai"
+import { asSchema, type Tool } from "ai"
 import { Effect } from "effect"
 import * as Stream from "effect/Stream"
 import { tool as nativeTool, ToolFailure, type JsonSchema, type LLMEvent } from "@opencode-ai/llm"
 import type { LLMClientShape } from "@opencode-ai/llm/route"
 import { LLMNative } from "./native-request"
+import type { Prepared as PreparedRequest } from "./request"
 
 export type RuntimeStatus =
   | { readonly type: "supported"; readonly apiKey: string; readonly baseURL?: string }
@@ -22,17 +23,13 @@ type StreamInput = {
   readonly provider: Provider.Info
   readonly auth: Auth.Info | undefined
   readonly llmClient: LLMClientShape
-  readonly isOpenaiOauth: boolean
-  readonly system: string[]
-  readonly messages: ModelMessage[]
-  readonly tools: Record<string, Tool>
+  readonly request: PreparedRequest
   readonly toolChoice?: "auto" | "required" | "none"
-  readonly temperature?: number
-  readonly topP?: number
-  readonly topK?: number
-  readonly maxOutputTokens?: number
-  readonly providerOptions?: Record<string, any>
-  readonly headers: Record<string, string>
+  readonly abort: AbortSignal
+}
+
+type ToolContext = {
+  readonly messages: PreparedRequest["messages"]
   readonly abort: AbortSignal
 }
 
@@ -68,17 +65,18 @@ export function stream(input: StreamInput): StreamResult {
         model: input.model,
         apiKey: current.apiKey,
         baseURL: current.baseURL,
-        system: input.isOpenaiOauth ? input.system : [],
-        messages: ProviderTransform.message(input.messages, input.model, input.providerOptions ?? {}),
+        system: [],
+        messages: ProviderTransform.message(input.request.messages, input.model, input.request.params.options),
+        tools: input.request.tools,
         toolChoice: input.toolChoice,
-        temperature: input.temperature,
-        topP: input.topP,
-        topK: input.topK,
-        maxOutputTokens: input.maxOutputTokens,
-        providerOptions: ProviderTransform.providerOptions(input.model, input.providerOptions ?? {}),
-        headers: { ...providerHeaders(input.provider.options.headers), ...input.headers },
+        temperature: input.request.params.temperature,
+        topP: input.request.params.topP,
+        topK: input.request.params.topK,
+        maxOutputTokens: input.request.params.maxOutputTokens,
+        providerOptions: ProviderTransform.providerOptions(input.model, input.request.params.options),
+        headers: { ...providerHeaders(input.provider.options.headers), ...input.request.headers },
       }),
-      tools: nativeTools(input.tools, input),
+      tools: nativeTools(input.request.tools, { messages: input.request.messages, abort: input.abort }),
     }),
   }
 }
@@ -97,7 +95,7 @@ function nativeSchema(value: unknown): JsonSchema {
   return asSchema(value as Parameters<typeof asSchema>[0]).jsonSchema as JsonSchema
 }
 
-export function nativeTools(tools: Record<string, Tool>, input: Pick<StreamInput, "messages" | "abort">) {
+export function nativeTools(tools: Record<string, Tool>, input: ToolContext) {
   return Object.fromEntries(
     Object.entries(tools).map(([name, item]) => [
       name,

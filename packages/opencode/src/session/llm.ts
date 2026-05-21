@@ -220,17 +220,8 @@ const live: Layer.Layer<
           provider: item,
           auth: info,
           llmClient,
-          isOpenaiOauth: prepared.isOpenaiOauth,
-          system: prepared.system,
-          messages: prepared.messages,
-          tools: prepared.tools,
+          request: prepared,
           toolChoice: input.toolChoice,
-          temperature: prepared.params.temperature,
-          topP: prepared.params.topP,
-          topK: prepared.params.topK,
-          maxOutputTokens: prepared.params.maxOutputTokens,
-          providerOptions: prepared.params.options,
-          headers: prepared.headers,
           abort: input.abort,
         })
         if (native.type === "supported") {
