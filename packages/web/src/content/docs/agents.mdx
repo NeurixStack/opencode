@@ -535,7 +535,7 @@ This can take a glob pattern.
 ```
 
 And you can also use the `*` wildcard to manage permissions for all commands.
-Since the last matching rule takes precedence, put the `*` wildcard first and specific rules after.
+The most specific matching rule takes precedence, so specific command rules beat the `*` wildcard regardless of order.
 
 ```json title="opencode.json" {8}
 {
@@ -622,7 +622,7 @@ Control which subagents an agent can invoke via the Task tool with `permission.t
 When set to `deny`, the subagent is removed from the Task tool description entirely, so the model won't attempt to invoke it.
 
 :::tip
-Rules are evaluated in order, and the **last matching rule wins**. In the example above, `orchestrator-planner` matches both `*` (deny) and `orchestrator-*` (allow), but since `orchestrator-*` comes after `*`, the result is `allow`.
+Rules are evaluated by specificity. In the example above, `orchestrator-planner` matches both `*` (deny) and `orchestrator-*` (allow), but `orchestrator-*` is more specific, so the result is `allow`.
 :::
 
 :::tip
