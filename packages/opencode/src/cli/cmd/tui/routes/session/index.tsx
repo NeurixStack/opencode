@@ -314,6 +314,17 @@ export function Session() {
   const dialog = useDialog()
   const renderer = useRenderer()
 
+  function slashArguments(name: string) {
+    const input = prompt?.current.input
+    if (!input?.startsWith("/")) return
+    const firstLineEnd = input.indexOf("\n")
+    const firstLine = firstLineEnd === -1 ? input : input.slice(0, firstLineEnd)
+    const [command, ...firstLineArgs] = firstLine.split(" ")
+    if (command !== `/${name}`) return
+    const restOfInput = firstLineEnd === -1 ? "" : input.slice(firstLineEnd + 1)
+    return firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
+  }
+
   event.on("session.status", (evt) => {
     if (evt.properties.sessionID !== route.sessionID) return
     if (evt.properties.status.type !== "retry") return
@@ -558,11 +569,14 @@ export function Session() {
           })
           return
         }
-        void sdk.client.session.summarize({
+        const instructions = slashArguments("compact") ?? slashArguments("summarize")
+        const payload = {
           sessionID: route.sessionID,
           modelID: selectedModel.modelID,
           providerID: selectedModel.providerID,
-        })
+          ...(instructions?.trim() ? { $body_instructions: instructions.trim() } : {}),
+        } satisfies Parameters<typeof sdk.client.session.summarize>[0] & { $body_instructions?: string }
+        void sdk.client.session.summarize(payload)
         dialog.clear()
       },
     },

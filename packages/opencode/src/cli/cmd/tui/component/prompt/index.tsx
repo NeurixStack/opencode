@@ -59,7 +59,14 @@ import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "@tui/context/args"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { type WorkspaceStatus } from "../workspace-label"
-import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useLeaderActive, useOpencodeKeymap } from "../../keymap"
+import {
+  OPENCODE_BASE_MODE,
+  useBindings,
+  useCommandShortcut,
+  useCommandSlashes,
+  useLeaderActive,
+  useOpencodeKeymap,
+} from "../../keymap"
 import { useTuiConfig } from "../../context/tui-config"
 
 export type PromptProps = {
@@ -151,6 +158,7 @@ export function Prompt(props: PromptProps) {
   const history = usePromptHistory()
   const stash = usePromptStash()
   const keymap = useOpencodeKeymap()
+  const slashCommands = useCommandSlashes()
   const agentShortcut = useCommandShortcut("agent.cycle")
   const paletteShortcut = useCommandShortcut("command.palette.show")
   const renderer = useRenderer()
@@ -1145,15 +1153,8 @@ export function Prompt(props: PromptProps) {
         command: inputText,
       })
       setStore("mode", "normal")
-    } else if (slash && (slash.name === "compact" || slash.name === "summarize")) {
-      const instructions = slash.arguments.trim()
-      const payload = {
-        sessionID,
-        modelID: selectedModel.modelID,
-        providerID: selectedModel.providerID,
-        ...(instructions ? { $body_instructions: instructions } : {}),
-      } satisfies Parameters<typeof sdk.client.session.summarize>[0] & { $body_instructions?: string }
-      void sdk.client.session.summarize(payload)
+    } else if (slash && slashCommand(slash.name)?.input) {
+      slashCommand(slash.name)?.onSelect()
     } else if (slash && sync.data.command.some((x) => x.name === slash.name)) {
       void sdk.client.session.command({
         sessionID,
@@ -1228,6 +1229,10 @@ export function Prompt(props: PromptProps) {
       name: command.slice(1),
       arguments: firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : ""),
     }
+  }
+
+  function slashCommand(name: string) {
+    return slashCommands().find((item) => item.name === name || item.aliases?.includes(`/${name}`))
   }
   const exit = useExit()
 
