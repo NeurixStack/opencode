@@ -461,6 +461,37 @@ describe("session HttpApi", () => {
   )
 
   it.instance(
+    "records deferred v2 prompts as projected user messages",
+    () =>
+      Effect.gen(function* () {
+        const test = yield* TestInstance
+        const headers = { "x-opencode-directory": test.directory }
+        const session = yield* createSession({ title: "v2 deferred prompt" })
+
+        const prompt = yield* request(`/api/session/${session.id}/prompt`, {
+          method: "POST",
+          headers: { ...headers, "content-type": "application/json" },
+          body: JSON.stringify({ prompt: { text: "hello deferred" }, delivery: "deferred" }),
+        })
+        expect(prompt.status).toBe(200)
+        const promptBody = yield* responseJson(prompt)
+        expect(promptBody).toMatchObject({
+          type: "user",
+          text: "hello deferred",
+        })
+
+        const messages = yield* requestJson<{ items: SessionMessage.Message[] }>(`/api/session/${session.id}/message`, {
+          headers,
+        })
+        expect(messages.items).toMatchObject([{ type: "user", text: "hello deferred" }])
+
+        const context = yield* requestJson<SessionMessage.Message[]>(`/api/session/${session.id}/context`, { headers })
+        expect(context).toMatchObject([{ type: "user", text: "hello deferred" }])
+      }),
+    { git: true, config: { formatter: false, lsp: false } },
+  )
+
+  it.instance(
     "returns v2 public unavailable errors for unfinished session mutations",
     () =>
       Effect.gen(function* () {

@@ -72,7 +72,7 @@ export const SessionGroup = HttpApiGroup.make("v2.session")
       OpenApi.annotations({
         identifier: "v2.session.prompt",
         summary: "Send v2 message",
-        description: "Create a v2 session message and queue it for the agent loop.",
+        description: "Create a deferred v2 user message. Immediate agent delivery is not available yet.",
       }),
     ),
   )

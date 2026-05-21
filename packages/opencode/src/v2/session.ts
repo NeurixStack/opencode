@@ -314,7 +314,50 @@ export const layer = Layer.effect(
       }),
       prompt: Effect.fn("V2Session.prompt")(function* (input) {
         yield* result.get(input.sessionID)
-        return yield* new OperationUnavailableError({ operation: "prompt" })
+        if (input.delivery !== "deferred") return yield* new OperationUnavailableError({ operation: "prompt" })
+        const event = yield* events.publish(
+          SessionEvent.Prompted,
+          {
+            sessionID: input.sessionID,
+            timestamp: DateTime.makeUnsafe(Date.now()),
+            prompt: input.prompt,
+          },
+          { id: input.id },
+        )
+        const message = new SessionMessage.User({
+          id: event.id,
+          type: "user",
+          metadata: event.metadata,
+          text: event.data.prompt.text,
+          files: event.data.prompt.files,
+          agents: event.data.prompt.agents,
+          references: event.data.prompt.references,
+          time: { created: event.data.timestamp },
+        })
+        // The bridge currently publishes the event but does not guarantee this request path has a projector attached.
+        Database.use((db) => {
+          const existing = db.select().from(SessionMessageTable).where(eq(SessionMessageTable.id, message.id)).get()
+          if (existing) return
+          db.insert(SessionMessageTable)
+            .values([
+              {
+                id: message.id,
+                session_id: input.sessionID,
+                type: message.type,
+                time_created: DateTime.toEpochMillis(message.time.created),
+                data: {
+                  metadata: message.metadata,
+                  text: message.text,
+                  files: message.files,
+                  agents: message.agents,
+                  references: message.references,
+                  time: { created: DateTime.toEpochMillis(message.time.created) },
+                } as NonNullable<(typeof SessionMessageTable.$inferInsert)["data"]>,
+              },
+            ])
+            .run()
+        })
+        return message
       }),
       shell: Effect.fn("V2Session.shell")(function* (_input) {}),
       skill: Effect.fn("V2Session.skill")(function* (_input) {}),
