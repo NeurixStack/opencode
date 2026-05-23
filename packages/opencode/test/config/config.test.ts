@@ -26,11 +26,6 @@ import {
 import { InstanceRuntime } from "@/project/instance-runtime"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { testEffect } from "../lib/effect"
-
-/** Infra layer that provides FileSystem, Path, ChildProcessSpawner for test fixtures */
-const infra = CrossSpawnSpawner.defaultLayer.pipe(
-  Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
-)
 import path from "path"
 import fs from "fs/promises"
 import { pathToFileURL } from "url"
@@ -41,6 +36,11 @@ import { ConfigPlugin } from "@/config/plugin"
 import { AccountTest } from "../fake/account"
 import { AuthTest } from "../fake/auth"
 import { NpmTest } from "../fake/npm"
+
+/** Infra layer that provides FileSystem, Path, ChildProcessSpawner for test fixtures */
+const infra = CrossSpawnSpawner.defaultLayer.pipe(
+  Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)),
+)
 
 const testFlock = EffectFlock.defaultLayer
 
@@ -148,28 +148,29 @@ async function writeConfig(dir: string, config: object, name = "opencode.json") 
 }
 
 const writeConfigEffect = (dir: string, config: object, name = "opencode.json") =>
-  AppFileSystem.use.writeFileString(path.join(dir, name), JSON.stringify(config))
+  AppFileSystem.use.writeWithDirs(path.join(dir, name), JSON.stringify(config))
 
-const project = {
-  dir: (relative: string) =>
-    TestInstance.use((test) => AppFileSystem.use.ensureDir(path.join(test.directory, relative))),
-  file: (relative: string, content: string) =>
-    TestInstance.use((test) => AppFileSystem.use.writeWithDirs(path.join(test.directory, relative), content)),
-}
+const withInstanceDir = <A, E, R>(dir: string, effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.provideService(TestInstance, { directory: dir }),
+    provideInstanceEffect(dir),
+    Effect.provide(testInstanceStoreLayer),
+    Effect.provide(CrossSpawnSpawner.defaultLayer),
+  )
 
 const withGlobalConfigDir = <A, E, R>(dir: string, effect: Effect.Effect<A, E, R>) =>
   Effect.acquireUseRelease(
     Effect.gen(function* () {
       const previous = Global.Path.config
       ;(Global.Path as { config: string }).config = dir
-      yield* clearEffect(true)
+      yield* clearEffect()
       return previous
     }),
     () => effect,
     (previous) =>
       Effect.gen(function* () {
         ;(Global.Path as { config: string }).config = previous
-        yield* clearEffect(true)
+        yield* clearEffect()
       }),
   )
 
@@ -190,17 +191,17 @@ const withConfigTree = <A, E, R>(
   Effect.gen(function* () {
     const root = yield* tmpdirScoped()
     const directory = path.join(root, "project")
-    const local = path.join(directory, ".opencode")
-    yield* AppFileSystem.use.ensureDir(local)
-    if (input.global) yield* writeConfigEffect(root, schemaConfig(input.global))
-    if (input.project) yield* writeConfigEffect(directory, schemaConfig(input.project))
-    if (input.local) yield* writeConfigEffect(local, schemaConfig(input.local))
-    return yield* effect.pipe(
-      Effect.provideService(TestInstance, { directory }),
-      provideInstanceEffect(directory),
-      Effect.provide(testInstanceStoreLayer),
-      Effect.provide(CrossSpawnSpawner.defaultLayer),
+    yield* Effect.all(
+      [
+        input.global ? writeConfigEffect(root, schemaConfig(input.global)) : undefined,
+        input.project ? writeConfigEffect(directory, schemaConfig(input.project)) : undefined,
+        input.local ? writeConfigEffect(path.join(directory, ".opencode"), schemaConfig(input.local)) : undefined,
+      ].filter(
+        (effect): effect is Effect.Effect<void, AppFileSystem.Error, AppFileSystem.Service> => effect !== undefined,
+      ),
+      { concurrency: "unbounded" },
     )
+    return yield* withInstanceDir(directory, effect)
   })
 
 const wellKnown = (input: {
@@ -705,7 +706,6 @@ it.instance("migrates mode field to agent field", () =>
 it.instance("loads config from .opencode directory", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "agent"))
     yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agent", "test.md"),
       `---
@@ -728,7 +728,6 @@ Test agent prompt`,
 it.instance("agent markdown permission config preserves user key order", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "agent"))
     yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agent", "ordered.md"),
       `---
@@ -748,7 +747,6 @@ Ordered permissions`,
 it.instance("loads agents from .opencode/agents (plural)", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "agents", "nested"))
     yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agents", "helper.md"),
       `---
@@ -788,7 +786,6 @@ Nested agent prompt`,
 it.instance("loads commands from .opencode/command (singular)", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "command", "nested"))
     yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "command", "hello.md"),
       `---
@@ -822,7 +819,6 @@ Nested command template`,
 it.instance("loads commands from .opencode/commands (plural)", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "commands", "nested"))
     yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "commands", "hello.md"),
       `---
@@ -912,7 +908,6 @@ it.instance("resolves scoped npm plugins in config", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
     const pluginDir = path.join(test.directory, "node_modules", "@scope", "plugin")
-    yield* AppFileSystem.use.ensureDir(pluginDir)
     yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, "package.json"),
       JSON.stringify({ name: "config-fixture", version: "1.0.0", type: "module" }, null, 2),
@@ -960,7 +955,6 @@ it.effect("merges plugin arrays from global and local configs", () =>
 it.instance("does not error when only custom agent is a subagent", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "agent"))
     yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agent", "helper.md"),
       `---
@@ -1671,8 +1665,11 @@ describe("deduplicatePluginOrigins", () => {
     withConfigTree(
       { global: { plugin: ["my-plugin@1.0.0"] } },
       Effect.gen(function* () {
-        yield* project.dir(".opencode/plugin")
-        yield* project.file(".opencode/plugin/my-plugin.js", "export default {}")
+        const test = yield* TestInstance
+        yield* AppFileSystem.use.writeWithDirs(
+          path.join(test.directory, ".opencode", "plugin", "my-plugin.js"),
+          "export default {}",
+        )
 
         const plugins = (yield* Config.use.get()).plugin ?? []
         expect(plugins.some((p) => ConfigPlugin.pluginSpecifier(p) === "my-plugin@1.0.0")).toBe(true)
@@ -1704,7 +1701,6 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
       "true",
       Effect.gen(function* () {
         const test = yield* TestInstance
-        yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "command"))
         yield* AppFileSystem.use.writeWithDirs(
           path.join(test.directory, ".opencode", "command", "test-cmd.md"),
           "# Test Command\nThis is a test command.",
