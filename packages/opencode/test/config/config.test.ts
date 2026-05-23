@@ -140,32 +140,21 @@ afterEach(async () => {
   await clear(true)
 })
 
-async function writeManagedSettings(settings: object, filename = "opencode.json") {
-  await fs.mkdir(managedConfigDir, { recursive: true })
-  await Filesystem.write(path.join(managedConfigDir, filename), JSON.stringify(settings))
-}
-
 const writeManagedSettingsEffect = (settings: object, filename?: string) =>
-  Effect.promise(() => writeManagedSettings(settings, filename))
+  AppFileSystem.use.writeWithDirs(path.join(managedConfigDir, filename ?? "opencode.json"), JSON.stringify(settings))
 
 async function writeConfig(dir: string, config: object, name = "opencode.json") {
   await Filesystem.write(path.join(dir, name), JSON.stringify(config))
 }
 
 const writeConfigEffect = (dir: string, config: object, name = "opencode.json") =>
-  AppFileSystem.Service.use((fs) => fs.writeFileString(path.join(dir, name), JSON.stringify(config)))
-const mkdirEffect = (dir: string) => AppFileSystem.Service.use((fs) => fs.ensureDir(dir))
-const writeTextEffect = (file: string, content: string) =>
-  AppFileSystem.Service.use((fs) => fs.writeWithDirs(file, content))
-const readTextEffect = (file: string) => AppFileSystem.Service.use((fs) => fs.readFileString(file))
-const readJsonEffect = (file: string) => AppFileSystem.Service.use((fs) => fs.readJson(file))
-const existsEffect = (file: string) => AppFileSystem.Service.use((fs) => fs.existsSafe(file))
-const chmodEffect = (file: string, mode: number) => AppFileSystem.Service.use((fs) => fs.chmod(file, mode))
+  AppFileSystem.use.writeFileString(path.join(dir, name), JSON.stringify(config))
 
 const project = {
-  dir: (relative: string) => TestInstance.use((test) => mkdirEffect(path.join(test.directory, relative))),
+  dir: (relative: string) =>
+    TestInstance.use((test) => AppFileSystem.use.ensureDir(path.join(test.directory, relative))),
   file: (relative: string, content: string) =>
-    TestInstance.use((test) => writeTextEffect(path.join(test.directory, relative), content)),
+    TestInstance.use((test) => AppFileSystem.use.writeWithDirs(path.join(test.directory, relative), content)),
 }
 
 const withGlobalConfigDir = <A, E, R>(dir: string, effect: Effect.Effect<A, E, R>) =>
@@ -202,7 +191,7 @@ const withConfigTree = <A, E, R>(
     const root = yield* tmpdirScoped()
     const directory = path.join(root, "project")
     const local = path.join(directory, ".opencode")
-    yield* mkdirEffect(local)
+    yield* AppFileSystem.use.ensureDir(local)
     if (input.global) yield* writeConfigEffect(root, schemaConfig(input.global))
     if (input.project) yield* writeConfigEffect(directory, schemaConfig(input.project))
     if (input.local) yield* writeConfigEffect(local, schemaConfig(input.local))
@@ -302,7 +291,7 @@ it.effect("creates global jsonc config with schema when no global configs exist"
     Effect.gen(function* () {
       yield* Config.use.get().pipe(provideInstanceEffect(dir))
 
-      const content = yield* readTextEffect(path.join(dir, "opencode.jsonc"))
+      const content = yield* AppFileSystem.use.readFileString(path.join(dir, "opencode.jsonc"))
       expect(content).toContain('"$schema": "https://opencode.ai/config.json"')
     }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(CrossSpawnSpawner.defaultLayer)),
   ),
@@ -318,7 +307,7 @@ it.effect("does not create global config when OPENCODE_CONFIG_DIR is set", () =>
         Effect.gen(function* () {
           yield* Config.use.get().pipe(provideInstanceEffect(dir))
 
-          expect(yield* existsEffect(path.join(dir, "opencode.jsonc"))).toBe(false)
+          expect(yield* AppFileSystem.use.existsSafe(path.join(dir, "opencode.jsonc"))).toBe(false)
         }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(CrossSpawnSpawner.defaultLayer)),
       ),
     )
@@ -355,10 +344,8 @@ it.instance("updates config and preserves empty shell sentinel", () =>
 
     yield* Config.Service.use((svc) => svc.update(ConfigParse.schema(Config.Info, { shell: "" }, "test:config")))
 
-    const writtenConfig = yield* Effect.promise(() =>
-      Filesystem.readJson<{ shell?: string }>(path.join(test.directory, "config.json")),
-    )
-    expect(writtenConfig.shell).toBe("")
+    const writtenConfig = yield* AppFileSystem.use.readJson(path.join(test.directory, "config.json"))
+    expect(writtenConfig).toMatchObject({ shell: "" })
   }),
 )
 
@@ -367,7 +354,7 @@ it.effect("updates global config and omits empty shell key in json", () =>
     Effect.gen(function* () {
       yield* Config.use.updateGlobal({ shell: "" })
 
-      const writtenConfig = yield* readJsonEffect(path.join(dir, "opencode.json"))
+      const writtenConfig = yield* AppFileSystem.use.readJson(path.join(dir, "opencode.json"))
       expect(writtenConfig).not.toHaveProperty("shell")
     }),
   ),
@@ -379,7 +366,7 @@ it.effect("updates global config and omits empty shell key in jsonc", () =>
       yield* Config.use.updateGlobal({ shell: "" })
 
       const file = path.join(dir, "opencode.jsonc")
-      const writtenConfig = yield* readTextEffect(file)
+      const writtenConfig = yield* AppFileSystem.use.readFileString(file)
       const parsed = ConfigParse.schema(Config.Info, ConfigParse.jsonc(writtenConfig, file), file)
       expect(writtenConfig).not.toContain('"shell"')
       expect(parsed.shell).toBeUndefined()
@@ -443,7 +430,7 @@ it.instance("ignores legacy tui keys in opencode config", () =>
 it.instance("loads JSONC config file", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, "opencode.jsonc"),
       `{
         // This is a comment
@@ -503,7 +490,7 @@ it.instance("preserves env variables when adding $schema to config", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
       // Config without $schema - should trigger auto-add
-      yield* writeTextEffect(
+      yield* AppFileSystem.use.writeWithDirs(
         path.join(test.directory, "opencode.json"),
         JSON.stringify({ username: "{env:PRESERVE_VAR}" }),
       )
@@ -511,7 +498,7 @@ it.instance("preserves env variables when adding $schema to config", () =>
       expect(config.username).toBe("secret_value")
 
       // Read the file to verify the env variable was preserved
-      const content = yield* readTextEffect(path.join(test.directory, "opencode.json"))
+      const content = yield* AppFileSystem.use.readFileString(path.join(test.directory, "opencode.json"))
       expect(content).toContain("{env:PRESERVE_VAR}")
       expect(content).not.toContain("secret_value")
       expect(content).toContain("$schema")
@@ -522,7 +509,7 @@ it.instance("preserves env variables when adding $schema to config", () =>
 it.instance("handles file inclusion substitution", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* writeTextEffect(path.join(test.directory, "included.txt"), "test-user")
+    yield* AppFileSystem.use.writeWithDirs(path.join(test.directory, "included.txt"), "test-user")
     yield* writeConfigEffect(test.directory, {
       $schema: "https://opencode.ai/config.json",
       username: "{file:included.txt}",
@@ -535,7 +522,7 @@ it.instance("handles file inclusion substitution", () =>
 it.instance("handles file inclusion with replacement tokens", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* writeTextEffect(path.join(test.directory, "included.md"), "const out = await Bun.$`echo hi`")
+    yield* AppFileSystem.use.writeWithDirs(path.join(test.directory, "included.md"), "const out = await Bun.$`echo hi`")
     yield* writeConfigEffect(test.directory, {
       $schema: "https://opencode.ai/config.json",
       username: "{file:included.md}",
@@ -603,7 +590,7 @@ it.instance("validates config schema and throws on invalid fields", () =>
 it.instance("throws error for invalid JSON", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* writeTextEffect(path.join(test.directory, "opencode.json"), "{ invalid json }")
+    yield* AppFileSystem.use.writeWithDirs(path.join(test.directory, "opencode.json"), "{ invalid json }")
     const exit = yield* Config.use.get().pipe(Effect.exit)
     expect(Exit.isFailure(exit)).toBe(true)
   }),
@@ -718,8 +705,8 @@ it.instance("migrates mode field to agent field", () =>
 it.instance("loads config from .opencode directory", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* mkdirEffect(path.join(test.directory, ".opencode", "agent"))
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "agent"))
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agent", "test.md"),
       `---
 model: test/model
@@ -741,8 +728,8 @@ Test agent prompt`,
 it.instance("agent markdown permission config preserves user key order", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* mkdirEffect(path.join(test.directory, ".opencode", "agent"))
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "agent"))
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agent", "ordered.md"),
       `---
 permission:
@@ -761,8 +748,8 @@ Ordered permissions`,
 it.instance("loads agents from .opencode/agents (plural)", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* mkdirEffect(path.join(test.directory, ".opencode", "agents", "nested"))
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "agents", "nested"))
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agents", "helper.md"),
       `---
 model: test/model
@@ -771,7 +758,7 @@ mode: subagent
 Helper agent prompt`,
     )
 
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agents", "nested", "child.md"),
       `---
 model: test/model
@@ -801,8 +788,8 @@ Nested agent prompt`,
 it.instance("loads commands from .opencode/command (singular)", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* mkdirEffect(path.join(test.directory, ".opencode", "command", "nested"))
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "command", "nested"))
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "command", "hello.md"),
       `---
 description: Test command
@@ -810,7 +797,7 @@ description: Test command
 Hello from singular command`,
     )
 
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "command", "nested", "child.md"),
       `---
 description: Nested command
@@ -835,8 +822,8 @@ Nested command template`,
 it.instance("loads commands from .opencode/commands (plural)", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* mkdirEffect(path.join(test.directory, ".opencode", "commands", "nested"))
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "commands", "nested"))
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "commands", "hello.md"),
       `---
 description: Test command
@@ -844,7 +831,7 @@ description: Test command
 Hello from plural commands`,
     )
 
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "commands", "nested", "child.md"),
       `---
 description: Nested command
@@ -873,10 +860,8 @@ it.instance("updates config and writes to file", () =>
       svc.update(ConfigParse.schema(Config.Info, { model: "updated/model" }, "test:config")),
     )
 
-    const writtenConfig = yield* Effect.promise(() =>
-      Filesystem.readJson<{ model: string }>(path.join(test.directory, "config.json")),
-    )
-    expect(writtenConfig.model).toBe("updated/model")
+    const writtenConfig = yield* AppFileSystem.use.readJson(path.join(test.directory, "config.json"))
+    expect(writtenConfig).toMatchObject({ model: "updated/model" })
   }),
 )
 
@@ -893,9 +878,9 @@ it.effect("does not try to install dependencies in read-only OPENCODE_CONFIG_DIR
 
     const dir = yield* tmpdirScoped()
     const readonly = path.join(dir, "readonly")
-    yield* mkdirEffect(readonly)
-    yield* chmodEffect(readonly, 0o555)
-    yield* Effect.addFinalizer(() => chmodEffect(readonly, 0o755).pipe(Effect.ignore))
+    yield* AppFileSystem.use.ensureDir(readonly)
+    yield* AppFileSystem.use.chmod(readonly, 0o555)
+    yield* Effect.addFinalizer(() => AppFileSystem.use.chmod(readonly, 0o755).pipe(Effect.ignore))
 
     yield* withProcessEnv("OPENCODE_CONFIG_DIR", readonly, Config.use.get().pipe(provideInstanceEffect(dir)))
   }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(CrossSpawnSpawner.defaultLayer)),
@@ -905,7 +890,7 @@ it.effect("installs dependencies in writable OPENCODE_CONFIG_DIR", () =>
   Effect.gen(function* () {
     const dir = yield* tmpdirScoped()
     const configDir = path.join(dir, "configdir")
-    yield* mkdirEffect(configDir)
+    yield* AppFileSystem.use.ensureDir(configDir)
 
     yield* withProcessEnv(
       "OPENCODE_CONFIG_DIR",
@@ -915,7 +900,7 @@ it.effect("installs dependencies in writable OPENCODE_CONFIG_DIR", () =>
       ),
     )
 
-    expect(yield* readTextEffect(path.join(configDir, ".gitignore"))).toContain("package-lock.json")
+    expect(yield* AppFileSystem.use.readFileString(path.join(configDir, ".gitignore"))).toContain("package-lock.json")
   }).pipe(Effect.provide(testInstanceStoreLayer), Effect.provide(CrossSpawnSpawner.defaultLayer)),
 )
 
@@ -927,12 +912,12 @@ it.instance("resolves scoped npm plugins in config", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
     const pluginDir = path.join(test.directory, "node_modules", "@scope", "plugin")
-    yield* mkdirEffect(pluginDir)
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.ensureDir(pluginDir)
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, "package.json"),
       JSON.stringify({ name: "config-fixture", version: "1.0.0", type: "module" }, null, 2),
     )
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(pluginDir, "package.json"),
       JSON.stringify(
         {
@@ -945,7 +930,7 @@ it.instance("resolves scoped npm plugins in config", () =>
         2,
       ),
     )
-    yield* writeTextEffect(path.join(pluginDir, "index.js"), "export default {}\n")
+    yield* AppFileSystem.use.writeWithDirs(path.join(pluginDir, "index.js"), "export default {}\n")
     yield* writeConfigEffect(test.directory, { plugin: ["@scope/plugin"] })
 
     const config = yield* Config.use.get()
@@ -975,8 +960,8 @@ it.effect("merges plugin arrays from global and local configs", () =>
 it.instance("does not error when only custom agent is a subagent", () =>
   Effect.gen(function* () {
     const test = yield* TestInstance
-    yield* mkdirEffect(path.join(test.directory, ".opencode", "agent"))
-    yield* writeTextEffect(
+    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "agent"))
+    yield* AppFileSystem.use.writeWithDirs(
       path.join(test.directory, ".opencode", "agent", "helper.md"),
       `---
 model: test/model
@@ -1387,7 +1372,7 @@ it.instance("local .opencode config can override MCP from project config", () =>
         },
       },
     })
-    yield* mkdirEffect(path.join(test.directory, ".opencode"))
+    yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode"))
     yield* writeConfigEffect(
       path.join(test.directory, ".opencode"),
       {
@@ -1719,8 +1704,8 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
       "true",
       Effect.gen(function* () {
         const test = yield* TestInstance
-        yield* mkdirEffect(path.join(test.directory, ".opencode", "command"))
-        yield* writeTextEffect(
+        yield* AppFileSystem.use.ensureDir(path.join(test.directory, ".opencode", "command"))
+        yield* AppFileSystem.use.writeWithDirs(
           path.join(test.directory, ".opencode", "command", "test-cmd.md"),
           "# Test Command\nThis is a test command.",
         )
@@ -1749,7 +1734,7 @@ describe("OPENCODE_DISABLE_PROJECT_CONFIG", () => {
         { OPENCODE_CONFIG_DIR: undefined, OPENCODE_DISABLE_PROJECT_CONFIG: "true" },
         Effect.gen(function* () {
           const test = yield* TestInstance
-          yield* writeTextEffect(path.join(test.directory, "CUSTOM.md"), "# Custom Instructions")
+          yield* AppFileSystem.use.writeWithDirs(path.join(test.directory, "CUSTOM.md"), "# Custom Instructions")
           // The relative instruction should be skipped without error
           const config = yield* Config.use.get()
           expect(config).toBeDefined()
@@ -1814,7 +1799,7 @@ describe("OPENCODE_CONFIG_CONTENT token substitution", () => {
   it.instance("substitutes {file:} tokens in OPENCODE_CONFIG_CONTENT", () =>
     Effect.gen(function* () {
       const test = yield* TestInstance
-      yield* writeTextEffect(path.join(test.directory, "api_key.txt"), "secret_key_from_file")
+      yield* AppFileSystem.use.writeWithDirs(path.join(test.directory, "api_key.txt"), "secret_key_from_file")
       yield* withProcessEnv(
         "OPENCODE_CONFIG_CONTENT",
         JSON.stringify({
