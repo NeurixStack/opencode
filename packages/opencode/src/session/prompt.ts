@@ -1251,6 +1251,7 @@ export const layer = Layer.effect(
           let msgs = yield* MessageV2.filterCompactedEffect(sessionID)
 
           const { user: lastUser, assistant: lastAssistant, finished: lastFinished, tasks } = MessageV2.latest(msgs)
+          const before = (a: MessageV2.Info, b: MessageV2.Info) => MessageV2.compare(a, b) < 0
 
           if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
 
@@ -1268,7 +1269,7 @@ export const layer = Layer.effect(
             lastAssistant?.finish &&
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            before(lastUser, lastAssistant)
           ) {
             yield* slog.info("exiting loop")
             break
@@ -1398,7 +1399,7 @@ export const layer = Layer.effect(
 
             if (step > 1 && lastFinished) {
               for (const m of msgs) {
-                if (m.info.role !== "user" || m.info.id <= lastFinished.id) continue
+                if (m.info.role !== "user" || !before(lastFinished, m.info)) continue
                 for (const p of m.parts) {
                   if (p.type !== "text" || p.ignored || p.synthetic) continue
                   if (!p.text.trim()) continue

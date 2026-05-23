@@ -58,12 +58,12 @@ const model: Provider.Model = {
   release_date: "2026-01-01",
 }
 
-function userInfo(id: string): MessageV2.User {
+function userInfo(id: string, created = 0): MessageV2.User {
   return {
     id,
     sessionID,
     role: "user",
-    time: { created: 0 },
+    time: { created },
     agent: "user",
     model: { providerID, modelID: ModelID.make("test") },
     tools: {},
@@ -76,13 +76,14 @@ function assistantInfo(
   parentID: string,
   error?: MessageV2.Assistant["error"],
   meta?: { providerID: string; modelID: string },
+  created = 0,
 ): MessageV2.Assistant {
   const infoModel = meta ?? { providerID: model.providerID, modelID: model.api.id }
   return {
     id,
     sessionID,
     role: "assistant",
-    time: { created: 0 },
+    time: { created },
     error,
     parentID,
     modelID: infoModel.modelID,
@@ -1557,13 +1558,13 @@ describe("session.message-v2.latest", () => {
   const NEW_COMPACTION_USER = MessageID.make("msg_006")
 
   const tailUser: MessageV2.WithParts = {
-    info: userInfo(TAIL_USER),
+    info: userInfo(TAIL_USER, 1),
     parts: [{ ...basePart(TAIL_USER, "p1"), type: "text", text: "original prompt" }] as MessageV2.Part[],
   }
 
   const overflowAssistant: MessageV2.WithParts = {
     info: {
-      ...assistantInfo(OVERFLOW_ASSISTANT, TAIL_USER),
+      ...assistantInfo(OVERFLOW_ASSISTANT, TAIL_USER, undefined, undefined, 2),
       finish: "tool-calls",
       tokens: { input: 280_000, output: 200, reasoning: 0, cache: { read: 0, write: 0 }, total: 280_200 },
     } as MessageV2.Assistant,
@@ -1571,7 +1572,7 @@ describe("session.message-v2.latest", () => {
   }
 
   const compactionUser: MessageV2.WithParts = {
-    info: userInfo(COMPACTION_USER),
+    info: userInfo(COMPACTION_USER, 3),
     parts: [
       {
         ...basePart(COMPACTION_USER, "p1"),
@@ -1584,7 +1585,7 @@ describe("session.message-v2.latest", () => {
 
   const summaryAssistant: MessageV2.WithParts = {
     info: {
-      ...assistantInfo(SUMMARY_ASSISTANT, COMPACTION_USER),
+      ...assistantInfo(SUMMARY_ASSISTANT, COMPACTION_USER, undefined, undefined, 4),
       summary: true,
       finish: "stop",
       tokens: { input: 150_000, output: 1_500, reasoning: 0, cache: { read: 0, write: 0 }, total: 151_500 },
@@ -1593,7 +1594,7 @@ describe("session.message-v2.latest", () => {
   }
 
   const continueUser: MessageV2.WithParts = {
-    info: userInfo(CONTINUE_USER),
+    info: userInfo(CONTINUE_USER, 5),
     parts: [
       {
         ...basePart(CONTINUE_USER, "p1"),
@@ -1629,7 +1630,7 @@ describe("session.message-v2.latest", () => {
 
   test("a fresh compaction-user newer than the latest summary surfaces in tasks", () => {
     const newCompactionUser: MessageV2.WithParts = {
-      info: userInfo(NEW_COMPACTION_USER),
+      info: userInfo(NEW_COMPACTION_USER, 6),
       parts: [
         {
           ...basePart(NEW_COMPACTION_USER, "p1"),
@@ -1652,5 +1653,28 @@ describe("session.message-v2.latest", () => {
     expect(state.user?.id).toBe(NEW_COMPACTION_USER)
     expect(state.tasks).toHaveLength(1)
     expect(state.tasks[0]).toMatchObject({ type: "compaction", auto: true })
+  })
+
+  test("latest uses created time when message ids are not chronological", () => {
+    const newerAssistant = MessageID.make("msg_001")
+    const olderAssistant = MessageID.make("msg_999")
+    const state = MessageV2.latest([
+      {
+        info: {
+          ...assistantInfo(olderAssistant, TAIL_USER, undefined, undefined, 1),
+          finish: "stop",
+        },
+        parts: [],
+      },
+      {
+        info: {
+          ...assistantInfo(newerAssistant, TAIL_USER, undefined, undefined, 2),
+          finish: "stop",
+        },
+        parts: [],
+      },
+    ])
+
+    expect(state.finished?.id).toBe(newerAssistant)
   })
 })

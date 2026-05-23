@@ -10,9 +10,11 @@ import { NotFoundError } from "@/storage/storage"
 import { and } from "drizzle-orm"
 import { desc } from "drizzle-orm"
 import { eq } from "drizzle-orm"
+import { getTableColumns } from "drizzle-orm"
 import { inArray } from "drizzle-orm"
 import { lt } from "drizzle-orm"
 import { or } from "drizzle-orm"
+import { sql } from "drizzle-orm"
 import { MessageTable, PartTable, SessionTable } from "./session.sql"
 import * as ProviderError from "@/provider/error"
 import { iife } from "@/util/iife"
@@ -561,8 +563,8 @@ export type WithParts = {
 }
 
 const Cursor = Schema.Struct({
-  id: MessageID,
   time: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
+  sequence: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
 })
 type Cursor = typeof Cursor.Type
 
@@ -577,9 +579,17 @@ export const cursor = {
   },
 }
 
-const info = (row: typeof MessageTable.$inferSelect) =>
+const messageOrder = new WeakMap<Info, number>()
+const messageRowID = sql<number>`rowid`
+type MessageRow = typeof MessageTable.$inferSelect & { sequence?: number }
+
+const info = (row: MessageRow) =>
   ({
     ...row.data,
+    time: {
+      ...row.data.time,
+      created: row.time_created,
+    },
     id: row.id,
     sessionID: row.session_id,
   }) as Info
@@ -593,9 +603,9 @@ const part = (row: typeof PartTable.$inferSelect) =>
   }) as Part
 
 const older = (row: Cursor) =>
-  or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(MessageTable.id, row.id)))
+  or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(messageRowID, row.sequence)))
 
-function hydrate(rows: (typeof MessageTable.$inferSelect)[]) {
+function hydrate(rows: MessageRow[]) {
   const ids = rows.map((row) => row.id)
   const partByMessage = new Map<string, Part[]>()
   if (ids.length > 0) {
@@ -931,10 +941,10 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
     : eq(MessageTable.session_id, input.sessionID)
   const rows = Database.use((db) =>
     db
-      .select()
+      .select({ ...getTableColumns(MessageTable), sequence: messageRowID })
       .from(MessageTable)
       .where(where)
-      .orderBy(desc(MessageTable.time_created), desc(MessageTable.id))
+      .orderBy(desc(MessageTable.time_created), desc(messageRowID))
       .limit(input.limit + 1)
       .all(),
   )
@@ -957,7 +967,7 @@ export const page = Effect.fn("MessageV2.page")(function* (input: {
   return {
     items,
     more,
-    cursor: more && tail ? cursor.encode({ id: tail.id, time: tail.time_created }) : undefined,
+    cursor: more && tail ? cursor.encode({ time: tail.time_created, sequence: tail.sequence ?? 0 }) : undefined,
   }
 })
 
@@ -1035,6 +1045,7 @@ export function filterCompacted(msgs: Iterable<WithParts>) {
       completed.add(msg.info.parentID)
   }
   result.reverse()
+  result.forEach((msg, index) => messageOrder.set(msg.info, index))
   const compactionIndex = result.findLastIndex(
     (msg) =>
       msg.info.role === "user" &&
@@ -1068,25 +1079,45 @@ export const filterCompactedEffect = Effect.fnUntraced(function* (sessionID: Ses
   return filterCompacted(stream(sessionID))
 })
 
+export function compare(a: Info, b: Info, indexA = -1, indexB = -1) {
+  if (a.time.created !== b.time.created) return a.time.created - b.time.created
+  const sequenceA = messageOrder.get(a)
+  const sequenceB = messageOrder.get(b)
+  if (sequenceA !== undefined && sequenceB !== undefined && sequenceA !== sequenceB) return sequenceA - sequenceB
+  return indexA - indexB
+}
+
 // filterCompacted reorders messages for model consumption
 // ([compaction-user, summary, ...retained tail..., continue-user]), so array
-// position is not chronological. Derive each binding by max id (MessageID
-// is monotonic via MessageID.ascending) so a pre-compaction overflowing tail
-// assistant doesn't get mistaken for the most recent turn. tasks are
-// compaction/subtask parts attached to user messages newer than the latest
-// finished assistant — i.e. unprocessed work.
+// position is not chronological. Derive each binding by DB-created time; user
+// message IDs can be allocated by clients, so lexical ID order is not reliable.
+// Same-millisecond ties use the DB row order captured before compaction reorder.
+// tasks are compaction/subtask parts attached to user messages newer than the
+// latest finished assistant — i.e. unprocessed work.
 export function latest(msgs: WithParts[]) {
   let user: User | undefined
   let assistant: Assistant | undefined
   let finished: Assistant | undefined
-  for (const msg of msgs) {
+  let userIndex = -1
+  let assistantIndex = -1
+  let finishedIndex = -1
+  for (const [index, msg] of msgs.entries()) {
     const info = msg.info
-    if (info.role === "user" && (!user || info.id > user.id)) user = info
-    if (info.role === "assistant" && (!assistant || info.id > assistant.id)) assistant = info
-    if (info.role === "assistant" && info.finish && (!finished || info.id > finished.id)) finished = info
+    if (info.role === "user" && (!user || compare(info, user, index, userIndex) > 0)) {
+      user = info
+      userIndex = index
+    }
+    if (info.role === "assistant" && (!assistant || compare(info, assistant, index, assistantIndex) > 0)) {
+      assistant = info
+      assistantIndex = index
+    }
+    if (info.role === "assistant" && info.finish && (!finished || compare(info, finished, index, finishedIndex) > 0)) {
+      finished = info
+      finishedIndex = index
+    }
   }
-  const tasks = msgs.flatMap((m) =>
-    finished && m.info.id <= finished.id
+  const tasks = msgs.flatMap((m, index) =>
+    finished && compare(m.info, finished, index, finishedIndex) <= 0
       ? []
       : m.parts.filter((p): p is CompactionPart | SubtaskPart => p.type === "compaction" || p.type === "subtask"),
   )

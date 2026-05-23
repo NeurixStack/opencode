@@ -173,6 +173,35 @@ describe("MessageV2.page", () => {
     ),
   )
 
+  it.instance("uses db order when same-timestamp ids are not chronological", () =>
+    withSession(({ sessionID }) =>
+      Effect.gen(function* () {
+        const session = yield* SessionNs.Service
+        const older = MessageID.make("msg_999")
+        const newer = MessageID.make("msg_001")
+        for (const id of [older, newer]) {
+          yield* session.updateMessage({
+            id,
+            sessionID,
+            role: "user",
+            time: { created: 1 },
+            agent: "test",
+            model: { providerID: "test", modelID: "test" },
+            tools: {},
+            mode: "",
+          } as unknown as MessageV2.Info)
+        }
+
+        const first = yield* MessageV2.page({ sessionID, limit: 1 })
+        expect(first.items.map((item) => item.info.id)).toEqual([newer])
+        expect(first.cursor).toBeTruthy()
+
+        const second = yield* MessageV2.page({ sessionID, limit: 1, before: first.cursor! })
+        expect(second.items.map((item) => item.info.id)).toEqual([older])
+      }),
+    ),
+  )
+
   it.instance("returns empty items for session with no messages", () =>
     withSession(({ sessionID }) =>
       Effect.gen(function* () {
@@ -972,22 +1001,22 @@ describe("MessageV2.filterCompacted", () => {
 
 describe("MessageV2.cursor", () => {
   test("encode/decode roundtrip", () => {
-    const input = { id: MessageID.ascending(), time: 1234567890 }
+    const input = { time: 1234567890, sequence: 1 }
     const encoded = MessageV2.cursor.encode(input)
     const decoded = MessageV2.cursor.decode(encoded)
-    expect(decoded.id).toBe(input.id)
     expect(decoded.time).toBe(input.time)
+    expect(decoded.sequence).toBe(input.sequence)
   })
 
   test("encode/decode with fractional time", () => {
-    const input = { id: MessageID.ascending(), time: 1234567890.5 }
+    const input = { time: 1234567890.5, sequence: 1 }
     const encoded = MessageV2.cursor.encode(input)
     const decoded = MessageV2.cursor.decode(encoded)
     expect(decoded.time).toBe(1234567890.5)
   })
 
   test("encoded cursor is base64url", () => {
-    const encoded = MessageV2.cursor.encode({ id: MessageID.ascending(), time: 0 })
+    const encoded = MessageV2.cursor.encode({ time: 0, sequence: 1 })
     expect(encoded).toMatch(/^[A-Za-z0-9_-]+$/)
   })
 })
