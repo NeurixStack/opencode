@@ -407,6 +407,30 @@ describe("OpenAI Responses route", () => {
     }),
   )
 
+  it.effect("passes unknown OpenAI provider options through with snake-cased keys", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare<OpenAIResponses.OpenAIResponsesBody>(
+        LLM.request({
+          model: OpenAI.configure({ baseURL: "https://api.openai.test/v1/", apiKey: "test" }).model("gpt-5.2"),
+          prompt: "passthrough",
+          providerOptions: {
+            openai: {
+              customCamelCaseField: "value",
+              already_snake_case: 42,
+              nested: { keepCamelCase: true },
+            },
+          },
+        }),
+      )
+
+      expect(prepared.body).toMatchObject({
+        custom_camel_case_field: "value",
+        already_snake_case: 42,
+        nested: { keepCamelCase: true },
+      })
+    }),
+  )
+
   it.effect("request OpenAI provider options override route defaults", () =>
     Effect.gen(function* () {
       const prepared = yield* LLMClient.prepare<OpenAIResponses.OpenAIResponsesBody>(

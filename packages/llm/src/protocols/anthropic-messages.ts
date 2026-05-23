@@ -20,6 +20,7 @@ import {
 import { JsonObject, optionalArray, optionalNull, ProviderShared } from "./shared"
 import * as Cache from "./utils/cache"
 import { Lifecycle } from "./utils/lifecycle"
+import { ProviderOptions } from "./utils/provider-options"
 import { ToolStream } from "./utils/tool-stream"
 
 const ADAPTER = "anthropic-messages"
@@ -136,6 +137,7 @@ const AnthropicTool = Schema.Struct({
   description: Schema.String,
   input_schema: JsonObject,
   cache_control: Schema.optional(AnthropicCacheControl),
+  eager_input_streaming: Schema.optional(Schema.Boolean),
 })
 type AnthropicTool = Schema.Schema.Type<typeof AnthropicTool>
 
@@ -144,10 +146,10 @@ const AnthropicToolChoice = Schema.Union([
   Schema.Struct({ type: Schema.tag("tool"), name: Schema.String }),
 ])
 
-const AnthropicThinking = Schema.Struct({
-  type: Schema.tag("enabled"),
-  budget_tokens: Schema.Number,
-})
+// Anthropic accepts several `thinking` shapes (enabled with `budget_tokens`,
+// adaptive with optional `display`, and disabled). The body schema permits the
+// full union so explicit lowering can pick the correct fields per model.
+const AnthropicThinkingBody = Schema.Record(Schema.String, Schema.Unknown)
 
 const AnthropicBodyFields = {
   model: Schema.String,
@@ -161,9 +163,12 @@ const AnthropicBodyFields = {
   top_p: Schema.optional(Schema.Number),
   top_k: Schema.optional(Schema.Number),
   stop_sequences: optionalArray(Schema.String),
-  thinking: Schema.optional(AnthropicThinking),
+  thinking: Schema.optional(AnthropicThinkingBody),
 }
-const AnthropicMessagesBody = Schema.Struct(AnthropicBodyFields)
+// Unknown provider options pass through verbatim with top-level keys snake-cased.
+const AnthropicMessagesBody = Schema.StructWithRest(Schema.Struct(AnthropicBodyFields), [
+  Schema.Record(Schema.String, Schema.Any),
+])
 export type AnthropicMessagesBody = Schema.Schema.Type<typeof AnthropicMessagesBody>
 
 const AnthropicUsage = Schema.Struct({
@@ -254,11 +259,16 @@ const signatureFromMetadata = (metadata: ProviderMetadata | undefined): string |
   return typeof anthropic.signature === "string" ? anthropic.signature : undefined
 }
 
-const lowerTool = (breakpoints: Cache.Breakpoints, tool: ToolDefinition): AnthropicTool => ({
+const lowerTool = (
+  breakpoints: Cache.Breakpoints,
+  tool: ToolDefinition,
+  eagerInputStreaming: boolean | undefined,
+): AnthropicTool => ({
   name: tool.name,
   description: tool.description,
   input_schema: tool.inputSchema,
   cache_control: cacheControl(breakpoints, tool.cache),
+  eager_input_streaming: eagerInputStreaming ? true : undefined,
 })
 
 const lowerToolChoice = (toolChoice: NonNullable<LLMRequest["toolChoice"]>) =>
@@ -413,24 +423,46 @@ const lowerMessages = Effect.fn("AnthropicMessages.lowerMessages")(function* (
   return messages
 })
 
-const anthropicOptions = (request: LLMRequest) => request.providerOptions?.anthropic
+// Typed AI SDK Anthropic options. Mirrors the subset of
+// `anthropicLanguageModelOptions` that opencode's provider transform actually
+// emits today (see `packages/opencode/src/provider/transform.ts`). Unknown
+// keys flow through the index signature and pass through to the wire body
+// with their top-level key snake-cased.
+type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max"
+type AnthropicThinking =
+  | { readonly type: "enabled"; readonly budgetTokens?: number; readonly budget_tokens?: number }
+  | { readonly type: "adaptive"; readonly display?: "omitted" | "summarized" }
+  | { readonly type: "disabled" }
 
-const lowerThinking = Effect.fn("AnthropicMessages.lowerThinking")(function* (request: LLMRequest) {
-  const thinking = anthropicOptions(request)?.thinking
-  if (!ProviderShared.isRecord(thinking) || thinking.type !== "enabled") return undefined
-  const budget =
-    typeof thinking.budgetTokens === "number"
-      ? thinking.budgetTokens
-      : typeof thinking.budget_tokens === "number"
-        ? thinking.budget_tokens
-        : undefined
-  if (budget === undefined) return yield* invalid("Anthropic thinking provider option requires budgetTokens")
+interface AnthropicOptions {
+  readonly thinking?: AnthropicThinking
+  readonly effort?: AnthropicEffort
+  readonly toolStreaming?: boolean
+  readonly [extra: string]: unknown
+}
+
+const ANTHROPIC_KNOWN_KEYS: ReadonlySet<string> = new Set(["thinking", "effort", "toolStreaming"])
+
+const lowerThinking = (thinking: AnthropicOptions["thinking"]) => {
+  if (thinking === undefined) return undefined
+  if (thinking.type === "disabled") return undefined
+  if (thinking.type === "adaptive") {
+    return { type: "adaptive" as const, ...(thinking.display ? { display: thinking.display } : {}) }
+  }
+  const budget = thinking.budgetTokens ?? thinking.budget_tokens
+  if (budget === undefined) return undefined
   return { type: "enabled" as const, budget_tokens: budget }
-})
+}
 
 const fromRequest = Effect.fn("AnthropicMessages.fromRequest")(function* (request: LLMRequest) {
   const toolChoice = request.toolChoice ? yield* lowerToolChoice(request.toolChoice) : undefined
   const generation = request.generation
+  const options = ProviderOptions.merge(request, ["anthropic"]) as AnthropicOptions
+  // AI SDK's `toolStreaming` controls per-tool `eager_input_streaming`. opencode
+  // sets `toolStreaming: false` for non-Claude models routed through
+  // `@ai-sdk/anthropic`; otherwise the field is left unset so the provider
+  // applies its own default.
+  const eagerInputStreaming = options.toolStreaming === true
   // Allocate the 4-breakpoint budget in invalidation order: tools → system →
   // messages. Tools live highest in the cache hierarchy, so when callers
   // over-mark we keep their tool hints and shed the message-tail ones first.
@@ -438,7 +470,7 @@ const fromRequest = Effect.fn("AnthropicMessages.fromRequest")(function* (reques
   const tools =
     request.tools.length === 0 || request.toolChoice?.type === "none"
       ? undefined
-      : request.tools.map((tool) => lowerTool(breakpoints, tool))
+      : request.tools.map((tool) => lowerTool(breakpoints, tool, eagerInputStreaming))
   const system =
     request.system.length === 0
       ? undefined
@@ -454,6 +486,7 @@ const fromRequest = Effect.fn("AnthropicMessages.fromRequest")(function* (reques
     )
   }
   return {
+    ...ProviderOptions.passthrough(options, ANTHROPIC_KNOWN_KEYS),
     model: request.model.id,
     system,
     messages,
@@ -465,7 +498,8 @@ const fromRequest = Effect.fn("AnthropicMessages.fromRequest")(function* (reques
     top_p: generation?.topP,
     top_k: generation?.topK,
     stop_sequences: generation?.stop,
-    thinking: yield* lowerThinking(request),
+    thinking: lowerThinking(options.thinking),
+    ...(options.effort !== undefined ? { effort: options.effort } : {}),
   }
 })
 

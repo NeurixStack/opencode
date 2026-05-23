@@ -209,6 +209,80 @@ describe("Anthropic Messages route", () => {
     }),
   )
 
+  it.effect("lowers Anthropic thinking provider option (enabled)", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.request({
+          model,
+          prompt: "think",
+          providerOptions: { anthropic: { thinking: { type: "enabled", budgetTokens: 12345 } } },
+        }),
+      )
+      expect(prepared.body).toMatchObject({ thinking: { type: "enabled", budget_tokens: 12345 } })
+    }),
+  )
+
+  it.effect("lowers Anthropic adaptive thinking with effort sibling", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.request({
+          model,
+          prompt: "think",
+          providerOptions: { anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort: "max" } },
+        }),
+      )
+      expect(prepared.body).toMatchObject({
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: "max",
+      })
+    }),
+  )
+
+  it.effect("sets per-tool eager_input_streaming only when toolStreaming is true", () =>
+    Effect.gen(function* () {
+      const off = yield* LLMClient.prepare<AnthropicMessages.AnthropicMessagesBody>(
+        LLM.request({
+          model,
+          prompt: "use tool",
+          providerOptions: { anthropic: { toolStreaming: false } },
+          tools: [{ name: "lookup", description: "lookup", inputSchema: { type: "object" } }],
+        }),
+      )
+      expect(off.body.tools?.[0]?.eager_input_streaming).toBeUndefined()
+
+      const on = yield* LLMClient.prepare<AnthropicMessages.AnthropicMessagesBody>(
+        LLM.request({
+          model,
+          prompt: "use tool",
+          providerOptions: { anthropic: { toolStreaming: true } },
+          tools: [{ name: "lookup", description: "lookup", inputSchema: { type: "object" } }],
+        }),
+      )
+      expect(on.body.tools?.[0]?.eager_input_streaming).toBe(true)
+    }),
+  )
+
+  it.effect("passes unknown Anthropic provider options through with snake-cased keys", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.request({
+          model,
+          prompt: "go",
+          providerOptions: {
+            anthropic: {
+              anthropicBeta: ["claude-2024-07-15"],
+              customField: { keepCamelCase: true },
+            },
+          },
+        }),
+      )
+      expect(prepared.body).toMatchObject({
+        anthropic_beta: ["claude-2024-07-15"],
+        custom_field: { keepCamelCase: true },
+      })
+    }),
+  )
+
   it.effect("lowers preserved Anthropic reasoning signature metadata", () =>
     Effect.gen(function* () {
       const prepared = yield* LLMClient.prepare(

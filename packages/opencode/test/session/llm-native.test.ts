@@ -6,6 +6,7 @@ import { Effect, Layer, Stream } from "effect"
 import { LLMNative } from "@/session/llm/native-request"
 import { LLMNativeRuntime } from "@/session/llm/native-runtime"
 import type { Provider } from "@/provider/provider"
+import { ProviderTransform } from "@/provider/transform"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { OAUTH_DUMMY_KEY } from "@/auth"
 import { testEffect } from "../lib/effect"
@@ -68,6 +69,21 @@ const providerInfo: Provider.Info = {
   env: ["OPENAI_API_KEY"],
   options: { apiKey: "test-openai-key" },
   models: {},
+}
+
+const compatibleModel: Provider.Model = {
+  ...baseModel,
+  id: ModelID.make("deepseek-v4-flash-free"),
+  providerID: ProviderID.make("opencode"),
+  api: {
+    id: "deepseek-v4-flash-free",
+    url: "https://ai.example.test/v1",
+    npm: "@ai-sdk/openai-compatible",
+  },
+  capabilities: {
+    ...baseModel.capabilities,
+    interleaved: { field: "reasoning_content" },
+  },
 }
 
 const it = testEffect(
@@ -325,6 +341,70 @@ describe("session.llm-native.request", () => {
       },
     ])
   })
+
+  it.effect("preserves OpenAI-compatible reasoning continuation and provider options", () =>
+    Effect.gen(function* () {
+      const messages = ProviderTransform.message(
+        [
+          { role: "user", content: "Audit the site" },
+          {
+            role: "assistant",
+            content: [
+              { type: "reasoning", text: "I should inspect the page." },
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "devtools_new_page",
+                input: { url: "https://example.test" },
+              },
+            ],
+          },
+        ] as ModelMessage[],
+        compatibleModel,
+        {},
+      )
+
+      const prepared = yield* LLMClient.prepare(
+        LLMNative.request({
+          model: compatibleModel,
+          apiKey: "test-key",
+          messages,
+          providerOptions: ProviderTransform.providerOptions(compatibleModel, {
+            reasoningEffort: "max",
+            textVerbosity: "low",
+            promptCacheKey: "session-1",
+            enable_thinking: true,
+          }),
+        }),
+      )
+
+      expect(prepared.body).toMatchObject({
+        model: "deepseek-v4-flash-free",
+        reasoning_effort: "max",
+        verbosity: "low",
+        prompt_cache_key: "session-1",
+        enable_thinking: true,
+        messages: [
+          { role: "user", content: "Audit the site" },
+          {
+            role: "assistant",
+            content: null,
+            reasoning_content: "I should inspect the page.",
+            tool_calls: [
+              {
+                id: "call-1",
+                type: "function",
+                function: {
+                  name: "devtools_new_page",
+                  arguments: '{"url":"https://example.test"}',
+                },
+              },
+            ],
+          },
+        ],
+      })
+    }),
+  )
 
   test("selects native request routes for provider packages", () => {
     const openai = LLMNative.model({

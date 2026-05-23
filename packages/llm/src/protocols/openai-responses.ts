@@ -19,6 +19,7 @@ import {
 } from "../schema"
 import { JsonObject, optionalArray, optionalNull, ProviderShared } from "./shared"
 import { OpenAIOptions } from "./utils/openai-options"
+import { ProviderOptions } from "./utils/provider-options"
 import { Lifecycle } from "./utils/lifecycle"
 import { ToolStream } from "./utils/tool-stream"
 
@@ -111,12 +112,23 @@ const OpenAIResponsesCoreFields = {
   tools: optionalArray(OpenAIResponsesTool),
   tool_choice: Schema.optional(OpenAIResponsesToolChoice),
   store: Schema.optional(Schema.Boolean),
+  conversation: Schema.optional(Schema.String),
+  max_tool_calls: Schema.optional(Schema.Number),
+  metadata: Schema.optional(JsonObject),
+  parallel_tool_calls: Schema.optional(Schema.Boolean),
+  previous_response_id: Schema.optional(Schema.String),
   prompt_cache_key: Schema.optional(Schema.String),
-  include: optionalArray(Schema.Literal("reasoning.encrypted_content")),
+  prompt_cache_retention: Schema.optional(Schema.String),
+  safety_identifier: Schema.optional(Schema.String),
+  service_tier: Schema.optional(Schema.String),
+  top_logprobs: Schema.optional(Schema.Number),
+  truncation: Schema.optional(Schema.String),
+  user: Schema.optional(Schema.String),
+  include: optionalArray(Schema.String),
   reasoning: Schema.optional(
     Schema.Struct({
       effort: Schema.optional(OpenAIOptions.OpenAIReasoningEffort),
-      summary: Schema.optional(Schema.Literal("auto")),
+      summary: Schema.optional(Schema.String),
     }),
   ),
   text: Schema.optional(
@@ -129,10 +141,15 @@ const OpenAIResponsesCoreFields = {
   top_p: Schema.optional(Schema.Number),
 }
 
-const OpenAIResponsesBody = Schema.Struct({
-  ...OpenAIResponsesCoreFields,
-  stream: Schema.Literal(true),
-})
+// Unknown provider options are passed through verbatim with their top-level
+// key snake-cased; the rest record validates them against any JSON value.
+const OpenAIResponsesBody = Schema.StructWithRest(
+  Schema.Struct({
+    ...OpenAIResponsesCoreFields,
+    stream: Schema.Literal(true),
+  }),
+  [Schema.Record(Schema.String, Schema.Any)],
+)
 export type OpenAIResponsesBody = Schema.Schema.Type<typeof OpenAIResponsesBody>
 
 const OpenAIResponsesWebSocketMessage = Schema.StructWithRest(
@@ -293,14 +310,15 @@ const lowerToolResultOutput = Effect.fn("OpenAIResponses.lowerToolResultOutput")
   // Text/json/error results are encoded as a plain string for backward
   // compatibility with existing cassettes and provider expectations.
   if (part.result.type !== "content") return ProviderShared.toolResultText(part)
-  return yield* Effect.forEach(part.result.value, lowerToolResultContentItem)
+  const items: ReadonlyArray<ToolResultContentPart> = part.result.value
+  return yield* Effect.forEach(items, lowerToolResultContentItem)
 })
 
 const lowerMessages = Effect.fn("OpenAIResponses.lowerMessages")(function* (request: LLMRequest) {
   const system: OpenAIResponsesInputItem[] =
     request.system.length === 0 ? [] : [{ role: "system", content: ProviderShared.joinText(request.system) }]
   const input: OpenAIResponsesInputItem[] = [...system]
-  const store = OpenAIOptions.store(request)
+  const store = OpenAIOptions.options(request).store
 
   for (const message of request.messages) {
     if (message.role === "user") {
@@ -355,25 +373,47 @@ const lowerMessages = Effect.fn("OpenAIResponses.lowerMessages")(function* (requ
   return input
 })
 
-const lowerOptions = Effect.fn("OpenAIResponses.lowerOptions")(function* (request: LLMRequest) {
-  const store = OpenAIOptions.store(request)
-  const promptCacheKey = OpenAIOptions.promptCacheKey(request)
-  const effort = OpenAIOptions.reasoningEffort(request)
-  if (effort && !OpenAIOptions.isReasoningEffort(effort))
-    return yield* invalid(`OpenAI Responses does not support reasoning effort ${effort}`)
-  const summary = OpenAIOptions.reasoningSummary(request)
-  const encryptedState = OpenAIOptions.encryptedReasoning(request)
-  const verbosity = OpenAIOptions.textVerbosity(request)
-  const instructions = OpenAIOptions.instructions(request)
+const lowerOptions = (request: LLMRequest) => {
+  const options = OpenAIOptions.options(request)
+  // OpenAI Responses does not accept the `max` reasoning effort variant.
+  const effort = OpenAIOptions.isReasoningEffort(options.reasoningEffort) ? options.reasoningEffort : undefined
+  const summary = options.reasoningSummary
+  const verbosity = options.textVerbosity
+  // `logprobs` is enabled only by `true` or a numeric top-N. `false` and
+  // `undefined` leave the request without the logprobs include + top_logprobs.
+  const logprobsEnabled = options.logprobs === true || typeof options.logprobs === "number"
+  const include = (() => {
+    const base = options.include ? [...options.include] : []
+    if (options.includeEncryptedReasoning && !base.includes("reasoning.encrypted_content")) {
+      base.push("reasoning.encrypted_content")
+    }
+    if (logprobsEnabled && !base.includes("message.output_text.logprobs")) {
+      base.push("message.output_text.logprobs")
+    }
+    return base.length > 0 ? base : undefined
+  })()
+  const topLogprobs = typeof options.logprobs === "number" ? options.logprobs : options.logprobs === true ? 20 : undefined
   return {
-    ...(instructions ? { instructions } : {}),
-    ...(store !== undefined ? { store } : {}),
-    ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
-    ...(encryptedState ? { include: ["reasoning.encrypted_content"] as const } : {}),
-    ...(effort || summary ? { reasoning: { effort, summary } } : {}),
-    ...(verbosity ? { text: { verbosity } } : {}),
+    ...ProviderOptions.passthrough(options, OpenAIOptions.KNOWN_KEYS),
+    ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
+    ...(options.store !== undefined ? { store: options.store } : {}),
+    ...(options.conversation !== undefined ? { conversation: options.conversation } : {}),
+    ...(options.maxToolCalls !== undefined ? { max_tool_calls: options.maxToolCalls } : {}),
+    ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
+    ...(options.parallelToolCalls !== undefined ? { parallel_tool_calls: options.parallelToolCalls } : {}),
+    ...(options.previousResponseId !== undefined ? { previous_response_id: options.previousResponseId } : {}),
+    ...(options.promptCacheKey !== undefined ? { prompt_cache_key: options.promptCacheKey } : {}),
+    ...(options.promptCacheRetention !== undefined ? { prompt_cache_retention: options.promptCacheRetention } : {}),
+    ...(options.safetyIdentifier !== undefined ? { safety_identifier: options.safetyIdentifier } : {}),
+    ...(options.serviceTier !== undefined ? { service_tier: options.serviceTier } : {}),
+    ...(topLogprobs !== undefined ? { top_logprobs: topLogprobs } : {}),
+    ...(options.truncation !== undefined ? { truncation: options.truncation } : {}),
+    ...(options.user !== undefined ? { user: options.user } : {}),
+    ...(include ? { include } : {}),
+    ...(effort !== undefined || summary !== undefined ? { reasoning: { effort, summary } } : {}),
+    ...(verbosity !== undefined ? { text: { verbosity } } : {}),
   }
-})
+}
 
 const fromRequest = Effect.fn("OpenAIResponses.fromRequest")(function* (request: LLMRequest) {
   const generation = request.generation
@@ -386,7 +426,7 @@ const fromRequest = Effect.fn("OpenAIResponses.fromRequest")(function* (request:
     max_output_tokens: generation?.maxTokens,
     temperature: generation?.temperature,
     top_p: generation?.topP,
-    ...(yield* lowerOptions(request)),
+    ...lowerOptions(request),
   }
 })
 

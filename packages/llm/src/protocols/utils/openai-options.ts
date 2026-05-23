@@ -1,60 +1,73 @@
 import { Schema } from "effect"
-import type { LLMRequest, ReasoningEffort, TextVerbosity as TextVerbosityValue } from "../../schema"
-import { ReasoningEfforts, TextVerbosity } from "../../schema"
+import type { LLMRequest } from "../../schema"
+import { ReasoningEfforts, TextVerbosity, type ReasoningEffort } from "../../schema"
+import { ProviderOptions } from "./provider-options"
 
 export const OpenAIReasoningEfforts = ReasoningEfforts.filter(
   (effort): effort is Exclude<ReasoningEffort, "max"> => effort !== "max",
 )
 export type OpenAIReasoningEffort = (typeof OpenAIReasoningEfforts)[number]
 
-const REASONING_EFFORTS = new Set<string>(ReasoningEfforts)
 const OPENAI_REASONING_EFFORTS = new Set<string>(OpenAIReasoningEfforts)
-const TEXT_VERBOSITY = new Set<string>(["low", "medium", "high"])
 
 export const OpenAIReasoningEffort = Schema.Literals(OpenAIReasoningEfforts)
 export const OpenAITextVerbosity = TextVerbosity
 
-const isAnyReasoningEffort = (effort: unknown): effort is ReasoningEffort =>
-  typeof effort === "string" && REASONING_EFFORTS.has(effort)
-
 export const isReasoningEffort = (effort: unknown): effort is OpenAIReasoningEffort =>
   typeof effort === "string" && OPENAI_REASONING_EFFORTS.has(effort)
 
-const isTextVerbosity = (value: unknown): value is TextVerbosityValue =>
-  typeof value === "string" && TEXT_VERBOSITY.has(value)
-
-const options = (request: LLMRequest) => request.providerOptions?.openai
-
-export const store = (request: LLMRequest): boolean | undefined => {
-  const value = options(request)?.store
-  return typeof value === "boolean" ? value : undefined
+// Typed AI SDK OpenAI options. Mirrors the camelCase surface AI SDK accepts.
+// Known keys are typed; everything else passes through to the wire body with
+// its top-level key snake-cased.
+export interface Options {
+  readonly store?: boolean
+  readonly promptCacheKey?: string
+  readonly promptCacheRetention?: string
+  readonly reasoningEffort?: ReasoningEffort
+  readonly reasoningSummary?: string
+  readonly textVerbosity?: "low" | "medium" | "high"
+  readonly include?: ReadonlyArray<string>
+  readonly includeEncryptedReasoning?: boolean
+  readonly instructions?: string
+  readonly conversation?: string
+  readonly maxToolCalls?: number
+  readonly metadata?: Record<string, unknown>
+  readonly parallelToolCalls?: boolean
+  readonly previousResponseId?: string
+  readonly safetyIdentifier?: string
+  readonly serviceTier?: string
+  readonly logprobs?: boolean | number
+  readonly truncation?: string
+  readonly user?: string
+  readonly [extra: string]: unknown
 }
 
-export const reasoningEffort = (request: LLMRequest): ReasoningEffort | undefined => {
-  const value = options(request)?.reasoningEffort
-  return isAnyReasoningEffort(value) ? value : undefined
-}
+export const KNOWN_KEYS: ReadonlySet<string> = new Set([
+  "store",
+  "promptCacheKey",
+  "promptCacheRetention",
+  "reasoningEffort",
+  "reasoningSummary",
+  "textVerbosity",
+  "include",
+  "includeEncryptedReasoning",
+  "instructions",
+  "conversation",
+  "maxToolCalls",
+  "metadata",
+  "parallelToolCalls",
+  "previousResponseId",
+  "safetyIdentifier",
+  "serviceTier",
+  "logprobs",
+  "truncation",
+  "user",
+])
 
-export const reasoningSummary = (request: LLMRequest): "auto" | undefined => {
-  return options(request)?.reasoningSummary === "auto" ? "auto" : undefined
-}
-
-export const encryptedReasoning = (request: LLMRequest) =>
-  options(request)?.includeEncryptedReasoning === true ? true : undefined
-
-export const promptCacheKey = (request: LLMRequest) => {
-  const value = options(request)?.promptCacheKey
-  return typeof value === "string" ? value : undefined
-}
-
-export const textVerbosity = (request: LLMRequest) => {
-  const value = options(request)?.textVerbosity
-  return isTextVerbosity(value) ? value : undefined
-}
-
-export const instructions = (request: LLMRequest) => {
-  const value = options(request)?.instructions
-  return typeof value === "string" ? value : undefined
-}
+// Read the merged `openai` provider option bag. Producers
+// (`packages/opencode/src/provider/transform.ts`) emit typed values; we widen
+// only the index signature so passthrough keys remain reachable. Invalid
+// shapes surface in the lowerer where they're consumed, not at decode time.
+export const options = (request: LLMRequest): Options => ProviderOptions.merge(request, ["openai"]) as Options
 
 export * as OpenAIOptions from "./openai-options"

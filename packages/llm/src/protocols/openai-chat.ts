@@ -15,6 +15,7 @@ import {
 } from "../schema"
 import { isRecord, JsonObject, optionalArray, optionalNull, ProviderShared } from "./shared"
 import { OpenAIOptions } from "./utils/openai-options"
+import { ProviderOptions } from "./utils/provider-options"
 import { Lifecycle } from "./utils/lifecycle"
 import { ToolStream } from "./utils/tool-stream"
 
@@ -50,6 +51,10 @@ const OpenAIChatAssistantToolCall = Schema.Struct({
 })
 type OpenAIChatAssistantToolCall = Schema.Schema.Type<typeof OpenAIChatAssistantToolCall>
 
+// `reasoning_content` is a plain string per DeepSeek/OpenAI-compatible spec.
+// `reasoning_details` is an OpenRouter-style array of typed reasoning objects
+// (summary / encrypted / text). We accept the structured payload as-is so it
+// round-trips verbatim to the provider on continuation requests.
 const OpenAIChatMessage = Schema.Union([
   Schema.Struct({ role: Schema.Literal("system"), content: Schema.String }),
   Schema.Struct({ role: Schema.Literal("user"), content: Schema.String }),
@@ -58,6 +63,7 @@ const OpenAIChatMessage = Schema.Union([
     content: Schema.NullOr(Schema.String),
     tool_calls: optionalArray(OpenAIChatAssistantToolCall),
     reasoning_content: Schema.optional(Schema.String),
+    reasoning_details: Schema.optional(Schema.Array(Schema.Record(Schema.String, Schema.Unknown))),
   }),
   Schema.Struct({ role: Schema.Literal("tool"), tool_call_id: Schema.String, content: Schema.String }),
 ]).pipe(Schema.toTaggedUnion("role"))
@@ -79,7 +85,7 @@ export const bodyFields = {
   stream: Schema.Literal(true),
   stream_options: Schema.optional(Schema.Struct({ include_usage: Schema.Boolean })),
   store: Schema.optional(Schema.Boolean),
-  reasoning_effort: Schema.optional(OpenAIOptions.OpenAIReasoningEffort),
+  reasoning_effort: Schema.optional(Schema.String),
   max_tokens: Schema.optional(Schema.Number),
   temperature: Schema.optional(Schema.Number),
   top_p: Schema.optional(Schema.Number),
@@ -88,7 +94,7 @@ export const bodyFields = {
   seed: Schema.optional(Schema.Number),
   stop: optionalArray(Schema.String),
 }
-const OpenAIChatBody = Schema.Struct(bodyFields)
+const OpenAIChatBody = Schema.StructWithRest(Schema.Struct(bodyFields), [Schema.Record(Schema.String, Schema.Any)])
 export type OpenAIChatBody = Schema.Schema.Type<typeof OpenAIChatBody>
 
 // =============================================================================
@@ -125,9 +131,16 @@ const OpenAIChatToolCallDelta = Schema.Struct({
 })
 type OpenAIChatToolCallDelta = Schema.Schema.Type<typeof OpenAIChatToolCallDelta>
 
+// Streaming reasoning fields. `reasoning_content` (DeepSeek) and `reasoning`
+// (AI SDK fallback) are strings; `reasoning_details` (OpenRouter) is an array
+// of typed reasoning detail objects. We surface their plaintext via reasoning
+// deltas and preserve the structured array for downstream round-trip.
+const OpenAIChatReasoningDetail = Schema.Record(Schema.String, Schema.Unknown)
 const OpenAIChatDelta = Schema.Struct({
   content: optionalNull(Schema.String),
   reasoning_content: optionalNull(Schema.String),
+  reasoning: optionalNull(Schema.String),
+  reasoning_details: optionalNull(Schema.Array(OpenAIChatReasoningDetail)),
   tool_calls: optionalNull(Schema.Array(OpenAIChatToolCallDelta)),
 })
 
@@ -188,6 +201,16 @@ const lowerToolCall = (part: ToolCallPart): OpenAIChatAssistantToolCall => ({
 const openAICompatibleReasoningContent = (native: unknown) =>
   isRecord(native) && typeof native.reasoning_content === "string" ? native.reasoning_content : undefined
 
+// `reasoning_details` rounds-trips the OpenRouter structured array. Accept the
+// array shape as canonical; tolerate a string for legacy callers that already
+// flattened it.
+const openAICompatibleReasoningDetails = (native: unknown) => {
+  if (!isRecord(native)) return undefined
+  const value = native.reasoning_details
+  if (Array.isArray(value)) return value as ReadonlyArray<Record<string, unknown>>
+  return undefined
+}
+
 const lowerUserMessage = Effect.fn("OpenAIChat.lowerUserMessage")(function* (message: OpenAIChatRequestMessage) {
   const content: TextPart[] = []
   for (const part of message.content) {
@@ -220,6 +243,7 @@ const lowerAssistantMessage = Effect.fn("OpenAIChat.lowerAssistantMessage")(func
     content: content.length === 0 ? null : ProviderShared.joinText(content),
     tool_calls: toolCalls.length === 0 ? undefined : toolCalls,
     reasoning_content: openAICompatibleReasoningContent(message.native?.openaiCompatible),
+    reasoning_details: openAICompatibleReasoningDetails(message.native?.openaiCompatible),
   }
 })
 
@@ -246,13 +270,14 @@ const lowerMessages = Effect.fn("OpenAIChat.lowerMessages")(function* (request: 
 })
 
 const lowerOptions = Effect.fn("OpenAIChat.lowerOptions")(function* (request: LLMRequest) {
-  const store = OpenAIOptions.store(request)
-  const reasoningEffort = OpenAIOptions.reasoningEffort(request)
-  if (reasoningEffort && !OpenAIOptions.isReasoningEffort(reasoningEffort))
-    return yield* invalid(`OpenAI Chat does not support reasoning effort ${reasoningEffort}`)
+  const options = OpenAIOptions.options(request)
+  const effort = options.reasoningEffort
+  if (effort !== undefined && !OpenAIOptions.isReasoningEffort(effort))
+    return yield* invalid(`OpenAI Chat does not support reasoning effort ${effort}`)
   return {
-    ...(store !== undefined ? { store } : {}),
-    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    ...ProviderOptions.passthrough(options, OpenAIOptions.KNOWN_KEYS),
+    ...(options.store !== undefined ? { store: options.store } : {}),
+    ...(effort !== undefined ? { reasoning_effort: effort } : {}),
   }
 })
 
@@ -325,8 +350,15 @@ const step = (state: ParserState, event: OpenAIChatEvent) =>
 
     let lifecycle = state.lifecycle
 
-    if (delta?.reasoning_content)
-      lifecycle = Lifecycle.reasoningDelta(lifecycle, events, "reasoning-0", delta.reasoning_content)
+    // OpenRouter-style `reasoning_details` ships an array of typed reasoning
+    // objects (summary / text / encrypted). Concatenate the plaintext fields
+    // into the reasoning delta stream; the structured array is preserved on
+    // the assistant message for round-trip via `providerMetadata`.
+    const detailText = (delta?.reasoning_details ?? [])
+      .map((detail) => (typeof detail.text === "string" ? detail.text : typeof detail.summary === "string" ? detail.summary : ""))
+      .join("")
+    const reasoning = delta?.reasoning_content ?? delta?.reasoning ?? (detailText.length > 0 ? detailText : undefined)
+    if (reasoning) lifecycle = Lifecycle.reasoningDelta(lifecycle, events, "reasoning-0", reasoning)
 
     if (delta?.content) lifecycle = Lifecycle.textDelta(lifecycle, events, "text-0", delta.content)
 

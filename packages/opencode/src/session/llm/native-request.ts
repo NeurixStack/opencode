@@ -110,7 +110,9 @@ const messages = (input: readonly ModelMessage[]) => {
       Message.make({
         role: message.role,
         content: content(message.content),
-        native: isRecord(message.providerOptions) ? { providerOptions: message.providerOptions } : undefined,
+        // Message provider options are already provider-native wire metadata
+        // (for example DeepSeek's reasoning_content continuation field).
+        native: isRecord(message.providerOptions) ? message.providerOptions : undefined,
       }),
     ]
   })

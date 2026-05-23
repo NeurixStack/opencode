@@ -6,7 +6,7 @@ import { Auth, LLMClient } from "../../src/route"
 import * as OpenAICompatible from "../../src/providers/openai-compatible"
 import * as OpenAICompatibleChat from "../../src/protocols/openai-compatible-chat"
 import { it } from "../lib/effect"
-import { dynamicResponse } from "../lib/http"
+import { dynamicResponse, fixedResponse } from "../lib/http"
 import { sseEvents } from "../lib/sse"
 
 const Json = Schema.fromJsonString(Schema.Unknown)
@@ -196,6 +196,134 @@ describe("OpenAI-compatible Chat route", () => {
         stream: true,
         stream_options: { include_usage: true },
       })
+    }),
+  )
+
+  it.effect("passes through compatible options and prior reasoning for tool continuations", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.request({
+          model,
+          providerOptions: {
+            deepseek: {
+              reasoningEffort: "max",
+              textVerbosity: "low",
+              promptCacheKey: "session_123",
+              strictJsonSchema: false,
+              enable_thinking: true,
+            },
+          },
+          messages: [
+            Message.user("Audit the site"),
+            Message.make({
+              role: "assistant",
+              native: { openaiCompatible: { reasoning_content: "I should inspect the page." } },
+              content: [ToolCallPart.make({ id: "call_1", name: "lookup", input: { query: "page" } })],
+            }),
+          ],
+        }),
+      )
+
+      expect(prepared.body).toMatchObject({
+        reasoning_effort: "max",
+        verbosity: "low",
+        prompt_cache_key: "session_123",
+        enable_thinking: true,
+        messages: [
+          { role: "user", content: "Audit the site" },
+          {
+            role: "assistant",
+            reasoning_content: "I should inspect the page.",
+            tool_calls: [
+              {
+                id: "call_1",
+                function: { name: "lookup", arguments: '{"query":"page"}' },
+              },
+            ],
+          },
+        ],
+      })
+      expect(prepared.body).not.toHaveProperty("strictJsonSchema")
+    }),
+  )
+
+  it.effect("preserves structured reasoning_details on compatible continuations", () =>
+    Effect.gen(function* () {
+      const details = [
+        { type: "reasoning.text", text: "Let me work through this.", format: "anthropic-claude-v1", index: 0 },
+        { type: "reasoning.encrypted", data: "sha256:abc123", format: "anthropic-claude-v1", index: 1 },
+      ]
+      const prepared = yield* LLMClient.prepare(
+        LLM.request({
+          model,
+          messages: [
+            Message.make({
+              role: "assistant",
+              native: { openaiCompatible: { reasoning_details: details } },
+              content: [ToolCallPart.make({ id: "call_1", name: "lookup", input: {} })],
+            }),
+          ],
+        }),
+      )
+
+      expect(prepared.body).toMatchObject({
+        messages: [{ role: "assistant", reasoning_details: details }],
+      })
+    }),
+  )
+
+  it.effect("resolves dot-scoped compatible provider options", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.request({
+          model: OpenAICompatibleChat.route
+            .with({ provider: "opencode.internal", endpoint: { baseURL: "https://api.example.test/v1" } })
+            .model({ id: "reasoning-model" }),
+          prompt: "Think.",
+          providerOptions: { opencode: { reasoningEffort: "max", enable_thinking: true } },
+        }),
+      )
+
+      expect(prepared.body).toMatchObject({ reasoning_effort: "max", enable_thinking: true })
+    }),
+  )
+
+  it.effect("does not apply OpenAI effort limits to compatible providers", () =>
+    Effect.gen(function* () {
+      const prepared = yield* LLMClient.prepare(
+        LLM.request({
+          model: OpenAICompatibleChat.route
+            .with({ provider: "openai", endpoint: { baseURL: "https://compatible.example.test/v1" } })
+            .model({ id: "reasoning-model" }),
+          prompt: "Think.",
+          providerOptions: { openai: { reasoningEffort: "max" } },
+        }),
+      )
+
+      expect(prepared.body).toMatchObject({ reasoning_effort: "max" })
+    }),
+  )
+
+  it.effect("parses compatible reasoning field variants", () =>
+    Effect.gen(function* () {
+      const response = yield* LLMClient.generate(request).pipe(
+        Effect.provide(
+          fixedResponse(
+            sseEvents(
+              deltaChunk({ reasoning: "fallback" }),
+              deltaChunk({
+                reasoning_details: [
+                  { type: "reasoning.text", text: " text-detail", format: "anthropic-claude-v1", index: 0 },
+                  { type: "reasoning.summary", summary: " summary-detail", format: "anthropic-claude-v1", index: 1 },
+                ],
+              }),
+              deltaChunk({}, "stop"),
+            ),
+          ),
+        ),
+      )
+
+      expect(response.reasoning).toBe("fallback text-detail summary-detail")
     }),
   )
 
