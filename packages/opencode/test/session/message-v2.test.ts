@@ -1509,6 +1509,37 @@ describe("session.message-v2.fromError", () => {
     })
   })
 
+  test("explains ADC requirements when Vertex Anthropic credentials are missing", () => {
+    const vertexAnthropicModel = {
+      ...model,
+      providerID: ProviderID.googleVertex,
+      api: { ...model.api, npm: "@ai-sdk/google-vertex/anthropic" },
+    }
+    const result = MessageV2.fromError(
+      new Error(
+        "Could not load the default credentials. Browse to https://cloud.google.com/docs/authentication/getting-started for more information.",
+      ),
+      { model: vertexAnthropicModel },
+    )
+
+    expect(result).toStrictEqual({
+      name: "ProviderAuthError",
+      data: {
+        providerID: "google-vertex",
+        message:
+          "Anthropic models on Google Vertex require Google Cloud credentials. Use `gcloud auth application-default login` or set `GOOGLE_APPLICATION_CREDENTIALS`.",
+      },
+    })
+  })
+
+  test("does not present Anthropic ADC guidance for Gemini Vertex credentials errors", () => {
+    const result = MessageV2.fromError(new Error("Could not load the default credentials."), {
+      model: { ...model, providerID: ProviderID.googleVertex, api: { ...model.api, npm: "@ai-sdk/google-vertex" } },
+    })
+
+    expect(result.name).toBe("UnknownError")
+  })
+
   test("serializes tagged errors with their message", () => {
     const result = MessageV2.fromError(new Question.RejectedError(), { providerID })
 

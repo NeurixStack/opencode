@@ -460,6 +460,13 @@ export const ProvidersLoginCommand = effectCmd({
       )
     }
 
+    if (provider === "google-vertex") {
+      yield* Prompt.log.info(
+        "Note: this API key cannot be used with Anthropic models.\n" +
+          "Use `gcloud auth application-default login` or set `GOOGLE_APPLICATION_CREDENTIALS`.",
+      )
+    }
+
     if (provider === "opencode") {
       yield* Prompt.log.info("Create an api key at https://opencode.ai/auth")
     }

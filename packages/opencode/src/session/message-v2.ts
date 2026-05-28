@@ -1095,8 +1095,9 @@ export function latest(msgs: WithParts[]) {
 
 export function fromError(
   e: unknown,
-  ctx: { providerID: ProviderID; aborted?: boolean },
+  ctx: { model: Provider.Model; aborted?: boolean } | { providerID: ProviderID; aborted?: boolean },
 ): NonNullable<Assistant["error"]> {
+  const providerID = "model" in ctx ? ctx.model.providerID : ctx.providerID
   switch (true) {
     case e instanceof DOMException && e.name === "AbortError":
       return new AbortedError(
@@ -1110,8 +1111,20 @@ export function fromError(
     case LoadAPIKeyError.isInstance(e):
       return new AuthError(
         {
-          providerID: ctx.providerID,
+          providerID,
           message: e.message,
+        },
+        { cause: e },
+      ).toObject()
+    case e instanceof Error &&
+      "model" in ctx &&
+      ctx.model.api.npm === "@ai-sdk/google-vertex/anthropic" &&
+      e.message.includes("Could not load the default credentials"):
+      return new AuthError(
+        {
+          providerID,
+          message:
+            "Anthropic models on Google Vertex require Google Cloud credentials. Use `gcloud auth application-default login` or set `GOOGLE_APPLICATION_CREDENTIALS`.",
         },
         { cause: e },
       ).toObject()
@@ -1157,7 +1170,7 @@ export function fromError(
       ).toObject()
     case APICallError.isInstance(e):
       const parsed = ProviderError.parseAPICallError({
-        providerID: ctx.providerID,
+        providerID,
         error: e,
       })
       if (parsed.type === "context_overflow") {

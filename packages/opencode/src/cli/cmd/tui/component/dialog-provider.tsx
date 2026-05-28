@@ -384,6 +384,15 @@ function ApiMethod(props: ApiMethodProps) {
               </text>
             </box>
           ),
+          "google-vertex": (
+            <box gap={1}>
+              <text fg={theme.warning}>Note: this API key cannot be used with Anthropic models.</text>
+              <text fg={theme.textMuted}>
+                Use <span style={{ fg: theme.text }}>gcloud auth application-default login</span> or set
+                GOOGLE_APPLICATION_CREDENTIALS.
+              </text>
+            </box>
+          ),
         }[props.providerID] ?? undefined
       }
       onConfirm={async (value) => {

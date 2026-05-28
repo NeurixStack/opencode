@@ -124,7 +124,7 @@ export const layer = Layer.effect(
 
       const parse = (e: unknown) =>
         MessageV2.fromError(e, {
-          providerID: input.model.providerID,
+          model: input.model,
           aborted,
         })
 
