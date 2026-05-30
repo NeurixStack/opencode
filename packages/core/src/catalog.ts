@@ -8,7 +8,7 @@ import { ProviderV2 } from "./provider"
 import { Location } from "./location"
 import { EventV2 } from "./event"
 import { Policy } from "./policy"
-import { TransformState } from "./transform-state"
+import { State } from "./state"
 
 export type ProviderRecord = {
   provider: ProviderV2.Info
@@ -40,7 +40,7 @@ export const Event = {
   }),
 }
 
-type State = {
+type Data = {
   providers: Map<ProviderV2.ID, ProviderRecord>
   defaultModel?: DefaultModel
 }
@@ -64,7 +64,7 @@ export type Editor = {
 }
 
 export interface Interface {
-  readonly transform: () => Effect.Effect<TransformState.SetTransform<Editor>, never, Scope.Scope>
+  readonly transform: State.Interface<Data, Editor>["transform"]
   readonly provider: {
     readonly get: (providerID: ProviderV2.ID) => Effect.Effect<ProviderV2.Info, ProviderNotFoundError>
     readonly all: () => Effect.Effect<ProviderV2.Info[]>
@@ -96,8 +96,7 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
 
     const resolve = (model: ModelV2.Info) => {
-      const state = transformed.get()
-      const provider = state.providers.get(model.providerID)!.provider
+      const provider = state.get().providers.get(model.providerID)!.provider
       const endpoint =
         model.endpoint.type === "unknown"
           ? provider.endpoint
@@ -130,8 +129,7 @@ export const layer = Layer.effect(
     }
 
     function* getRecord(providerID: ProviderV2.ID) {
-      const state = transformed.get()
-      const match = state.providers.get(providerID)
+      const match = state.get().providers.get(providerID)
       if (!match) return yield* new ProviderNotFoundError({ providerID })
       return match
     }
@@ -142,13 +140,12 @@ export const layer = Layer.effect(
       delete item.options.aisdk.provider.baseURL
     }
 
-    const transformed = TransformState.create<State, Editor>({
+    const state = State.create<Data, Editor>({
       initial: () => ({ providers: new Map() }),
       editor: (draft) => {
-        const data = globalThis.Array.from(draft.providers.values()) as ProviderRecord[]
         const result: Editor = {
           provider: {
-            list: () => data,
+            list: () => globalThis.Array.from(draft.providers.values()) as ProviderRecord[],
             get: (providerID) => draft.providers.get(providerID),
             update: (providerID, fn) => {
               let current = draft.providers.get(providerID)
@@ -158,15 +155,12 @@ export const layer = Layer.effect(
                   models: new Map<ModelV2.ID, ModelV2.Info>(),
                 })
                 draft.providers.set(providerID, current)
-                data.push(current)
               }
               fn(current.provider)
               normalizeEndpoint(current.provider)
             },
             remove: (providerID) => {
               draft.providers.delete(providerID)
-              const index = data.findIndex((item) => item.provider.id === providerID)
-              if (index !== -1) data.splice(index, 1)
             },
           },
           model: {
@@ -194,8 +188,8 @@ export const layer = Layer.effect(
         }
         return result
       },
-      rebuild: (catalog) => plugin.trigger("catalog.transform", catalog, {}).pipe(Effect.asVoid),
-      finalize: Effect.fn("CatalogV2.applyPolicy")(function* (catalog) {
+      finalize: Effect.fn("CatalogV2.finalize")(function* (catalog, reason) {
+        if (reason !== "plugin.added") yield* plugin.trigger("catalog.transform", catalog, {}).pipe(Effect.asVoid)
         for (const record of [...catalog.provider.list()]) {
           if ((yield* policy.evaluate("provider.use", record.provider.id, "allow")) === "deny") {
             catalog.provider.remove(record.provider.id)
@@ -206,15 +200,13 @@ export const layer = Layer.effect(
 
     yield* events.subscribe(PluginV2.Event.Added).pipe(
       Stream.runForEach((event) =>
-        transformed.update((catalog) =>
-          plugin.triggerFor(event.data.id, "catalog.transform", catalog, {}).pipe(Effect.asVoid),
-        ),
+        state.update((catalog) => plugin.triggerFor(event.data.id, "catalog.transform", catalog, {}), "plugin.added"),
       ),
       Effect.forkIn(scope, { startImmediately: true }),
     )
 
     const result: Interface = {
-      transform: transformed.transform,
+      transform: state.transform,
 
       provider: {
         get: Effect.fn("CatalogV2.provider.get")(function* (providerID) {
@@ -223,11 +215,11 @@ export const layer = Layer.effect(
         }),
 
         all: Effect.fn("CatalogV2.provider.all")(function* () {
-          return globalThis.Array.from(transformed.get().providers.values()).map((record) => record.provider)
+          return globalThis.Array.from(state.get().providers.values()).map((record) => record.provider)
         }),
 
         available: Effect.fn("CatalogV2.provider.available")(function* () {
-          return globalThis.Array.from(transformed.get().providers.values())
+          return globalThis.Array.from(state.get().providers.values())
             .map((record) => record.provider)
             .filter((provider) => provider.enabled)
         }),
@@ -243,7 +235,7 @@ export const layer = Layer.effect(
 
         all: Effect.fn("CatalogV2.model.all")(function* () {
           return pipe(
-            globalThis.Array.from(transformed.get().providers.values()),
+            globalThis.Array.from(state.get().providers.values()),
             Array.flatMap((record) => globalThis.Array.from(record.models.values())),
             Array.map(resolve),
             Array.sortWith((item) => item.time.released.epochMilliseconds, Order.flip(Order.Number)),
@@ -252,13 +244,13 @@ export const layer = Layer.effect(
 
         available: Effect.fn("CatalogV2.model.available")(function* () {
           return (yield* result.model.all()).filter((model) => {
-            const record = transformed.get().providers.get(model.providerID)
+            const record = state.get().providers.get(model.providerID)
             return record?.provider.enabled !== false && model.enabled
           })
         }),
 
         default: Effect.fn("CatalogV2.model.default")(function* () {
-          const defaultModel = transformed.get().defaultModel
+          const defaultModel = state.get().defaultModel
           if (defaultModel) {
             const model = yield* result.model.get(defaultModel.providerID, defaultModel.modelID).pipe(Effect.option)
             if (Option.isSome(model) && model.value.enabled) return model
@@ -272,7 +264,7 @@ export const layer = Layer.effect(
         }),
 
         small: Effect.fn("CatalogV2.model.small")(function* (providerID) {
-          const record = transformed.get().providers.get(providerID)
+          const record = state.get().providers.get(providerID)
           if (!record) return Option.none<ModelV2.Info>()
 
           if (providerID === ProviderV2.ID.opencode) {
