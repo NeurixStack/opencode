@@ -1,4 +1,4 @@
-import { cmd } from "./cmd"
+import { cmd, type WithDoubleDash } from "./cmd"
 import { effectCmd, fail } from "../effect-cmd"
 import { Cause } from "effect"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -56,8 +56,6 @@ function isMcpRemote(config: McpEntry): config is McpRemote {
 }
 
 type McpAddArgs = {
-  _?: Array<string | number>
-  "--"?: string[]
   name?: string
   args?: string[]
   type?: "local" | "remote"
@@ -65,6 +63,7 @@ type McpAddArgs = {
   header?: string[]
   global?: boolean
 }
+type McpAddYargs = WithDoubleDash<McpAddArgs> & { _?: Array<string | number> }
 
 function configuredServers(config: Config.Info) {
   return Object.entries(config.mcp ?? {}).filter((entry): entry is [string, McpConfigured] => isMcpConfigured(entry[1]))
@@ -665,11 +664,13 @@ Examples:
 })
 
 function mcpAddArgs(input: McpAddArgs) {
-  const addIndex = input._?.lastIndexOf("add") ?? -1
+  // For nested variadic commands, yargs puts tokens after `--` in `_` instead of the positional array.
+  const raw = input as McpAddYargs
+  const addIndex = raw._?.lastIndexOf("add") ?? -1
   return [
     ...(input.args ?? []),
-    ...(addIndex === -1 || !input._ ? [] : input._.slice(addIndex + 1).map(String)),
-    ...(input["--"] ?? []),
+    ...(addIndex === -1 || !raw._ ? [] : raw._.slice(addIndex + 1).map(String)),
+    ...(raw["--"] ?? []),
   ]
 }
 
