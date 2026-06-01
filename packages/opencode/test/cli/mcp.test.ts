@@ -39,12 +39,13 @@ describe("opencode mcp", () => {
           "mcp",
           "add",
           "everything",
-          "npx",
-          "-y",
-          "@modelcontextprotocol/server-everything",
           "--env",
           "FOO=bar",
           "--global",
+          "--",
+          "npx",
+          "-y",
+          "@modelcontextprotocol/server-everything",
         ])
         opencode.expectExit(local, 0, "opencode mcp add local")
 

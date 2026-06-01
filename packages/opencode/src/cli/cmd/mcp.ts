@@ -59,7 +59,7 @@ type McpAddArgs = {
   _?: Array<string | number>
   "--"?: string[]
   name?: string
-  urlOrCommand?: string[]
+  args?: string[]
   type?: "local" | "remote"
   env?: string[]
   header?: string[]
@@ -456,7 +456,7 @@ async function addMcpToConfig(name: string, mcpConfig: ConfigMCP.Info, configPat
 }
 
 export const McpAddCommand = effectCmd({
-  command: "add [name] [urlOrCommand..]",
+  command: "add [name] [args..]",
   describe: "add an MCP server",
   builder: (yargs) =>
     yargs
@@ -465,8 +465,8 @@ export const McpAddCommand = effectCmd({
         describe: "name of the MCP server",
         type: "string",
       })
-      .positional("urlOrCommand", {
-        describe: "URL for remote servers or command for local servers",
+      .positional("args", {
+        describe: "URL for remote servers or command and arguments for local servers",
         type: "string",
         array: true,
         default: [],
@@ -527,15 +527,27 @@ export const McpAddCommand = effectCmd({
       .option("oauth-redirect-uri", {
         describe: "OAuth redirect URI for remote servers",
         type: "string",
-      }),
-  handler: Effect.fn("Cli.mcp.add")(function* (args: McpAddArgs) {
+      }).epilogue(`Usage:
+  opencode mcp add <name> -- <command> [args...]                 (local MCP server)
+  opencode mcp add <name> --env KEY=VALUE -- <command> [args...] (local MCP server with env vars)
+  opencode mcp add <name> <url>                                  (remote MCP server)
+  opencode mcp add <name> --header KEY=VALUE <url>               (remote MCP server with headers)
+  opencode mcp add <name> --scope project -- <command> [args...] (save to project config)
+
+Examples:
+  opencode mcp add context7 -- npx -y @upstash/context7-mcp
+  opencode mcp add local-env --env FOO=bar -- node server.js
+  opencode mcp add sg --header Authorization=token https://sg.example/mcp
+  opencode mcp add hugging-face https://huggingface.co/mcp`),
+  handler: Effect.fn("Cli.mcp.add")(function* (input: McpAddArgs) {
     const maybeCtx = yield* InstanceRef
     if (!maybeCtx) return yield* Effect.die("InstanceRef not provided")
     const ctx = maybeCtx
-    const urlOrCommand = mcpAddUrlOrCommand(args)
-    const inlineConfig = parseInlineMcpAdd(args, urlOrCommand)
+    const inlineArgs = mcpAddArgs(input)
+    const inlineConfig = parseInlineMcpAdd(input, inlineArgs)
     if (inlineConfig && "error" in inlineConfig) return yield* fail(inlineConfig.error)
-    if (args.global && args.scope === "project") return yield* fail("--global cannot be combined with --scope project")
+    if (input.global && input.scope === "project")
+      return yield* fail("--global cannot be combined with --scope project")
     yield* Effect.promise(async () => {
       UI.empty()
       prompts.intro("Add MCP server")
@@ -548,8 +560,8 @@ export const McpAddCommand = effectCmd({
       ])
 
       const configPath = await (async () => {
-        if (args.global || args.scope === "global") return globalConfigPath
-        if (args.scope === "project") return projectConfigPath
+        if (input.global || input.scope === "global") return globalConfigPath
+        if (input.scope === "project") return projectConfigPath
         if (inlineConfig) return project.vcs === "git" ? projectConfigPath : globalConfigPath
         if (project.vcs !== "git") return globalConfigPath
         const scopeResult = await prompts.select({
@@ -572,8 +584,8 @@ export const McpAddCommand = effectCmd({
       })()
 
       if (inlineConfig) {
-        await addMcpToConfig(args.name!.trim(), inlineConfig.config, configPath)
-        prompts.log.success(`MCP server "${args.name!.trim()}" added to ${configPath}`)
+        await addMcpToConfig(input.name!.trim(), inlineConfig.config, configPath)
+        prompts.log.success(`MCP server "${input.name!.trim()}" added to ${configPath}`)
         prompts.outro("MCP server added successfully")
         return
       }
@@ -701,47 +713,47 @@ export const McpAddCommand = effectCmd({
   }),
 })
 
-function mcpAddUrlOrCommand(args: McpAddArgs) {
-  const addIndex = args._?.lastIndexOf("add") ?? -1
+function mcpAddArgs(input: McpAddArgs) {
+  const addIndex = input._?.lastIndexOf("add") ?? -1
   return [
-    ...(args.urlOrCommand ?? []),
-    ...(addIndex === -1 || !args._ ? [] : args._.slice(addIndex + 1).map(String)),
-    ...(args["--"] ?? []),
+    ...(input.args ?? []),
+    ...(addIndex === -1 || !input._ ? [] : input._.slice(addIndex + 1).map(String)),
+    ...(input["--"] ?? []),
   ]
 }
 
 function parseInlineMcpAdd(
-  args: McpAddArgs,
-  urlOrCommand: string[],
+  input: McpAddArgs,
+  inlineArgs: string[],
 ): { config: ConfigMCP.Info } | { error: string } | undefined {
-  if (!hasInlineMcpAdd(args, urlOrCommand)) return undefined
-  const name = args.name?.trim()
+  if (!hasInlineMcpAdd(input, inlineArgs)) return undefined
+  const name = input.name?.trim()
   if (!name) return { error: "MCP server name is required" }
-  if (urlOrCommand.length === 0) return { error: "URL or command is required" }
-  if (args.timeout !== undefined && (!Number.isInteger(args.timeout) || args.timeout <= 0)) {
+  if (inlineArgs.length === 0) return { error: "URL or command is required" }
+  if (input.timeout !== undefined && (!Number.isInteger(input.timeout) || input.timeout <= 0)) {
     return { error: "--timeout must be a positive integer" }
   }
 
-  const type = args.type ?? (urlOrCommand.length === 1 && URL.canParse(urlOrCommand[0]) ? "remote" : "local")
-  if (type === "local") return parseInlineLocalMcp(args, urlOrCommand)
-  return parseInlineRemoteMcp(args, urlOrCommand)
+  const type = input.type ?? (inlineArgs.length === 1 && URL.canParse(inlineArgs[0]) ? "remote" : "local")
+  if (type === "local") return parseInlineLocalMcp(input, inlineArgs)
+  return parseInlineRemoteMcp(input, inlineArgs)
 }
 
-function hasInlineMcpAdd(args: McpAddArgs, urlOrCommand: string[]) {
+function hasInlineMcpAdd(input: McpAddArgs, inlineArgs: string[]) {
   return !!(
-    args.name ||
-    urlOrCommand.length > 0 ||
-    args.type ||
-    args.env?.length ||
-    args.header?.length ||
-    args.enabled !== undefined ||
-    args.timeout !== undefined ||
-    args.oauth !== undefined ||
-    args.oauthClientId ||
-    args.oauthClientSecret ||
-    args.oauthScope ||
-    args.oauthCallbackPort !== undefined ||
-    args.oauthRedirectUri
+    input.name ||
+    inlineArgs.length > 0 ||
+    input.type ||
+    input.env?.length ||
+    input.header?.length ||
+    input.enabled !== undefined ||
+    input.timeout !== undefined ||
+    input.oauth !== undefined ||
+    input.oauthClientId ||
+    input.oauthClientSecret ||
+    input.oauthScope ||
+    input.oauthCallbackPort !== undefined ||
+    input.oauthRedirectUri
   )
 }
 

@@ -27,11 +27,11 @@ exports[`opencode CLI help-text snapshots every documented command emits stable 
 manage MCP (Model Context Protocol) servers
 
 Commands:
-  opencode mcp add [name] [urlOrCommand..]  add an MCP server
-  opencode mcp list                         list MCP servers and their status          [aliases: ls]
-  opencode mcp auth [name]                  authenticate with an OAuth-enabled MCP server
-  opencode mcp logout [name]                remove OAuth credentials for an MCP server
-  opencode mcp debug <name>                 debug OAuth connection for an MCP server
+  opencode mcp add [name] [args..]  add an MCP server
+  opencode mcp list                 list MCP servers and their status                  [aliases: ls]
+  opencode mcp auth [name]          authenticate with an OAuth-enabled MCP server
+  opencode mcp logout [name]        remove OAuth credentials for an MCP server
+  opencode mcp debug <name>         debug OAuth connection for an MCP server
 
 Options:
   -h, --help        show help                                                              [boolean]
@@ -425,13 +425,13 @@ Options:
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp add --help 1`] = `
-"opencode mcp add [name] [urlOrCommand..]
+"opencode mcp add [name] [args..]
 
 add an MCP server
 
 Positionals:
-  name          name of the MCP server                                                      [string]
-  urlOrCommand  URL for remote servers or command for local servers            [array] [default: []]
+  name  name of the MCP server                                                              [string]
+  args  URL for remote servers or command and arguments for local servers      [array] [default: []]
 
 Options:
   -h, --help                 show help                                                     [boolean]
@@ -452,7 +452,20 @@ Options:
       --oauth-client-secret  OAuth client secret for remote servers                         [string]
       --oauth-scope          OAuth scopes to request for remote servers                     [string]
       --oauth-callback-port  OAuth local callback port for remote servers                   [number]
-      --oauth-redirect-uri   OAuth redirect URI for remote servers                          [string]"
+      --oauth-redirect-uri   OAuth redirect URI for remote servers                          [string]
+
+Usage:
+  opencode mcp add <name> -- <command> [args...]                 (local MCP server)
+  opencode mcp add <name> --env KEY=VALUE -- <command> [args...] (local MCP server with env vars)
+  opencode mcp add <name> <url>                                  (remote MCP server)
+  opencode mcp add <name> --header KEY=VALUE <url>               (remote MCP server with headers)
+  opencode mcp add <name> --scope project -- <command> [args...] (save to project config)
+
+Examples:
+  opencode mcp add context7 -- npx -y @upstash/context7-mcp
+  opencode mcp add local-env --env FOO=bar -- node server.js
+  opencode mcp add sg --header Authorization=token https://sg.example/mcp
+  opencode mcp add hugging-face https://huggingface.co/mcp"
 `;
 
 exports[`opencode CLI help-text snapshots every documented command emits stable help text: opencode mcp auth --help 1`] = `
