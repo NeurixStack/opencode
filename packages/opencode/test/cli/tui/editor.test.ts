@@ -9,9 +9,11 @@ const originalVisual = process.env.VISUAL
 const originalEditor = process.env.EDITOR
 const systemOpened: string[] = []
 const retained = new Set<string>()
+let systemOpenError: Error | undefined
 
 void mock.module("open", () => ({
   default: async (filepath: string) => {
+    if (systemOpenError) throw systemOpenError
     systemOpened.push(filepath)
   },
 }))
@@ -24,6 +26,7 @@ afterEach(async () => {
   if (originalEditor === undefined) delete process.env.EDITOR
   else process.env.EDITOR = originalEditor
   systemOpened.length = 0
+  systemOpenError = undefined
   await Promise.all([...retained].map((dir) => rm(dir, { force: true, recursive: true })))
   retained.clear()
 })
@@ -156,6 +159,24 @@ test("openFile uses the platform application when no editor is configured", asyn
   expect(systemOpened).toEqual([target])
 })
 
+test("openFile suggests configuring an editor when the platform application fails", async () => {
+  await using tmp = await tmpdir()
+  delete process.env.VISUAL
+  delete process.env.EDITOR
+  systemOpenError = new Error("spawn xdg-open ENOENT")
+
+  const message = await Editor.openFile({
+    filepath: "target.md",
+    renderer: renderer().value,
+    cwd: tmp.path,
+    directory: tmp.path,
+  })
+    .then(() => undefined)
+    .catch(errorMessage)
+
+  expect(message).toBe("Failed to open file: spawn xdg-open ENOENT. Set $VISUAL or $EDITOR.")
+})
+
 test("openFile restores the renderer when the editor exits unsuccessfully", async () => {
   await using tmp = await tmpdir()
   process.env.VISUAL = await editor(tmp.path, "editor", "process.exit(7)")
@@ -171,7 +192,9 @@ test("openFile restores the renderer when the editor exits unsuccessfully", asyn
   })
     .then(() => undefined)
     .catch(errorMessage)
-  expect(message).toBe("Editor exited with code 7")
+  expect(message).toBe(
+    `Failed to open file with ${process.execPath} ${join(tmp.path, "editor.ts")}: Editor exited with code 7. Check $VISUAL or $EDITOR.`,
+  )
   expect(render.events).toEqual(["suspend", "clear", "clear", "resume", "render"])
 })
 

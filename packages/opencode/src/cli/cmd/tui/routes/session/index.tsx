@@ -999,8 +999,8 @@ export function Session() {
               variant: error ? "warning" : "success",
             })
           }
-        } catch {
-          toast.show({ message: "Failed to export session", variant: "error" })
+        } catch (error) {
+          toast.show({ message: `Failed to export session: ${errorMessage(error)}`, variant: "error" })
         }
         dialog.clear()
       },

@@ -5,6 +5,7 @@ import { join } from "node:path"
 import type { CliRenderer } from "@opentui/core"
 import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
+import { errorMessage } from "@/util/error"
 import systemOpen from "open"
 
 export async function open(opts: { value: string; renderer: CliRenderer; cwd: string }): Promise<string | undefined> {
@@ -48,10 +49,14 @@ async function createDraft(value: string) {
 async function openPath(filepath: string, opts: { renderer: CliRenderer; cwd: string }) {
   const editor = configuredEditor()
   if (editor) {
-    await openEditor(filepath, opts, editor)
+    await openEditor(filepath, opts, editor).catch((error) => {
+      throw new Error(`Failed to open file with ${editor}: ${errorMessage(error)}. Check $VISUAL or $EDITOR.`)
+    })
     return "editor" as const
   }
-  await systemOpen(filepath)
+  await systemOpen(filepath).catch((error) => {
+    throw new Error(`Failed to open file: ${errorMessage(error)}. Set $VISUAL or $EDITOR.`)
+  })
   return "system" as const
 }
 
