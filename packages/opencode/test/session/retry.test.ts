@@ -280,8 +280,8 @@ describe("session.retry.retryable", () => {
   })
 
   test("maps free limits for Go subscribers to Go provider action", () => {
-    const error = Schema.decodeUnknownSync(MessageV2.APIError.Schema)(
-      new MessageV2.APIError({
+    const error = Schema.decodeUnknownSync(SessionLegacy.APIError.Schema)(
+      new SessionLegacy.APIError({
         message: "Free usage exceeded",
         isRetryable: true,
         statusCode: 429,
@@ -308,8 +308,8 @@ describe("session.retry.retryable", () => {
   })
 
   test("maps free limits with credits to paid model action", () => {
-    const error = Schema.decodeUnknownSync(MessageV2.APIError.Schema)(
-      new MessageV2.APIError({
+    const error = Schema.decodeUnknownSync(SessionLegacy.APIError.Schema)(
+      new SessionLegacy.APIError({
         message: "Free usage exceeded",
         isRetryable: true,
         statusCode: 429,
