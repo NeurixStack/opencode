@@ -176,7 +176,7 @@ describe("reference", () => {
   references.live("reads references from legacy config content", () =>
     withReferences(
       withConfigContent(
-        JSON.stringify({ reference: { docs: "./docs" } }),
+        JSON.stringify({ reference: { docs: { path: "./docs" } } }),
         provideTmpdirInstance((dir) =>
           Effect.gen(function* () {
             expect(yield* (yield* Reference.Service).get("docs")).toMatchObject({

@@ -9,7 +9,7 @@ import { ProjectReference } from "@opencode-ai/core/project-reference"
 import { ConfigReference } from "@opencode-ai/core/config/reference"
 import { RepositoryCache } from "@opencode-ai/core/repository-cache"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { Context, Effect, Layer, Scope } from "effect"
+import { Context, Effect, Layer, Schema, Scope } from "effect"
 
 export type Resolved = ProjectReference.Resolved
 
@@ -75,7 +75,7 @@ export const layer = Layer.effect(
                     Effect.succeed([
                       new ConfigV2.Loaded({
                         source: { type: "memory" },
-                        info: new ConfigV2.Info({ references: cfg.reference }),
+                        info: Schema.decodeUnknownSync(ConfigV2.Info)({ references: cfg.reference }),
                       }),
                     ]),
                 }),
