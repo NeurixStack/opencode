@@ -358,6 +358,13 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
   const websocketFetches: Array<ReturnType<typeof OpenAIWebSocketPool.createWebSocketFetch>> = []
 
   return {
+    async config(config) {
+      if (!options.experimentalWebSockets) return
+      config.provider ??= {}
+      config.provider.openai ??= {}
+      config.provider.openai.options ??= {}
+      config.provider.openai.options.headerTimeout ??= false
+    },
     async dispose() {
       for (const websocketFetch of websocketFetches) websocketFetch.close()
       websocketFetches.length = 0
