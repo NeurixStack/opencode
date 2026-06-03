@@ -11,6 +11,12 @@ import { Env } from "@/env"
 import { Plugin } from "@/plugin"
 import { Provider } from "@/provider/provider"
 import { ProviderError } from "@/provider/error"
+import { RuntimeFlags } from "@/effect/runtime-flags"
+import { FSUtil } from "@opencode-ai/core/fs-util"
+import { Config } from "@/config/config"
+import { Auth } from "@/auth"
+import { ModelsDev } from "@opencode-ai/core/models-dev"
+import { EventV2Bridge } from "@/event-v2-bridge"
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -19,6 +25,8 @@ afterEach(async () => {
 const it = testEffect(
   Layer.mergeAll(Provider.defaultLayer, Env.defaultLayer, Plugin.defaultLayer, CrossSpawnSpawner.defaultLayer),
 )
+const httpOnly = testEffect(providerLayer({ disableDefaultPlugins: true }))
+const websockets = testEffect(providerLayer({ experimentalWebSockets: true }))
 
 it.live("headerTimeout does not abort delayed SSE body after headers arrive", () =>
   Effect.gen(function* () {
@@ -152,7 +160,7 @@ it.live("OpenAI Codex headerTimeout default can be disabled by config", () =>
   }),
 )
 
-it.live("OpenAI API auth gets default headerTimeout", () =>
+httpOnly.live("OpenAI API auth gets default headerTimeout", () =>
   Effect.gen(function* () {
     yield* withAuthContent(
       Effect.gen(function* () {
@@ -168,6 +176,65 @@ it.live("OpenAI API auth gets default headerTimeout", () =>
     )
   }),
 )
+
+websockets.live("OpenAI Codex websocket transport disables default headerTimeout", () =>
+  Effect.gen(function* () {
+    yield* withAuthContent(
+      Effect.gen(function* () {
+        yield* provideTmpdirInstance(() =>
+          Effect.gen(function* () {
+            const provider = yield* Provider.Service
+            const openai = yield* provider.getProvider(ProviderV2.ID.openai)
+            expect(openai.options.headerTimeout).toBe(false)
+          }),
+        )
+      }),
+      { openai: { type: "api", key: "sk-test" } },
+    )
+  }),
+)
+
+websockets.live("OpenAI Codex websocket transport preserves configured headerTimeout", () =>
+  Effect.gen(function* () {
+    yield* withAuthContent(
+      Effect.gen(function* () {
+        yield* provideTmpdirInstance(
+          () =>
+            Effect.gen(function* () {
+              const provider = yield* Provider.Service
+              const openai = yield* provider.getProvider(ProviderV2.ID.openai)
+              expect(openai.options.headerTimeout).toBe(30_000)
+            }),
+          { config: { provider: { openai: { options: { headerTimeout: 30_000 } } } } },
+        )
+      }),
+      { openai: { type: "api", key: "sk-test" } },
+    )
+  }),
+)
+
+function providerLayer(flags: Partial<RuntimeFlags.Info>) {
+  const runtime = RuntimeFlags.layer(flags)
+  const plugin = Plugin.layer.pipe(
+    Layer.provide(EventV2Bridge.defaultLayer),
+    Layer.provide(Config.defaultLayer),
+    Layer.provide(runtime),
+  )
+  return Layer.mergeAll(
+    Provider.layer.pipe(
+      Layer.provide(FSUtil.defaultLayer),
+      Layer.provide(Env.defaultLayer),
+      Layer.provide(Config.defaultLayer),
+      Layer.provide(Auth.defaultLayer),
+      Layer.provide(plugin),
+      Layer.provide(ModelsDev.defaultLayer),
+      Layer.provide(runtime),
+    ),
+    Env.defaultLayer,
+    plugin,
+    CrossSpawnSpawner.defaultLayer,
+  )
+}
 
 function providerConfig(url: string, options: Record<string, unknown> = {}) {
   const config = testProviderConfig(url)
