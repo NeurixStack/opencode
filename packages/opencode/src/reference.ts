@@ -9,7 +9,7 @@ import { ProjectReference } from "@opencode-ai/core/project-reference"
 import { ConfigReference } from "@opencode-ai/core/config/reference"
 import { RepositoryCache } from "@opencode-ai/core/repository-cache"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { Context, Effect, Layer, Schema, Scope } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 
 export type Resolved = ProjectReference.Resolved
 
@@ -51,7 +51,6 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
-    const scope = yield* Scope.Scope
     const state = yield* InstanceState.make(
       Effect.fn("Reference.state")(function* (ctx) {
         const { Config: ConfigV2 } = yield* Effect.promise(() => import("@opencode-ai/core/config"))
@@ -93,7 +92,7 @@ export const layer = Layer.effect(
 
     return Service.of({
       init: Effect.fn("Reference.init")(function* () {
-        yield* ensure().pipe(Effect.forkIn(scope), Effect.asVoid)
+        yield* InstanceState.get(state)
       }),
       list: Effect.fn("Reference.list")(function* () {
         return yield* InstanceState.useEffect(state, (service) => service.list())
