@@ -657,8 +657,16 @@ const scenarios: Scenario[] = [
     .get("/api/provider/{providerID}", "v2.provider.get")
     .at((ctx) => ({ path: route("/api/provider/{providerID}", { providerID: "missing" }), headers: ctx.headers() }))
     .json(404, object, "status"),
-  http.protected.get("/api/permission/request", "v2.permission.request.list").json(200, array),
-  http.protected.get("/api/question/request", "v2.question.request.list").json(200, array),
+  http.protected.get("/api/permission/request", "v2.permission.request.list").json(200, (body) => {
+    object(body)
+    object(body.location)
+    array(body.data)
+  }),
+  http.protected.get("/api/question/request", "v2.question.request.list").json(200, (body) => {
+    object(body)
+    object(body.location)
+    array(body.data)
+  }),
   http.protected
     .get("/api/session/{sessionID}/permission/request", "v2.session.permission.list")
     .seeded((ctx) => ctx.session({ title: "Permission list owner" }))
@@ -702,7 +710,10 @@ const scenarios: Scenario[] = [
       headers: ctx.headers(),
     }))
     .json(404, object, "status"),
-  http.protected.get("/api/permission/saved", "v2.permission.saved.list").json(200, array),
+  http.protected.get("/api/permission/saved", "v2.permission.saved.list").json(200, (body) => {
+    object(body)
+    array(body.data)
+  }),
   http.protected
     .delete("/api/permission/saved/{id}", "v2.permission.saved.remove")
     .at((ctx) => ({ path: route("/api/permission/saved/{id}", { id: "psv_httpapi_missing" }), headers: ctx.headers() }))
@@ -714,9 +725,8 @@ const scenarios: Scenario[] = [
       200,
       (body) => {
         object(body)
-        object(body.data)
-        array(body.data.items)
-        object(body.data.cursor)
+        array(body.data)
+        object(body.cursor)
       },
       "none",
     ),
@@ -738,9 +748,8 @@ const scenarios: Scenario[] = [
       200,
       (body) => {
         object(body)
-        object(body.data)
-        array(body.data.items)
-        object(body.data.cursor)
+        array(body.data)
+        object(body.cursor)
       },
       "none",
     ),
@@ -761,9 +770,8 @@ const scenarios: Scenario[] = [
       200,
       (body) => {
         object(body)
-        object(body.data)
-        array(body.data.items)
-        object(body.data.cursor)
+        array(body.data)
+        object(body.cursor)
       },
       "none",
     ),
