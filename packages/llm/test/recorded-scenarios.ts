@@ -1,5 +1,5 @@
 import { expect } from "bun:test"
-import { Effect, Schema, Stream } from "effect"
+import { Effect, Schema } from "effect"
 import {
   LLM,
   LLMEvent,
@@ -332,6 +332,28 @@ const runTextScenario = (context: GoldenScenarioContext) =>
     }),
   ])
 
+export const runChronologicalSystemUpdateScenario = (context: GoldenScenarioContext) =>
+  Effect.gen(function* () {
+    const response = yield* generate(
+      LLM.request({
+        id: `${context.id}_chronological_system_update`,
+        model: context.model,
+        system: "Follow the latest instruction exactly. Reply only with the requested word.",
+        cache: "none",
+        messages: [
+          Message.user("Use the latest instruction for your reply."),
+          Message.system("For this reply, respond exactly with: UPDATED"),
+        ],
+        providerOptions:
+          context.model.route.id === "gemini" ? { gemini: { thinkingConfig: { thinkingBudget: 0 } } } : undefined,
+        generation: generation(context, context.maxTokens ?? 80),
+      }),
+    )
+
+    expectFinish(response.events, "stop")
+    expect(response.text.trim()).toMatch(/^UPDATED[.!]?$/i)
+  })
+
 const runToolCallScenario = (context: GoldenScenarioContext) =>
   runGeneratedConversation(context, [
     user("Call get_weather with city exactly Paris."),
@@ -445,6 +467,11 @@ const runToolLoopScenario = (context: GoldenScenarioContext) =>
 
 const goldenScenarios = {
   text: { title: "streams text", tags: ["text", "golden"], run: runTextScenario },
+  "chronological-system-update": {
+    title: "uses chronological system update",
+    tags: ["system", "chronological-system-update", "golden"],
+    run: runChronologicalSystemUpdateScenario,
+  },
   "tool-call": { title: "streams tool call", tags: ["tool", "tool-call", "golden"], run: runToolCallScenario },
   "tool-loop": { title: "drives a tool loop", tags: ["tool", "tool-loop", "golden"], run: runToolLoopScenario },
   image: { title: "reads image text", tags: ["media", "image", "vision", "golden"], run: runImageScenario },

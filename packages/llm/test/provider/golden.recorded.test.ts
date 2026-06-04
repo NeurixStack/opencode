@@ -73,7 +73,7 @@ describeRecordedGoldenScenarios([
     prefix: "openai-chat",
     model: openAIChat,
     requires: ["OPENAI_API_KEY"],
-    scenarios: ["text", "tool-call", "tool-loop"],
+    scenarios: ["text", "chronological-system-update", "tool-call", "tool-loop"],
   },
   {
     name: "OpenAI Responses gpt-5.5",
@@ -83,6 +83,7 @@ describeRecordedGoldenScenarios([
     tags: ["flagship"],
     scenarios: [
       { id: "text", temperature: false },
+      { id: "chronological-system-update", temperature: false },
       { id: "reasoning", temperature: false },
       { id: "reasoning-continuation", temperature: false },
       { id: "tool-call", temperature: false },
@@ -104,7 +105,7 @@ describeRecordedGoldenScenarios([
     model: anthropicHaiku,
     requires: ["ANTHROPIC_API_KEY"],
     options: { redactor: Redactor.defaults({ requestHeaders: { allow: ["content-type", "anthropic-version"] } }) },
-    scenarios: ["text", "tool-call"],
+    scenarios: ["text", "chronological-system-update", "tool-call"],
   },
   {
     name: "Anthropic Opus 4.7",
@@ -123,7 +124,12 @@ describeRecordedGoldenScenarios([
     prefix: "gemini",
     model: gemini,
     requires: ["GOOGLE_GENERATIVE_AI_API_KEY"],
-    scenarios: [{ id: "text", maxTokens: 80 }, "tool-call", { id: "image", maxTokens: 160 }],
+    scenarios: [
+      { id: "text", maxTokens: 80 },
+      "chronological-system-update",
+      "tool-call",
+      { id: "image", maxTokens: 160 },
+    ],
   },
   {
     name: "xAI Grok 3 Mini",
