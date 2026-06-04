@@ -1,7 +1,7 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "3ab6b23c-f36f-4bd5-9f54-2f78af422812",
+  "id": "4a2f3a76-7952-44cc-abb4-122fb76e17a3",
   "prevIds": [
     "fc92fa34-8074-44c3-88f0-a5417f7fd92d"
   ],
@@ -1684,7 +1684,7 @@
       "isUnique": true,
       "where": null,
       "origin": "manual",
-      "name": "event_aggregate_seq_uidx",
+      "name": "event_aggregate_seq_idx",
       "entityType": "indexes",
       "table": "event"
     },
@@ -1804,7 +1804,7 @@
       "isUnique": true,
       "where": null,
       "origin": "manual",
-      "name": "session_message_session_seq_uidx",
+      "name": "session_message_session_seq_idx",
       "entityType": "indexes",
       "table": "session_message"
     },
@@ -1827,42 +1827,6 @@
       "where": null,
       "origin": "manual",
       "name": "session_message_session_type_seq_idx",
-      "entityType": "indexes",
-      "table": "session_message"
-    },
-    {
-      "columns": [
-        {
-          "value": "session_id",
-          "isExpression": false
-        },
-        {
-          "value": "time_created",
-          "isExpression": false
-        },
-        {
-          "value": "id",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "session_message_session_time_created_id_idx",
-      "entityType": "indexes",
-      "table": "session_message"
-    },
-    {
-      "columns": [
-        {
-          "value": "time_created",
-          "isExpression": false
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "origin": "manual",
-      "name": "session_message_time_created_idx",
       "entityType": "indexes",
       "table": "session_message"
     },

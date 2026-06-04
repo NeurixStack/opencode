@@ -8,9 +8,11 @@ export default {
       yield* tx.run(`DROP INDEX IF EXISTS \`event_aggregate_seq_idx\`;`)
       yield* tx.run(`DROP INDEX IF EXISTS \`event_aggregate_type_seq_idx\`;`)
       yield* tx.run(`DROP INDEX IF EXISTS \`session_message_session_seq_idx\`;`)
-      yield* tx.run(`CREATE UNIQUE INDEX \`event_aggregate_seq_uidx\` ON \`event\` (\`aggregate_id\`,\`seq\`);`)
+      yield* tx.run(`DROP INDEX IF EXISTS \`session_message_session_time_created_id_idx\`;`)
+      yield* tx.run(`DROP INDEX IF EXISTS \`session_message_time_created_idx\`;`)
+      yield* tx.run(`CREATE UNIQUE INDEX \`event_aggregate_seq_idx\` ON \`event\` (\`aggregate_id\`,\`seq\`);`)
       yield* tx.run(
-        `CREATE UNIQUE INDEX \`session_message_session_seq_uidx\` ON \`session_message\` (\`session_id\`,\`seq\`);`,
+        `CREATE UNIQUE INDEX \`session_message_session_seq_idx\` ON \`session_message\` (\`session_id\`,\`seq\`);`,
       )
     })
   },

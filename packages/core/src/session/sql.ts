@@ -128,10 +128,8 @@ export const SessionMessageTable = sqliteTable(
     data: text({ mode: "json" }).notNull().$type<SessionMessageData>(),
   },
   (table) => [
-    uniqueIndex("session_message_session_seq_uidx").on(table.session_id, table.seq),
+    uniqueIndex("session_message_session_seq_idx").on(table.session_id, table.seq),
     index("session_message_session_type_seq_idx").on(table.session_id, table.type, table.seq),
-    index("session_message_session_time_created_id_idx").on(table.session_id, table.time_created, table.id),
-    index("session_message_time_created_idx").on(table.time_created),
   ],
 )
 

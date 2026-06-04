@@ -66,13 +66,12 @@ describe("DatabaseMigration", () => {
         expect(yield* db.get(sql`SELECT count(*) as count FROM migration`)).toEqual({ count: 30 })
         expect(
           yield* db.all(
-            sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('event_aggregate_seq_idx', 'event_aggregate_seq_uidx', 'event_aggregate_type_seq_idx', 'session_input_session_pending_seq_idx', 'session_input_session_pending_delivery_seq_idx', 'session_message_session_idx', 'session_message_session_type_idx', 'session_message_session_seq_idx', 'session_message_session_seq_uidx', 'session_message_session_type_seq_idx', 'session_message_session_time_created_id_idx') ORDER BY name`,
+            sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('event_aggregate_seq_idx', 'event_aggregate_type_seq_idx', 'session_input_session_pending_seq_idx', 'session_input_session_pending_delivery_seq_idx', 'session_message_session_idx', 'session_message_session_type_idx', 'session_message_session_seq_idx', 'session_message_session_type_seq_idx', 'session_message_session_time_created_id_idx', 'session_message_time_created_idx') ORDER BY name`,
           ),
         ).toEqual([
-          { name: "event_aggregate_seq_uidx" },
+          { name: "event_aggregate_seq_idx" },
           { name: "session_input_session_pending_delivery_seq_idx" },
-          { name: "session_message_session_seq_uidx" },
-          { name: "session_message_session_time_created_id_idx" },
+          { name: "session_message_session_seq_idx" },
           { name: "session_message_session_type_seq_idx" },
         ])
       }),
@@ -110,6 +109,68 @@ describe("DatabaseMigration", () => {
       }),
     )
   })
+
+  test.each(["event", "session_message"] as const)(
+    "rejects duplicate existing %s sequence positions without dropping old indexes",
+    async (duplicate) => {
+      await run(
+        Effect.gen(function* () {
+          const db = yield* makeDb
+          yield* db.run(
+            sql`CREATE TABLE event (id text PRIMARY KEY, aggregate_id text NOT NULL, seq integer NOT NULL, type text NOT NULL)`,
+          )
+          yield* db.run(sql`CREATE INDEX event_aggregate_seq_idx ON event (aggregate_id, seq)`)
+          yield* db.run(sql`CREATE INDEX event_aggregate_type_seq_idx ON event (aggregate_id, type, seq)`)
+          yield* db.run(
+            sql`CREATE TABLE session_message (id text PRIMARY KEY, session_id text NOT NULL, type text NOT NULL, seq integer NOT NULL, time_created integer NOT NULL)`,
+          )
+          yield* db.run(sql`CREATE INDEX session_message_session_seq_idx ON session_message (session_id, seq)`)
+          yield* db.run(
+            sql`CREATE INDEX session_message_session_type_seq_idx ON session_message (session_id, type, seq)`,
+          )
+          yield* db.run(
+            sql`CREATE INDEX session_message_session_time_created_id_idx ON session_message (session_id, time_created, id)`,
+          )
+          yield* db.run(sql`CREATE INDEX session_message_time_created_idx ON session_message (time_created)`)
+
+          yield* db.run(sql`INSERT INTO event (id, aggregate_id, seq, type) VALUES ('event_1', 'session_1', 1, 'one')`)
+          yield* db.run(
+            sql`INSERT INTO session_message (id, session_id, type, seq, time_created) VALUES ('message_1', 'session_1', 'user', 1, 1)`,
+          )
+          if (duplicate === "event") {
+            yield* db.run(
+              sql`INSERT INTO event (id, aggregate_id, seq, type) VALUES ('event_2', 'session_1', 1, 'two')`,
+            )
+          }
+          if (duplicate === "session_message") {
+            yield* db.run(
+              sql`INSERT INTO session_message (id, session_id, type, seq, time_created) VALUES ('message_2', 'session_1', 'assistant', 1, 2)`,
+            )
+          }
+
+          expect(
+            (yield* DatabaseMigration.applyOnly(db, [hardenV2SequenceIndexesMigration]).pipe(Effect.exit))._tag,
+          ).toBe("Failure")
+          expect(
+            yield* db.all(sql`
+              SELECT name, [unique] AS is_unique FROM pragma_index_list('event') WHERE origin = 'c'
+              UNION ALL
+              SELECT name, [unique] AS is_unique FROM pragma_index_list('session_message') WHERE origin = 'c'
+              ORDER BY name
+            `),
+          ).toEqual([
+            { name: "event_aggregate_seq_idx", is_unique: 0 },
+            { name: "event_aggregate_type_seq_idx", is_unique: 0 },
+            { name: "session_message_session_seq_idx", is_unique: 0 },
+            { name: "session_message_session_time_created_id_idx", is_unique: 0 },
+            { name: "session_message_session_type_seq_idx", is_unique: 0 },
+            { name: "session_message_time_created_idx", is_unique: 0 },
+          ])
+          expect(yield* db.all(sql`SELECT id FROM migration`)).toEqual([])
+        }),
+      )
+    },
+  )
 
   test("resets incompatible projected Session messages before adding sequence order", async () => {
     await run(
