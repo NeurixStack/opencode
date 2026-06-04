@@ -624,6 +624,11 @@ const scenarios: Scenario[] = [
         check(auth.test === undefined, "auth remove should delete provider from isolated auth file")
       }),
     ),
+  http.protected.get("/api/health", "v2.health.get").json(200, (body) => {
+    object(body)
+    check(body.healthy === true, "v2 server should report healthy")
+  }),
+  http.protected.get("/api/agent", "v2.agent.list").json(200, locationData(array)),
   http.protected.get("/api/model", "v2.model.list").json(200, locationData(array)),
   http.protected.get("/api/provider", "v2.provider.list").json(200, locationData(array)),
   http.protected.get("/api/command", "v2.command.list").json(200, locationData(array)),
