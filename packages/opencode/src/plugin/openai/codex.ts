@@ -6,6 +6,7 @@ import os from "os"
 import { setTimeout as sleep } from "node:timers/promises"
 import { createServer } from "http"
 import { OpenAIWebSocketPool } from "./ws-pool"
+import { ProviderError } from "../../provider/error"
 
 const log = Log.create({ service: "plugin.codex" })
 
@@ -14,7 +15,23 @@ const ISSUER = "https://auth.openai.com"
 const CODEX_API_ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 const OAUTH_PORT = 1455
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
+const DEFAULT_HTTP_HEADER_TIMEOUT = 10_000
+// This adapter applies a fresh header timeout only when it actually uses HTTP.
+const HEADER_TIMEOUT = Symbol.for("opencode.provider.header-timeout")
 const ALLOWED_MODELS = new Set(["gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini"])
+
+export function fetchWithHeaderTimeout(
+  fetch: typeof globalThis.fetch,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeout: number | false,
+) {
+  if (timeout === false) return fetch(input, init)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new ProviderError.HeaderTimeoutError(timeout)), timeout)
+  const signal = init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal
+  return fetch(input, { ...init, signal }).finally(() => clearTimeout(timer))
+}
 
 interface PkceCodes {
   verifier: string
@@ -354,10 +371,17 @@ function waitForOAuthCallback(pkce: PkceCodes, state: string): Promise<TokenResp
 export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPluginOptions = {}): Promise<Hooks> {
   const issuer = options.issuer ?? ISSUER
   const codexApiEndpoint = options.codexApiEndpoint ?? CODEX_API_ENDPOINT
+  let httpHeaderTimeout: number | false = DEFAULT_HTTP_HEADER_TIMEOUT
   let websocketFetchInstalled = false
   const websocketFetches: Array<ReturnType<typeof OpenAIWebSocketPool.createWebSocketFetch>> = []
+  const httpFetch: typeof globalThis.fetch = (requestInput, init) =>
+    fetchWithHeaderTimeout(fetch, requestInput, init, httpHeaderTimeout)
 
   return {
+    async config(config) {
+      const value = config.provider?.openai?.options?.headerTimeout
+      httpHeaderTimeout = typeof value === "number" || value === false ? value : DEFAULT_HTTP_HEADER_TIMEOUT
+    },
     async dispose() {
       for (const websocketFetch of websocketFetches) websocketFetch.close()
       websocketFetches.length = 0
@@ -404,7 +428,7 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
       async loader(getAuth) {
         const auth = await getAuth()
         const websocketFetch = options.experimentalWebSockets
-          ? OpenAIWebSocketPool.createWebSocketFetch({ httpFetch: fetch })
+          ? Object.assign(OpenAIWebSocketPool.createWebSocketFetch({ httpFetch }), { [HEADER_TIMEOUT]: false })
           : undefined
         if (websocketFetch) {
           websocketFetches.push(websocketFetch)
@@ -419,7 +443,7 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
             }>
           | undefined
 
-        return {
+        const result = {
           apiKey: OAUTH_DUMMY_KEY,
           async fetch(requestInput: RequestInfo | URL, init?: RequestInit) {
             if (init?.headers) {
@@ -504,9 +528,11 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
               headers,
             }
             if (websocketFetch && parsed.pathname.endsWith("/responses")) return websocketFetch(url, requestInit)
-            return fetch(url, OpenAIWebSocketPool.withoutInternalHeaders(requestInit))
+            return (websocketFetch ? httpFetch : fetch)(url, OpenAIWebSocketPool.withoutInternalHeaders(requestInit))
           },
         }
+        if (websocketFetch) Object.assign(result.fetch, { [HEADER_TIMEOUT]: false })
+        return result
       },
       methods: [
         {

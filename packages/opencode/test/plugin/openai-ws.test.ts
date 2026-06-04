@@ -7,6 +7,7 @@ import { APICallError } from "ai"
 import { ProviderError } from "../../src/provider/error"
 import { OpenAIWebSocket } from "../../src/plugin/openai/ws"
 import { OpenAIWebSocketPool, TITLE_HEADER } from "../../src/plugin/openai/ws-pool"
+import { fetchWithHeaderTimeout } from "../../src/plugin/openai/codex"
 
 describe("plugin.openai.ws", () => {
   test("derives websocket URLs and sends auth plus protocol headers", async () => {
@@ -163,6 +164,26 @@ describe("plugin.openai.ws-pool", () => {
     expect(await second.text()).toContain("data: [DONE]")
     expect(connections).toBe(1)
     expect(messages).toBe(2)
+    fetch.close()
+  })
+
+  test("does not apply HTTP header timeout while waiting for the first websocket event", async () => {
+    await using server = await createWebSocketServer((socket) => {
+      socket.once("message", () => {
+        setTimeout(() => {
+          socket.send(JSON.stringify({ type: "response.completed", response: { id: "resp_delayed" } }))
+        }, 50)
+      })
+    })
+    const fetch = OpenAIWebSocketPool.createWebSocketFetch({
+      url: server.url,
+      httpFetch: (input, init) => fetchWithHeaderTimeout(globalThis.fetch, input, init, 20),
+      idleTimeout: 100,
+    })
+
+    const response = await fetch(server.url, streamRequest())
+
+    expect(await response.text()).toContain("data: [DONE]")
     fetch.close()
   })
 

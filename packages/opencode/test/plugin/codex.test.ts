@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
   CodexAuthPlugin,
+  fetchWithHeaderTimeout,
   parseJwtClaims,
   extractAccountIdFromClaims,
   extractAccountId,
   type IdTokenClaims,
 } from "../../src/plugin/openai/codex"
+import { ProviderError } from "../../src/provider/error"
 
 function createTestJwt(payload: object): string {
   const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url")
@@ -137,7 +139,51 @@ describe("plugin.codex", () => {
 
     expect(disabledOptions.fetch).toBeUndefined()
     expect(enabledOptions.fetch).toBeFunction()
+    expect(enabledOptions.fetch?.[Symbol.for("opencode.provider.header-timeout")]).toBe(false)
     await enabled.dispose?.()
+  })
+
+  test("applies configured header timeout to websocket HTTP fallback", async () => {
+    using server = Bun.serve({
+      port: 0,
+      async fetch() {
+        await Bun.sleep(50)
+        return new Response("http")
+      },
+    })
+    const hooks = await CodexAuthPlugin({} as never, { experimentalWebSockets: true })
+    await hooks.config!({ provider: { openai: { options: { headerTimeout: 20 } } } } as never)
+    const loaded = await hooks.auth!.loader!(async () => ({ type: "api", key: "sk-test" }) as never, {} as never)
+
+    await expect(
+      loaded.fetch!(new URL("/v1/responses", server.url), {
+        method: "POST",
+        body: JSON.stringify({ stream: true }),
+      }),
+    ).rejects.toBeInstanceOf(ProviderError.HeaderTimeoutError)
+    await hooks.dispose?.()
+  })
+
+  test("marks websocket OAuth transport as managing its own header timeout", async () => {
+    const hooks = await CodexAuthPlugin({} as never, { experimentalWebSockets: true })
+    const loaded = await hooks.auth!.loader!(
+      async () => ({ type: "oauth", refresh: "refresh", access: "access", expires: Date.now() + 60_000 }) as never,
+      {} as never,
+    )
+
+    expect(loaded.fetch?.[Symbol.for("opencode.provider.header-timeout")]).toBe(false)
+    await hooks.dispose?.()
+  })
+
+  test("can disable websocket HTTP fallback header timeout", async () => {
+    const response = await fetchWithHeaderTimeout(
+      async () => new Response("http"),
+      "https://example.com/v1/responses",
+      undefined,
+      false,
+    )
+
+    expect(await response.text()).toBe("http")
   })
 
   test("deduplicates concurrent Codex token refreshes", async () => {
