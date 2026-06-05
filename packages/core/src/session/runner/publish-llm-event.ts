@@ -165,7 +165,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
 
   const startToolInput = Effect.fnUntraced(function* (event: { readonly id: string; readonly name: string }) {
     if (tools.has(event.id)) return yield* Effect.die(`Duplicate tool input start: ${event.id}`)
-    const assistantMessageID = yield* currentAssistantMessageID()
+    const assistantMessageID = yield* startAssistant()
     tools.set(event.id, {
       assistantMessageID,
       name: event.name,
@@ -221,7 +221,6 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   const publish = Effect.fn("SessionRunner.publishLLMEvent")(function* (event: LLMEvent) {
     switch (event.type) {
       case "step-start":
-        yield* startAssistant()
         return
       case "text-start":
         yield* text.start(event.id)
@@ -377,7 +376,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
         yield* events.publish(SessionEvent.Step.Ended, {
           sessionID: input.sessionID,
           timestamp: yield* timestamp,
-          assistantMessageID: yield* currentAssistantMessageID(),
+          assistantMessageID: yield* startAssistant(),
           finish: event.reason,
           cost: 0,
           tokens: tokens(event.usage),
@@ -398,5 +397,12 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     }
   })
 
-  return { publish, flush, failUnsettledTools, hasProviderError: () => providerFailed, startAssistant }
+  return {
+    publish,
+    flush,
+    failUnsettledTools,
+    hasAssistantStarted: () => assistantMessageID !== undefined,
+    hasProviderError: () => providerFailed,
+    startAssistant,
+  }
 }
