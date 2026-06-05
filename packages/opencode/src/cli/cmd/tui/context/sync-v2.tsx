@@ -177,7 +177,7 @@ export const { use: useSyncV2, provider: SyncProviderV2 } = createSimpleContext(
           break
         case "session.next.context.updated":
           update(event.properties.sessionID, (draft) => {
-            draft.unshift({
+            prepend(draft, {
               id: event.properties.messageID,
               type: "system",
               text: event.properties.text,

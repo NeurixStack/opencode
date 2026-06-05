@@ -5,7 +5,7 @@ import { SystemContextRegistry } from "@opencode-ai/core/system-context-registry
 import { testEffect } from "./lib/effect"
 
 const contribution = (key: string, text: string, sourceKey = key) => ({
-  key,
+  key: SystemContext.Key.make(key),
   load: Effect.succeed(
     SystemContext.make({
       key: SystemContext.Key.make(sourceKey),
@@ -43,7 +43,7 @@ describe("SystemContextRegistry", () => {
       const registry = yield* SystemContextRegistry.Service
       let loads = 0
       yield* registry.contribute({
-        key: "test/dynamic",
+        key: SystemContext.Key.make("test/dynamic"),
         load: Effect.sync(() => {
           loads++
           return SystemContext.empty
@@ -61,7 +61,7 @@ describe("SystemContextRegistry", () => {
     Effect.gen(function* () {
       const registry = yield* SystemContextRegistry.Service
       const failure = new Error("contribution failed")
-      yield* registry.contribute({ key: "test/failure", load: Effect.die(failure) })
+      yield* registry.contribute({ key: SystemContext.Key.make("test/failure"), load: Effect.die(failure) })
 
       const exit = yield* registry.load().pipe(Effect.exit)
 

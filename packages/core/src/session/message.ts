@@ -176,7 +176,16 @@ export class Compaction extends Schema.Class<Compaction>("Session.Message.Compac
   ...Base,
 }) {}
 
-export const Message = Schema.Union([AgentSwitched, ModelSwitched, User, Synthetic, System, Shell, Assistant, Compaction])
+export const Message = Schema.Union([
+  AgentSwitched,
+  ModelSwitched,
+  User,
+  Synthetic,
+  System,
+  Shell,
+  Assistant,
+  Compaction,
+])
   .pipe(Schema.toTaggedUnion("type"))
   .annotate({ identifier: "Session.Message" })
 

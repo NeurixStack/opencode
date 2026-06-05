@@ -139,6 +139,7 @@ export const layer = Layer.effect(
       promotion: "steer" | "queue" | undefined,
     ) {
       const session = yield* getSession(sessionID)
+      const initialized = yield* SessionContextEpoch.initialize(db, systemContext, session.id)
       const model = yield* models.resolve(session)
       const toolFibers = yield* FiberSet.make<void, never>()
       let needsContinuation = false
@@ -150,7 +151,7 @@ export const layer = Layer.effect(
           yield* SessionInput.promoteSteers(db, events, session.id, cutoff)
         }
       }
-      const system = yield* SessionContextEpoch.prepare(db, events, systemContext, session.id)
+      const system = initialized ?? (yield* SessionContextEpoch.prepare(db, events, systemContext, session.id))
       const context = yield* getRunnerContext(session.id, system.baselineSeq)
       const request = LLM.request({
         model,

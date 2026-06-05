@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect } from "bun:test"
 import { $ } from "bun"
 import { fileURLToPath } from "url"
 import path from "path"
@@ -7,6 +7,7 @@ import { EffectDrizzleSqlite } from "@opencode-ai/effect-drizzle-sqlite"
 import { Effect, Layer } from "effect"
 import { eq, inArray, sql } from "drizzle-orm"
 import { DatabaseMigration } from "@opencode-ai/core/database/migration"
+import { migrations } from "@opencode-ai/core/database/migration.gen"
 import sessionUsageMigration from "@opencode-ai/core/database/migration/20260510033149_session_usage"
 import normalizeStoragePathsMigration from "@opencode-ai/core/database/migration/20260601010001_normalize_storage_paths"
 import sessionMessageProjectionOrderMigration from "@opencode-ai/core/database/migration/20260603040000_session_message_projection_order"
@@ -17,43 +18,45 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import sessionMetadataMigration from "@opencode-ai/core/database/migration/20260511173437_session-metadata"
-import type { SqlClient as SqlClientService } from "effect/unstable/sql/SqlClient"
 import { Database } from "@opencode-ai/core/database/database"
 import { tmpdir } from "./fixture/tmpdir"
-
-const run = <A, E>(effect: Effect.Effect<A, E, SqlClientService>) =>
-  Effect.runPromise(
-    effect.pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:", disableWAL: true })), Effect.scoped),
-  )
+import { testEffect } from "./lib/effect"
 
 const makeDb = EffectDrizzleSqlite.makeWithDefaults()
+const it = testEffect(SqliteClient.layer({ filename: ":memory:", disableWAL: true }))
 
 describe("DatabaseMigration", () => {
-  test("serializes concurrent embedded initialization for one database path", async () => {
-    await using tmp = await tmpdir()
-    const filename = path.join(tmp.path, "embedded.sqlite")
-    const layers = [Database.layerFromPath(filename), Database.layerFromPath(filename)]
+  it.effect("serializes concurrent embedded initialization for one database path", () =>
+    Effect.promise(async () => {
+      await using tmp = await tmpdir()
+      const filename = path.join(tmp.path, "embedded.sqlite")
+      const layers = [Database.layerFromPath(filename), Database.layerFromPath(filename)]
 
-    await Effect.runPromise(
-      Effect.all(
-        layers.map((layer) => Effect.scoped(Layer.build(layer))),
-        { concurrency: "unbounded" },
-      ),
-    )
-  })
+      await Effect.runPromise(
+        Effect.all(
+          layers.map((layer) => Effect.scoped(Layer.build(layer))),
+          { concurrency: "unbounded" },
+        ),
+      )
+    }),
+  )
   if (process.platform === "linux") {
-    test("declared schema has no ungenerated migrations", async () => {
-      const result = await $`bun ${fileURLToPath(new URL("../script/migration.ts", import.meta.url))} --check`
-        .quiet()
-        .nothrow()
-      expect(result.exitCode, result.stderr.toString()).toBe(0)
-      expect(result.stdout.toString()).toContain("No schema changes, nothing to migrate")
-    }, 30_000)
+    it.effect(
+      "declared schema has no ungenerated migrations",
+      () =>
+        Effect.promise(async () => {
+          const result = await $`bun ${fileURLToPath(new URL("../script/migration.ts", import.meta.url))} --check`
+            .quiet()
+            .nothrow()
+          expect(result.exitCode, result.stderr.toString()).toBe(0)
+          expect(result.stdout.toString()).toContain("No schema changes, nothing to migrate")
+        }),
+      30_000,
+    )
   }
 
-  test("applies tracked migrations to an empty database", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("applies tracked migrations to an empty database", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* DatabaseMigration.apply(db)
 
@@ -66,10 +69,7 @@ describe("DatabaseMigration", () => {
         expect(
           yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_context_epoch'`),
         ).toEqual({ name: "session_context_epoch" })
-        expect(
-          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'session_context_message'`),
-        ).toEqual({ name: "session_context_message" })
-        expect(yield* db.get(sql`SELECT count(*) as count FROM migration`)).toEqual({ count: 31 })
+        expect(yield* db.get(sql`SELECT count(*) as count FROM migration`)).toEqual({ count: migrations.length })
         expect(
           yield* db.all(
             sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('event_aggregate_seq_idx', 'event_aggregate_type_seq_idx', 'session_input_session_pending_seq_idx', 'session_input_session_pending_delivery_seq_idx', 'session_input_session_admitted_seq_idx', 'session_input_session_promoted_seq_idx', 'session_message_session_idx', 'session_message_session_type_idx', 'session_message_session_seq_idx', 'session_message_session_type_seq_idx', 'session_message_session_time_created_id_idx') ORDER BY name`,
@@ -84,13 +84,11 @@ describe("DatabaseMigration", () => {
           { name: "session_message_session_time_created_id_idx" },
           { name: "session_message_session_type_seq_idx" },
         ])
-      }),
-    )
-  })
+    }),
+  )
 
-  test("resets beta history and rebuilds event-sourced Session input storage", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("resets beta history and rebuilds event-sourced Session input storage", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY, workspace_id text)`)
         yield* db.run(sql`CREATE TABLE workspace (id text PRIMARY KEY)`)
@@ -160,13 +158,11 @@ describe("DatabaseMigration", () => {
           expect.objectContaining({ name: "session_input_session_promoted_seq_idx", unique: 1 }),
           expect.objectContaining({ name: "session_input_session_admitted_seq_idx", unique: 1 }),
         ])
-      }),
-    )
-  })
+    }),
+  )
 
-  test("resets incompatible projected Session messages before adding sequence order", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("resets incompatible projected Session messages before adding sequence order", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY)`)
         yield* db.run(
@@ -215,13 +211,11 @@ describe("DatabaseMigration", () => {
           sql`INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES ('fresh_projection', 'session', 'user', 7, 2, 2, '{}')`,
         )
         expect(yield* db.get(sql`SELECT id, seq FROM session_message`)).toEqual({ id: "fresh_projection", seq: 7 })
-      }),
-    )
-  })
+    }),
+  )
 
-  test("runs session usage backfill in order with schema changes", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("runs session usage backfill in order with schema changes", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY, time_updated integer NOT NULL)`)
         yield* db.run(sql`CREATE TABLE message (id text PRIMARY KEY, session_id text NOT NULL, data text NOT NULL)`)
@@ -244,13 +238,11 @@ describe("DatabaseMigration", () => {
           tokens_cache_read: 5,
           tokens_cache_write: 6,
         })
-      }),
-    )
-  })
+    }),
+  )
 
-  test("normalizes Windows storage paths and leaves POSIX paths untouched", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("normalizes Windows storage paths and leaves POSIX paths untouched", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* db.run(sql`CREATE TABLE project (id text PRIMARY KEY, worktree text NOT NULL, sandboxes text NOT NULL)`)
         yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY, directory text NOT NULL, path text)`)
@@ -295,14 +287,12 @@ describe("DatabaseMigration", () => {
           directory: "/home/me/we\\ird",
           path: "src\\weird",
         })
-      }),
-    )
-  })
+    }),
+  )
 
-  test("maps native Windows paths through database columns", async () => {
-    if (process.platform !== "win32") return
-    await run(
-      Effect.gen(function* () {
+  it.effect("maps native Windows paths through database columns", () => {
+    if (process.platform !== "win32") return Effect.void
+    return Effect.gen(function* () {
         const db = yield* makeDb
         yield* DatabaseMigration.apply(db)
         const projectID = ProjectV2.ID.make("codec_project")
@@ -405,13 +395,11 @@ describe("DatabaseMigration", () => {
         expect(() =>
           Effect.runSync(db.select().from(ProjectTable).where(eq(ProjectTable.id, projectID)).get()),
         ).toThrow()
-      }),
-    )
+    })
   })
 
-  test("imports existing drizzle migration state", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("imports existing drizzle migration state", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* db.run(
           sql`CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`,
@@ -424,13 +412,11 @@ describe("DatabaseMigration", () => {
         yield* DatabaseMigration.applyOnly(db, [])
 
         expect(yield* db.get(sql`SELECT id FROM migration`)).toEqual({ id: "20260127222353_familiar_lady_ursula" })
-      }),
-    )
-  })
+    }),
+  )
 
-  test("does not replay a migrated session metadata column", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("does not replay a migrated session metadata column", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY, metadata text)`)
         yield* db.run(
@@ -444,13 +430,11 @@ describe("DatabaseMigration", () => {
         yield* DatabaseMigration.applyOnly(db, [sessionMetadataMigration])
 
         expect(yield* db.all(sql`SELECT id FROM migration`)).toEqual([{ id: "20260511173437_session-metadata" }])
-      }),
-    )
-  })
+    }),
+  )
 
-  test("accepts the temporary replacement session metadata migration id", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("accepts the temporary replacement session metadata migration id", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY, metadata text)`)
         yield* db.run(sql`CREATE TABLE migration (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)`)
@@ -462,13 +446,11 @@ describe("DatabaseMigration", () => {
           { id: "20260511173437_session-metadata" },
           { id: "20260530232709_lovely_romulus" },
         ])
-      }),
-    )
-  })
+    }),
+  )
 
-  test("skips drizzle import when migration table already has state", async () => {
-    await run(
-      Effect.gen(function* () {
+  it.effect("skips drizzle import when migration table already has state", () =>
+    Effect.gen(function* () {
         const db = yield* makeDb
         yield* db.run(sql`CREATE TABLE migration (id TEXT PRIMARY KEY, time_completed INTEGER NOT NULL)`)
         yield* db.run(sql`INSERT INTO migration (id, time_completed) VALUES ('existing', 1)`)
@@ -483,7 +465,6 @@ describe("DatabaseMigration", () => {
         yield* DatabaseMigration.applyOnly(db, [])
 
         expect(yield* db.all(sql`SELECT id FROM migration ORDER BY id`)).toEqual([{ id: "existing" }])
-      }),
-    )
-  })
+    }),
+  )
 })

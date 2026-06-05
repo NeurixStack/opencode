@@ -7,13 +7,7 @@
     "route": "openai-chat",
     "transport": "http",
     "model": "gpt-4o-mini",
-    "tags": [
-      "prefix:openai-chat",
-      "provider:openai",
-      "system",
-      "chronological-system-update",
-      "golden"
-    ]
+    "tags": ["prefix:openai-chat", "provider:openai", "system", "chronological-system-update", "golden"]
   },
   "interactions": [
     {

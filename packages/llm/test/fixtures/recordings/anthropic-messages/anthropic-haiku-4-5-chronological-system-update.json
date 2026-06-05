@@ -7,13 +7,7 @@
     "route": "anthropic-messages",
     "transport": "http",
     "model": "claude-haiku-4-5-20251001",
-    "tags": [
-      "prefix:anthropic-messages",
-      "provider:anthropic",
-      "system",
-      "chronological-system-update",
-      "golden"
-    ]
+    "tags": ["prefix:anthropic-messages", "provider:anthropic", "system", "chronological-system-update", "golden"]
   },
   "interactions": [
     {

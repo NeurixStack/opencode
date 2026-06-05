@@ -194,11 +194,12 @@ describe("EventV2", () => {
     Effect.gen(function* () {
       const events = yield* EventV2.Service
       const received = new Array<string>()
+      const aggregateID = EventV2.ID.create()
       yield* events.project(SyncMessage, () => Effect.sync(() => received.push("projector")))
 
       yield* events.publish(
         SyncMessage,
-        { id: "one", text: "hello" },
+        { id: aggregateID, text: "hello" },
         { commit: (seq) => Effect.sync(() => received.push(`commit:${seq}`)) },
       )
 
@@ -224,7 +225,9 @@ describe("EventV2", () => {
       expect(String(exit)).toContain("commit failed")
       expect(yield* db.all("SELECT value FROM event_commit_probe")).toEqual([])
       expect(yield* db.select().from(EventTable).where(eq(EventTable.aggregate_id, aggregateID)).all()).toEqual([])
-      expect(yield* db.select().from(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, aggregateID)).all()).toEqual([])
+      expect(
+        yield* db.select().from(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, aggregateID)).all(),
+      ).toEqual([])
     }),
   )
 

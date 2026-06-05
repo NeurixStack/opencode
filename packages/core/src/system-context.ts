@@ -67,8 +67,8 @@ export interface Updated {
   readonly snapshot: Snapshot
 }
 
-export interface Replaced {
-  readonly _tag: "Replaced"
+export interface ReplacementReady {
+  readonly _tag: "ReplacementReady"
   readonly generation: Generation
 }
 
@@ -76,8 +76,13 @@ export interface ReplacementBlocked {
   readonly _tag: "ReplacementBlocked"
 }
 
-export type ReplacementResult = Replaced | ReplacementBlocked
+export type ReplacementResult = ReplacementReady | ReplacementBlocked
 export type ReconcileResult = { readonly _tag: "Unchanged" } | Updated | ReplacementResult
+
+export class InitializationBlocked extends Schema.TaggedErrorClass<InitializationBlocked>()(
+  "SystemContext.InitializationBlocked",
+  { keys: Schema.Array(Key) },
+) {}
 
 export class DuplicateKeyError extends Schema.TaggedErrorClass<DuplicateKeyError>()("SystemContext.DuplicateKeyError", {
   key: Key,
@@ -186,8 +191,14 @@ const observe = (value: SystemContext) =>
   )
 
 /** Creates the immutable baseline and durable snapshot for a new generation. */
-export function initialize(value: SystemContext): Effect.Effect<Generation> {
-  return observe(value).pipe(Effect.map(initializeObservation))
+export function initialize(value: SystemContext): Effect.Effect<Generation, InitializationBlocked> {
+  return observe(value).pipe(
+    Effect.flatMap((entries) => {
+      const unavailable = entries.flatMap((entry) => (entry._tag === "Unavailable" ? [entry.key] : []))
+      if (unavailable.length > 0) return new InitializationBlocked({ keys: unavailable })
+      return Effect.succeed(initializeObservation(entries))
+    }),
+  )
 }
 
 function initializeObservation(entries: ReadonlyArray<Entry>): Generation {
@@ -272,7 +283,7 @@ export function replace(value: SystemContext, previous: Snapshot): Effect.Effect
 function replaceObservation(entries: ReadonlyArray<Entry>, previous: Snapshot): ReplacementResult {
   if (entries.some((entry) => entry._tag === "Unavailable" && getSnapshot(previous, entry.key) !== undefined))
     return { _tag: "ReplacementBlocked" }
-  return { _tag: "Replaced", generation: initializeObservation(entries) }
+  return { _tag: "ReplacementReady", generation: initializeObservation(entries) }
 }
 
 function context(sources: ReadonlyArray<PackedSource>): SystemContext {

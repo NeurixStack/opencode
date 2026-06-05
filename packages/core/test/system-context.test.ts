@@ -125,16 +125,21 @@ describe("SystemContext", () => {
 
       expect(yield* SystemContext.reconcile(context, previous)).toEqual({ _tag: "Unchanged" })
       expect(yield* SystemContext.replace(context, previous)).toEqual({ _tag: "ReplacementBlocked" })
-      expect(yield* SystemContext.replace(context, {})).toMatchObject({ _tag: "Replaced" })
+      expect(yield* SystemContext.replace(context, {})).toMatchObject({ _tag: "ReplacementReady" })
     }),
   )
 
-  it.effect("omits unavailable sources from an initial baseline", () =>
+  it.effect("blocks initialization while a source is unavailable", () =>
     Effect.gen(function* () {
-      expect(yield* SystemContext.initialize(stringContext({ key: "core/remote", value: SystemContext.unavailable }))).toEqual({
-        baseline: "",
-        snapshot: {},
-      })
+      const exit = yield* SystemContext.initialize(
+        stringContext({ key: "core/remote", value: SystemContext.unavailable }),
+      ).pipe(Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit))
+        expect(Cause.squash(exit.cause)).toEqual(
+          new SystemContext.InitializationBlocked({ keys: [key("core/remote")] }),
+        )
     }),
   )
 
@@ -154,8 +159,10 @@ describe("SystemContext", () => {
 
   it.effect("requests replacement when a source without removal text disappears", () =>
     Effect.gen(function* () {
-      expect(yield* SystemContext.reconcile(SystemContext.empty, { "core/date": { value: "2026-06-04" } })).toMatchObject({
-        _tag: "Replaced",
+      expect(
+        yield* SystemContext.reconcile(SystemContext.empty, { "core/date": { value: "2026-06-04" } }),
+      ).toMatchObject({
+        _tag: "ReplacementReady",
       })
     }),
   )
@@ -188,7 +195,7 @@ describe("SystemContext", () => {
         yield* SystemContext.reconcile(stringContext({ key: "core/date", value: "2026-06-04" }), {
           "core/date": { value: 42, removed: "Date removed" },
         }),
-      ).toMatchObject({ _tag: "Replaced" })
+      ).toMatchObject({ _tag: "ReplacementReady" })
     }),
   )
 
@@ -207,7 +214,7 @@ describe("SystemContext", () => {
       })
 
       expect(yield* SystemContext.reconcile(context, { "core/date": { value: 42 } })).toMatchObject({
-        _tag: "Replaced",
+        _tag: "ReplacementReady",
         generation: { baseline: "2026-06-04" },
       })
       expect(loads).toBe(1)
@@ -234,7 +241,7 @@ describe("SystemContext", () => {
           "core/date": { value: "2026-06-03" },
           "core/location": { value: 42 },
         }),
-      ).toMatchObject({ _tag: "Replaced" })
+      ).toMatchObject({ _tag: "ReplacementReady" })
       expect(updates).toBe(0)
     }),
   )

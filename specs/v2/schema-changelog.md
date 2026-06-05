@@ -711,7 +711,7 @@ Compatibility:
 
 Affected schema:
 
-- Add synchronized `session.next.context.updated.1` Session events containing only exact combined model-visible text.
+- Add synchronized `session.next.context.updated.1` Session events containing a durable System-message ID and only exact combined model-visible text.
 - Add `session_context_epoch.revision` for transactional structured-snapshot advancement.
 - Add the first-class `system` Session message projection for chronological context updates.
 
@@ -727,7 +727,7 @@ Compatibility:
 
 - The synchronized event log retains only text actually shown to the model, not internal structured snapshots.
 - Existing experimental V2 Session databases remain disposable across incompatible pre-launch event-schema changes.
-- Replacement epochs after compaction or model switches, project instructions, skills guidance, and plugin transforms remain follow-up slices.
+- Replacement epochs after compaction or model switches, skills guidance, and plugin-defined context remain follow-up slices.
 
 ## 2026-06-04: Replace Session Context Epochs Lazily
 
@@ -746,4 +746,22 @@ Compatibility:
 
 - Baseline replacement is bounded operational state and does not add permanent synchronized events.
 - Existing experimental V2 Session databases remain disposable across incompatible pre-launch event-schema changes.
-- Compaction execution, project instructions, skills guidance, and plugin transforms remain follow-up slices.
+- Compaction execution, skills guidance, and plugin-defined context remain follow-up slices.
+
+## 2026-06-05: Register Ambient System Context Producers
+
+Affected schema:
+
+- No database schema changes.
+
+Change:
+
+- Replace the Session-specific context loader with a Location-scoped registry of stable-keyed scoped context producers.
+- Register environment/date and ambient instruction producers independently, then evaluate producers concurrently in stable contribution-key order.
+- Directly discover and read global plus upward project `AGENTS.md` files at each safe provider-turn boundary.
+- Preserve admitted instructions across transient scan/read failures and block first-epoch initialization while any context source is unavailable.
+- Retry Context Epoch preparation until stable after optimistic revision mismatches.
+
+Compatibility:
+
+- Watcher-backed per-file `Refreshable` instruction observations, configured sources, nested discovery, and plugin-defined context remain follow-up slices.

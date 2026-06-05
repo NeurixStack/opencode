@@ -155,7 +155,6 @@ export interface Interface {
     readonly aggregateID: string
     readonly after?: Cursor
   }) => Stream.Stream<CursorEvent>
-  readonly sequence: (aggregateID: string) => Effect.Effect<number>
   readonly sync: (handler: Sync) => Effect.Effect<Unsubscribe>
   readonly listen: (listener: Listener) => Effect.Effect<Unsubscribe>
   readonly beforeCommit: (guard: CommitGuard) => Effect.Effect<void>
@@ -337,9 +336,6 @@ export const layerWith = (options?: LayerOptions) =>
                             yield* projector({ ...event, seq } as Payload)
                           }
                           if (commit) yield* commit(seq)
-                          const encoded = syncRegistry
-                            .get(versionedType(definition.type, sync.version))!
-                            .encode(event.data)
                           yield* db
                             .insert(EventSequenceTable)
                             .values([{ aggregate_id: aggregateID, seq, owner_id: input?.ownerID }])
@@ -390,7 +386,10 @@ export const layerWith = (options?: LayerOptions) =>
           const durable = registry.get(event.type)?.sync !== undefined
           if (!durable && options?.commit)
             return yield* Effect.die(
-              new InvalidSyncEventError({ type: event.type, message: "Local commit hooks require a synchronized event" }),
+              new InvalidSyncEventError({
+                type: event.type,
+                message: "Local commit hooks require a synchronized event",
+              }),
             )
           if (durable) {
             const committed = yield* commitSyncEvent(event as Payload, undefined, options?.commit)
@@ -438,14 +437,17 @@ export const layerWith = (options?: LayerOptions) =>
             (serviceLocation
               ? { directory: serviceLocation.directory, workspaceID: serviceLocation.workspaceID }
               : undefined)
-          return yield* publishEvent({
-            id: options?.id ?? ID.create(),
-            ...(options?.metadata ? { metadata: options.metadata } : {}),
-            type: definition.type,
-            ...(definition.sync === undefined ? {} : { version: definition.sync.version }),
-            ...(location ? { location } : {}),
-            data,
-          } as Payload<D>, options)
+          return yield* publishEvent(
+            {
+              id: options?.id ?? ID.create(),
+              ...(options?.metadata ? { metadata: options.metadata } : {}),
+              type: definition.type,
+              ...(definition.sync === undefined ? {} : { version: definition.sync.version }),
+              ...(location ? { location } : {}),
+              data,
+            } as Payload<D>,
+            options,
+          )
         })
       }
 
@@ -533,14 +535,6 @@ export const layerWith = (options?: LayerOptions) =>
           .run()
           .pipe(Effect.orDie)
       }
-
-      const sequence = (aggregateID: string) =>
-        db
-          .select({ seq: EventSequenceTable.seq })
-          .from(EventSequenceTable)
-          .where(eq(EventSequenceTable.aggregate_id, aggregateID))
-          .get()
-          .pipe(Effect.orDie, Effect.map((row) => row?.seq ?? -1))
 
       const subscribe = <D extends Definition>(definition: D): Stream.Stream<Payload<D>> =>
         Stream.unwrap(getOrCreate(definition).pipe(Effect.map((pubsub) => Stream.fromPubSub(pubsub)))).pipe(
@@ -669,7 +663,6 @@ export const layerWith = (options?: LayerOptions) =>
         subscribe,
         all: streamAll,
         aggregateEvents: streamEvents,
-        sequence,
         sync,
         listen,
         beforeCommit,

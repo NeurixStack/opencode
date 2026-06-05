@@ -422,7 +422,9 @@ export const layer = Layer.effectDiscard(
     )
     yield* events.project(SessionEvent.ContextUpdated, (event) => {
       if (!event.replay || event.seq === undefined) return run(db, event)
-      return run(db, event).pipe(Effect.andThen(SessionContextEpoch.requestReplacement(db, event.data.sessionID, event.seq)))
+      return run(db, event).pipe(
+        Effect.andThen(SessionContextEpoch.requestReplacement(db, event.data.sessionID, event.seq)),
+      )
     })
     yield* events.project(SessionEvent.Synthetic, (event) => run(db, event))
     yield* events.project(SessionEvent.Shell.Started, (event) => run(db, event))

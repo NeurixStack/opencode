@@ -75,10 +75,7 @@ export const load = Effect.fn("SessionContext.load")(function* (db: DatabaseServ
     ],
     { concurrency: "unbounded" },
   )
-  return yield* Effect.forEach(
-    yield* messageRows(db, sessionID, compaction, epoch?.baselineSeq),
-    decodeMessageRow,
-  )
+  return yield* Effect.forEach(yield* messageRows(db, sessionID, compaction, epoch?.baselineSeq), decodeMessageRow)
 })
 
 export const loadForRunner = Effect.fn("SessionContext.loadForRunner")(function* (
@@ -86,7 +83,10 @@ export const loadForRunner = Effect.fn("SessionContext.loadForRunner")(function*
   sessionID: SessionSchema.ID,
   baselineSeq: number,
 ) {
-  return yield* Effect.forEach(yield* messageRows(db, sessionID, yield* latestCompaction(db, sessionID), baselineSeq), decodeMessageRow)
+  return yield* Effect.forEach(
+    yield* messageRows(db, sessionID, yield* latestCompaction(db, sessionID), baselineSeq),
+    decodeMessageRow,
+  )
 })
 
 export * as SessionContext from "./context"

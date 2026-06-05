@@ -4,7 +4,7 @@ import { Context, Effect, Layer, Ref, Scope } from "effect"
 import { SystemContext } from "./system-context"
 
 export interface Contribution {
-  readonly key: string
+  readonly key: SystemContext.Key
   readonly load: Effect.Effect<SystemContext.SystemContext>
 }
 
@@ -36,7 +36,7 @@ export const layer = Layer.effect(
         )
       }),
       load: Effect.fn("SystemContextRegistry.load")(function* () {
-        const current = (yield* Ref.get(contributions)).toSorted((a, b) => a.key.localeCompare(b.key))
+        const current = (yield* Ref.get(contributions)).toSorted((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
         return SystemContext.combine(
           yield* Effect.forEach(current, (contribution) => contribution.load, { concurrency: "unbounded" }),
         )
@@ -44,5 +44,3 @@ export const layer = Layer.effect(
     })
   }),
 )
-
-export const locationLayer = layer

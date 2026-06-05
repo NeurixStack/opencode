@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import type { DatabaseMigration } from "../migration"
 
 export default {
-  id: "20260604234609_add_session_context_snapshot",
+  id: "20260605003541_add_session_context_snapshot",
   up(tx) {
     return Effect.gen(function* () {
       yield* tx.run(`

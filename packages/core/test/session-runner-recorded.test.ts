@@ -57,14 +57,15 @@ const model = OpenAIChat.route
   })
   .model({ id: "gpt-4o-mini" })
 const models = SessionRunnerModel.layerWith(() => Effect.succeed(model))
+const systemContextKey = SystemContext.Key.make("test/context")
 const systemContext = Layer.effectDiscard(
   SystemContextRegistry.Service.pipe(
     Effect.flatMap((registry) =>
       registry.contribute({
-        key: "test/context",
+        key: systemContextKey,
         load: Effect.succeed(
           SystemContext.make({
-            key: SystemContext.Key.make("test/context"),
+            key: systemContextKey,
             codec: Schema.toCodecJson(Schema.String),
             load: Effect.succeed("Recorded context"),
             baseline: String,

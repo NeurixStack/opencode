@@ -117,7 +117,9 @@ describe("InstructionContext", () => {
       const failingFS = Layer.effect(
         FSUtil.Service,
         FSUtil.Service.pipe(
-          Effect.map((fs) => FSUtil.Service.of({ ...fs, up: () => Effect.fail(new FSUtil.FileSystemError({ method: "up" })) })),
+          Effect.map((fs) =>
+            FSUtil.Service.of({ ...fs, up: () => Effect.fail(new FSUtil.FileSystemError({ method: "up" })) }),
+          ),
         ),
       ).pipe(Layer.provide(FSUtil.defaultLayer))
       const context = yield* SystemContextRegistry.Service.pipe(
@@ -126,10 +128,7 @@ describe("InstructionContext", () => {
         Effect.provide(failingFS),
         Effect.provide(Global.layerWith({ config: "/global" })),
         Effect.provide(
-          Layer.succeed(
-            Location.Service,
-            Location.Service.of(location({ directory: AbsolutePath.make("/repo") })),
-          ),
+          Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make("/repo") }))),
         ),
       )
 
@@ -165,10 +164,7 @@ describe("InstructionContext", () => {
         Effect.provide(racingFS),
         Effect.provide(Global.layerWith({ config: "/global" })),
         Effect.provide(
-          Layer.succeed(
-            Location.Service,
-            Location.Service.of(location({ directory: AbsolutePath.make("/repo") })),
-          ),
+          Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make("/repo") }))),
         ),
       )
 

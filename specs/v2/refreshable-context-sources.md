@@ -21,15 +21,15 @@ Watcher-backed caches are a later efficiency optimization for roots with proven 
 
 ## Existing Pieces
 
-| Existing piece                      | Responsibility                                                                                                                   |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `Watcher.locationLayer`             | Publish advisory `file.watcher.updated` events for local filesystem changes.                                                     |
-| `EventV2.subscribe(...)`            | Expose advisory events as scoped Effect streams.                                                                                 |
-| `State.create(...)`                 | Rebuild replayable plugin and config contribution state from scoped transforms.                                                  |
-| `SynchronizedRef.modifyEffect(...)` | Serialize effectful state refresh and store the next value only after success.                                                   |
-| `SystemContext`                     | Convert coherent source samples into one immutable baseline, chronological updates, unavailable state, and removal tombstones.   |
-| `SystemContextRegistry`             | Assemble Location-scoped built-in, instruction, and plugin context producers in stable contribution-key order.                   |
-| `LocationServiceMap`                | Own and clean up Location-scoped services, watcher subscriptions, and observation caches together.                               |
+| Existing piece                      | Responsibility                                                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `Watcher.locationLayer`             | Publish advisory `file.watcher.updated` events for local filesystem changes.                                                   |
+| `EventV2.subscribe(...)`            | Expose advisory events as scoped Effect streams.                                                                               |
+| `State.create(...)`                 | Rebuild replayable plugin and config contribution state from scoped transforms.                                                |
+| `SynchronizedRef.modifyEffect(...)` | Serialize effectful state refresh and store the next value only after success.                                                 |
+| `SystemContext`                     | Convert coherent source samples into one immutable baseline, chronological updates, unavailable state, and removal tombstones. |
+| `SystemContextRegistry`             | Assemble Location-scoped built-in, instruction, and plugin context producers in stable contribution-key order.                 |
+| `LocationServiceMap`                | Own and clean up Location-scoped services, watcher subscriptions, and observation caches together.                             |
 
 The missing reusable piece is deliberately small: retain the last successful value, mark it stale, and serialize refresh attempts.
 
@@ -153,10 +153,11 @@ embedded skill
 Add a Location-scoped contributor to `SystemContextRegistry`:
 
 ```ts
-yield* registry.contribute({
-  key: "core/instructions",
-  load: loadAmbientInstructions(),
-})
+yield *
+  registry.contribute({
+    key: SystemContext.Key.make("core/instructions"),
+    load: loadAmbientInstructions(),
+  })
 ```
 
 `InstructionContext` owns instruction discovery, deterministic ordering, and source loading. `SystemContextRegistry` owns contributor composition and lifecycle. `SystemContext` remains unaware of files and URLs.
@@ -213,15 +214,15 @@ temporary discovery or read failure
 -> aggregate SystemContext.unavailable
 ```
 
-| Observation                                                    | Source outcome                                                                                                  |
-| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Local scan succeeds and discovers readable file                | Include its exact contents in the available aggregate source.                                                   |
-| Local scan succeeds and a previously discovered file is absent | Remove it from the aggregate value; remove the aggregate source when no instructions remain.                    |
-| Local scan or file read fails transiently                      | Preserve the admitted aggregate source as `SystemContext.unavailable`; never emit mass removals.                |
-| Empty local file                                               | Include the empty exact content in the available aggregate source.                                              |
-| URL returns `2xx` body                                         | Available source with exact contents.                                                                           |
-| URL times out or returns transient failure                     | `SystemContext.unavailable`.                                                                                    |
-| URL returns `404` or `410`                                     | Decide the explicit removal contract before URL implementation.                                                 |
+| Observation                                                    | Source outcome                                                                                   |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Local scan succeeds and discovers readable file                | Include its exact contents in the available aggregate source.                                    |
+| Local scan succeeds and a previously discovered file is absent | Remove it from the aggregate value; remove the aggregate source when no instructions remain.     |
+| Local scan or file read fails transiently                      | Preserve the admitted aggregate source as `SystemContext.unavailable`; never emit mass removals. |
+| Empty local file                                               | Include the empty exact content in the available aggregate source.                               |
+| URL returns `2xx` body                                         | Available source with exact contents.                                                            |
+| URL times out or returns transient failure                     | `SystemContext.unavailable`.                                                                     |
+| URL returns `404` or `410`                                     | Decide the explicit removal contract before URL implementation.                                  |
 
 Aggregate instruction removal text must be model-meaningful:
 
@@ -309,6 +310,18 @@ sequenceDiagram
 
 If coverage is not proven, bypass the cache and observe directly whenever the safe boundary naturally requests current state. This is safe-turn refresh, not a background polling loop.
 
+When coverage is proven, cache each known candidate instruction path independently rather than invalidating one aggregate instruction cache:
+
+```text
+candidate instruction path
+-> one Refreshable<File | Absent>
+-> watcher event invalidates only the matching path
+-> next safe provider boundary reloads only stale candidates
+-> available candidates become ordered per-file Context Sources
+```
+
+Ambient candidates include the global `AGENTS.md` path and one `AGENTS.md` candidate in every applicable ancestor directory, including candidates that are currently absent so later additions are observable.
+
 ## URL Sources
 
 URLs never share an observation cache with local discovery.
@@ -372,31 +385,36 @@ Nested instructions discovered after successful read-tool activity remain a Sess
 - Idle Sessions are not woken by local edits, URL timers, or plugin changes.
 - Context Epoch admission remains serialized by the Session event transaction at the next naturally scheduled provider turn.
 
-## Proposed Implementation Order
+## Implementation Status And Follow-Up Order
+
+Implemented in the direct-observation slice:
+
+1. Add the Location-scoped `SystemContextRegistry` backed by stable-keyed scoped contributions.
+2. Register built-in and ambient instruction producers with `SystemContextRegistry`.
+3. Observe local instructions directly at each safe provider boundary.
+4. Preserve admitted instructions after transient scan/read failure and block initial provider turns while context is unavailable.
+5. Test ordering, edit, unlink, empty file, transient scan failure, discovered-then-missing races, durable restart behavior, and deterministic context admission.
+
+Follow-up order:
 
 1. Add and unit-test `Refreshable.make(load)` with `get` and `invalidate`.
-2. Add model-meaningful instruction removal rendering support before unlink lands.
-3. Add the Location-scoped `SystemContextRegistry` backed by stable-keyed scoped contributions.
-4. Register built-in and ambient instruction producers with `SystemContextRegistry`.
-5. Observe local instructions directly at each safe provider boundary.
-6. Test add, edit, unlink, empty file, transient scan failure, transient read failure, restart, and deterministic ordering.
-7. Add configured local exact paths and globs.
-8. Add configured URL observations with explicit `404` and `410` semantics.
-9. Add root-specific watcher registration and watcher-backed `Refreshable` invalidation where coverage is proven.
-10. Migrate local `SkillV2` directory observations to per-source refreshables after skill failure semantics are corrected.
-11. Add durable Session-scoped nested read discovery.
+2. Add truthful root-specific watcher registration.
+3. Move ambient instructions from one directly observed aggregate to one watcher-invalidated Refreshable and Context Source per candidate file.
+4. Add configured local exact paths and globs.
+5. Add configured URL observations with explicit `404` and `410` semantics.
+6. Migrate local `SkillV2` directory observations to per-source refreshables after skill failure semantics are corrected.
+7. Add durable Session-scoped nested read discovery.
 
 ## Open Questions
 
-1. Should the first local scan failure preserve prior discovered sources as unavailable, or fail the current provider turn until a coherent rescan succeeds?
-2. Should configured URL sources treat `404` and `410` as confirmed removals?
-3. What root-specific watcher API cleanly models ignore policy and callback health?
-4. Should own-process file mutations publish an advisory invalidation event synchronously after commit?
+1. Should configured URL sources treat `404` and `410` as confirmed removals?
+2. What root-specific watcher API cleanly models ignore policy and callback health?
+3. Should own-process file mutations publish an advisory invalidation event synchronously after commit?
 
 ## Compression Line
 
 ```text
-State remembers what should be loaded.
+SystemContextRegistry remembers which context producers participate.
 Refreshable remembers whether a successful observation needs loading again.
 Context Epoch remembers what the model was told.
 ```

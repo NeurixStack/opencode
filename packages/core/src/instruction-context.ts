@@ -15,6 +15,7 @@ class File extends Schema.Class<File>("InstructionContext.File")({
 }) {}
 
 const Files = Schema.Array(File)
+const key = SystemContext.Key.make("core/instructions")
 
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -25,7 +26,7 @@ export const layer = Layer.effectDiscard(
 
     const source = (value: ReadonlyArray<File> | SystemContext.Unavailable) =>
       SystemContext.make({
-        key: SystemContext.Key.make("core/instructions"),
+        key,
         codec: Schema.toCodecJson(Files),
         load: Effect.succeed(value),
         baseline: render,
@@ -43,28 +44,36 @@ export const layer = Layer.effectDiscard(
       const files = yield* Effect.forEach(
         paths,
         (path) =>
-          fs.readFileStringSafe(path).pipe(
-            Effect.map((content) => (content === undefined ? undefined : new File({ path: AbsolutePath.make(path), content }))),
-          ),
+          fs
+            .readFileStringSafe(path)
+            .pipe(
+              Effect.map((content) =>
+                content === undefined ? undefined : new File({ path: AbsolutePath.make(path), content }),
+              ),
+            ),
         { concurrency: "unbounded" },
       )
-      if (files.some((file, index) => file === undefined && discovered.has(paths[index]))) return SystemContext.unavailable
+      if (files.some((file, index) => file === undefined && discovered.has(paths[index])))
+        return SystemContext.unavailable
       return files.filter((file): file is File => file !== undefined)
     })
 
     yield* registry.contribute({
-      key: "core/instructions",
+      key,
       load: observe().pipe(
         Effect.map((files) =>
-          files === SystemContext.unavailable ? source(files) : files.length === 0 ? SystemContext.empty : source(files),
+          files === SystemContext.unavailable
+            ? source(files)
+            : files.length === 0
+              ? SystemContext.empty
+              : source(files),
         ),
         Effect.catch(() => Effect.succeed(source(SystemContext.unavailable))),
+        Effect.catchDefect(() => Effect.succeed(source(SystemContext.unavailable))),
       ),
     })
   }),
 )
-
-export const locationLayer = layer
 
 function render(files: ReadonlyArray<File>) {
   return files.map((file) => `Instructions from: ${file.path}\n${file.content}`).join("\n\n")
