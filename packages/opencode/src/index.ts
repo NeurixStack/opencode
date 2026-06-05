@@ -67,6 +67,11 @@ function show(out: string) {
   process.stderr.write(out)
 }
 
+function parseLogLevel(value: string | undefined): Log.Level | undefined {
+  if (value === "DEBUG" || value === "INFO" || value === "WARN" || value === "ERROR") return value
+  return undefined
+}
+
 const cli = yargs(args)
   .parserConfiguration({ "populate--": true })
   .scriptName("opencode")
@@ -78,6 +83,10 @@ const cli = yargs(args)
   .option("print-logs", {
     describe: "print logs to stderr",
     type: "boolean",
+  })
+  .option("log-file", {
+    describe: "path to JSONL log file",
+    type: "string",
   })
   .option("log-level", {
     describe: "log level",
@@ -94,10 +103,13 @@ const cli = yargs(args)
     }
 
     await Log.init({
-      print: process.argv.includes("--print-logs"),
+      print: opts.printLogs,
+      file: opts.logFile,
       dev: Installation.isLocal(),
       level: (() => {
         if (opts.logLevel) return opts.logLevel as Log.Level
+        const envLevel = parseLogLevel(process.env.OPENCODE_LOG_LEVEL)
+        if (envLevel) return envLevel
         if (Installation.isLocal()) return "DEBUG"
         return "INFO"
       })(),

@@ -19,7 +19,7 @@ const paths = {
   },
   data,
   bin: path.join(cache, "bin"),
-  log: path.join(data, "log"),
+  log: state,
   repos: path.join(data, "repos"),
   cache,
   config,

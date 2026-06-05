@@ -2,10 +2,10 @@ export * as Log from "./log"
 
 import path from "path"
 import fs from "fs/promises"
-import { createWriteStream } from "fs"
+import { appendFileSync } from "fs"
 import * as Global from "../global"
 import { Schema } from "effect"
-import { Glob } from "./glob"
+import { ensureProcessMetadata } from "./opencode-process"
 
 export const Level = Schema.Literals(["DEBUG", "INFO", "WARN", "ERROR"]).annotate({
   identifier: "LogLevel",
@@ -19,9 +19,6 @@ const levelPriority: Record<Level, number> = {
   WARN: 2,
   ERROR: 3,
 }
-const keep = 10
-const initializedRunID = "OPENCODE_LOG_INITIALIZED_RUN_ID"
-
 let level: Level = "INFO"
 
 function shouldLog(input: Level): boolean {
@@ -49,57 +46,40 @@ const loggers = new Map<string, Logger>()
 export const Default = create({ service: "default" })
 
 export interface Options {
-  print: boolean
+  print?: boolean
   dev?: boolean
   level?: Level
+  file?: string | false
 }
 
 let logpath = ""
 export function file() {
   return logpath
 }
-let write = (msg: any) => {
-  process.stderr.write(msg)
-  return msg.length
+type LogEntry = {
+  json: string
+  pretty: string
+}
+let write = (entry: LogEntry) => {
+  process.stderr.write(entry.pretty)
 }
 
 export async function init(options: Options) {
-  if (options.level) level = options.level
-  void cleanup(Global.Path.log)
-  if (options.print) return
-  logpath = path.join(
-    Global.Path.log,
-    options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
-  )
-  const runID = process.env.OPENCODE_RUN_ID
-  const shouldTruncate = !options.dev || !runID || process.env[initializedRunID] !== runID
-  if (shouldTruncate) await fs.truncate(logpath).catch(() => {})
-  if (options.dev && runID) process.env[initializedRunID] = runID
-  const stream = createWriteStream(logpath, { flags: "a" })
-  write = async (msg: any) => {
-    return new Promise((resolve, reject) => {
-      stream.write(msg, (err) => {
-        if (err) reject(err)
-        else resolve(msg.length)
-      })
-    })
+  level = options.level ?? parseLevel(process.env.OPENCODE_LOG_LEVEL) ?? level
+  const print = options.print ?? truthy(process.env.OPENCODE_PRINT_LOGS)
+  const configured = options.file ?? process.env.OPENCODE_LOG_FILE
+  logpath = configured === false || disabled(configured) ? "" : configured || path.join(Global.Path.log, "log.jsonl")
+
+  if (logpath) await fs.mkdir(path.dirname(logpath), { recursive: true })
+
+  write = (entry) => {
+    if (logpath) {
+      try {
+        appendFileSync(logpath, entry.json)
+      } catch {}
+    }
+    if (print) process.stderr.write(entry.pretty)
   }
-}
-
-async function cleanup(dir: string) {
-  const files = (
-    await Glob.scan("????-??-??T??????.log", {
-      cwd: dir,
-      absolute: false,
-      include: "file",
-    }).catch(() => [])
-  )
-    .filter((file) => path.basename(file) === file)
-    .sort()
-  if (files.length <= keep) return
-
-  const doomed = files.slice(0, -keep)
-  await Promise.all(doomed.map((file) => fs.unlink(path.join(dir, file)).catch(() => {})))
 }
 
 function formatError(error: Error, depth = 0): string {
@@ -121,43 +101,63 @@ export function create(tags?: Record<string, any>) {
     }
   }
 
-  function build(message: any, extra?: Record<string, any>) {
-    const prefix = Object.entries({
-      ...tags,
-      ...extra,
-    })
-      .filter(([_, value]) => value !== undefined && value !== null)
-      .map(([key, value]) => {
-        const prefix = `${key}=`
-        if (value instanceof Error) return prefix + formatError(value)
-        if (typeof value === "object") return prefix + JSON.stringify(value)
-        return prefix + value
+  function build(inputLevel: Level, message: any, extra?: Record<string, any>): LogEntry {
+    const ts = new Date()
+    const metadata = ensureProcessMetadata("main")
+    const fields = Object.fromEntries(
+      Object.entries({
+        ...tags,
+        ...extra,
       })
+        .filter((entry) => entry[1] !== undefined && entry[1] !== null)
+        .map(([key, value]) => [key, normalize(value)]),
+    )
+    const service = typeof fields.service === "string" ? fields.service : undefined
+    if (service) delete fields.service
+    const text = stringifyMessage(message)
+    const record = {
+      ts: ts.toISOString(),
+      level: inputLevel,
+      message: text,
+      run_id: metadata.runID,
+      process_role: metadata.processRole,
+      pid: process.pid,
+      service,
+      fields,
+    }
+    const diff = ts.getTime() - last
+    last = ts.getTime()
+    const prefix = Object.entries({ service, ...fields })
+      .filter((entry) => entry[1] !== undefined && entry[1] !== null)
+      .map(([key, value]) => `${key}=${typeof value === "object" ? safeStringify(value) : value}`)
       .join(" ")
-    const next = new Date()
-    const diff = next.getTime() - last
-    last = next.getTime()
-    return [next.toISOString().split(".")[0], "+" + diff + "ms", prefix, message].filter(Boolean).join(" ") + "\n"
+    return {
+      json: safeStringify(record) + "\n",
+      pretty:
+        [inputLevel.padEnd(5), ts.toISOString().split(".")[0], "+" + diff + "ms", prefix, text]
+          .filter(Boolean)
+          .join(" ") + "\n",
+    }
   }
   const result: Logger = {
     debug(message?: any, extra?: Record<string, any>) {
       if (shouldLog("DEBUG")) {
-        write("DEBUG " + build(message, extra))
+        write(build("DEBUG", message, extra))
       }
     },
     info(message?: any, extra?: Record<string, any>) {
       if (shouldLog("INFO")) {
-        write("INFO  " + build(message, extra))
+        write(build("INFO", message, extra))
       }
     },
     error(message?: any, extra?: Record<string, any>) {
       if (shouldLog("ERROR")) {
-        write("ERROR " + build(message, extra))
+        write(build("ERROR", message, extra))
       }
     },
     warn(message?: any, extra?: Record<string, any>) {
       if (shouldLog("WARN")) {
-        write("WARN  " + build(message, extra))
+        write(build("WARN", message, extra))
       }
     },
     tag(key: string, value: string) {
@@ -191,4 +191,51 @@ export function create(tags?: Record<string, any>) {
   }
 
   return result
+}
+
+function truthy(value: string | undefined) {
+  return value?.toLowerCase() === "1" || value?.toLowerCase() === "true"
+}
+
+function disabled(value: string | undefined) {
+  const lower = value?.toLowerCase()
+  return lower === "0" || lower === "false" || lower === "off"
+}
+
+function parseLevel(value: string | undefined): Level | undefined {
+  if (value === "DEBUG" || value === "INFO" || value === "WARN" || value === "ERROR") return value
+  return undefined
+}
+
+function stringifyMessage(message: any): string {
+  if (message instanceof Error) return formatError(message)
+  if (message === undefined) return ""
+  if (typeof message === "string") return message
+  if (typeof message === "object") return safeStringify(message)
+  return String(message)
+}
+
+function normalize(value: any): any {
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: formatError(value),
+      stack: value.stack,
+    }
+  }
+  if (typeof value === "bigint") return value.toString()
+  return value
+}
+
+function safeStringify(value: any) {
+  const seen = new WeakSet<object>()
+  return JSON.stringify(value, (_, item) => {
+    if (typeof item === "bigint") return item.toString()
+    if (item instanceof Error) return normalize(item)
+    if (typeof item === "object" && item !== null) {
+      if (seen.has(item)) return "[Circular]"
+      seen.add(item)
+    }
+    return item
+  })
 }
