@@ -4,8 +4,8 @@ import { and, eq, isNull, lt, or, sql } from "drizzle-orm"
 import { DateTime, Effect, Schema } from "effect"
 import type { Database } from "../database/database"
 import { EventV2 } from "../event"
-import { SessionSystemContext } from "../session-system-context"
 import { SystemContext } from "../system-context"
+import { SystemContextRegistry } from "../system-context-registry"
 import { SessionEvent } from "./event"
 import { SessionMessageID } from "./message-id"
 import { SessionSchema } from "./schema"
@@ -16,7 +16,7 @@ type DatabaseService = Database.Interface["db"]
 export const prepare = Effect.fn("SessionContextEpoch.prepare")(function* (
   db: DatabaseService,
   events: EventV2.Interface,
-  context: SessionSystemContext.Interface,
+  context: SystemContextRegistry.Interface,
   sessionID: SessionSchema.ID,
 ) {
   const [value, stored] = yield* Effect.all([context.load(), find(db, sessionID)], { concurrency: "unbounded" })

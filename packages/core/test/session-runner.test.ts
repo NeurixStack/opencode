@@ -34,8 +34,8 @@ import { ApplicationTools } from "@opencode-ai/core/tool/application-tools"
 import { NativeTool } from "@opencode-ai/core/tool/native"
 import { SessionContextEpochTable, SessionInputTable, SessionMessageTable, SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
-import { SessionSystemContext } from "@opencode-ai/core/session-system-context"
 import { SystemContext } from "@opencode-ai/core/system-context"
+import { SystemContextRegistry } from "@opencode-ai/core/system-context-registry"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Cause, DateTime, Deferred, Effect, Fiber, Layer, Schema, Stream } from "effect"
@@ -145,28 +145,31 @@ const systemContextKey = SystemContext.Key.make("test/context")
 let systemBaseline = "Initial context"
 let systemRemoved = false
 let systemUnavailable = false
-const systemContext = Layer.succeed(
-  SessionSystemContext.Service,
-  SessionSystemContext.Service.of({
-    load: () =>
-      Effect.succeed(
-        SystemContext.combine(
-          systemRemoved
-            ? []
-            : [
-                SystemContext.make({
-                  key: systemContextKey,
-                  codec: Schema.toCodecJson(Schema.String),
-                  load: Effect.sync(() => (systemUnavailable ? SystemContext.unavailable : systemBaseline)),
-                  baseline: String,
-                  update: (_previous, current) => current,
-                  removed: () => "System context source removed: test/context",
-                }),
-              ],
+const systemContext = Layer.effectDiscard(
+  SystemContextRegistry.Service.pipe(
+    Effect.flatMap((registry) =>
+      registry.contribute({
+        key: "test/context",
+        load: Effect.sync(() =>
+          SystemContext.combine(
+            systemRemoved
+              ? []
+              : [
+                  SystemContext.make({
+                    key: systemContextKey,
+                    codec: Schema.toCodecJson(Schema.String),
+                    load: Effect.sync(() => (systemUnavailable ? SystemContext.unavailable : systemBaseline)),
+                    baseline: String,
+                    update: (_previous, current) => current,
+                    removed: () => "System context source removed: test/context",
+                  }),
+                ],
+          ),
         ),
-      ),
-  }),
-)
+      }),
+    ),
+  ),
+).pipe(Layer.provideMerge(SystemContextRegistry.layer))
 const runner = SessionRunnerLLM.layer.pipe(
   Layer.provide(database),
   Layer.provide(store),

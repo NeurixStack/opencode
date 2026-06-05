@@ -14,7 +14,7 @@ import { SessionRunnerModel } from "./model"
 import { Database } from "../../database/database"
 import { SessionInput } from "../input"
 import { QuestionV2 } from "../../question"
-import { SessionSystemContext } from "../../session-system-context"
+import { SystemContextRegistry } from "../../system-context-registry"
 import { SessionContextEpoch } from "../context-epoch"
 
 /**
@@ -36,8 +36,8 @@ import { SessionContextEpoch } from "../context-epoch"
  *   - [x] Resolve the selected model through the location-scoped runner environment.
  *   - [ ] Load the selected agent and effective permissions.
  *   - [ ] Build provider/model-specific base instructions and environment facts.
- *   - [ ] Load configured project instructions such as `AGENTS.md`, remote instructions, and
- *     nearby nested instructions discovered while files are read.
+ *   - [x] Load global and upward project `AGENTS.md` instructions.
+ *   - [ ] Load configured and remote instructions plus nearby nested instructions discovered while files are read.
  *   - [ ] List available skills in the system prompt and expose a tool for loading skill bodies.
  *   - [ ] Resolve referenced files, directories, agents, repositories, MCP resources, and media.
  *   - [ ] Apply steering reminders, plugin transforms, and structured-output policy.
@@ -87,7 +87,7 @@ export const layer = Layer.effect(
     const tools = yield* ToolRegistry.Service
     const models = yield* SessionRunnerModel.Service
     const store = yield* SessionStore.Service
-    const systemContext = yield* SessionSystemContext.Service
+    const systemContext = yield* SystemContextRegistry.Service
     const db = (yield* Database.Service).db
     const getSession = Effect.fn("SessionRunner.getSession")(function* (sessionID: SessionSchema.ID) {
       const session = yield* store.get(sessionID)

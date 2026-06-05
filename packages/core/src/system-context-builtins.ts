@@ -1,19 +1,15 @@
-export * as SessionSystemContext from "./session-system-context"
+export * as SystemContextBuiltIns from "./system-context-builtins"
 
-import { Context, DateTime, Effect, Layer, Schema } from "effect"
+import { DateTime, Effect, Layer, Schema } from "effect"
+import { InstructionContext } from "./instruction-context"
 import { Location } from "./location"
 import { SystemContext } from "./system-context"
+import { SystemContextRegistry } from "./system-context-registry"
 
-export interface Interface {
-  readonly load: () => Effect.Effect<SystemContext.SystemContext>
-}
-
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SessionSystemContext") {}
-
-export const layer = Layer.effect(
-  Service,
+const builtIns = Layer.effectDiscard(
   Effect.gen(function* () {
     const location = yield* Location.Service
+    const registry = yield* SystemContextRegistry.Service
     const environment = [
       "<env>",
       `  Working directory: ${location.directory}`,
@@ -40,8 +36,12 @@ export const layer = Layer.effect(
       }),
     ])
 
-    return Service.of({ load: () => Effect.succeed(context) })
+    yield* registry.contribute({ key: "core/builtins", load: Effect.succeed(context) })
   }),
+)
+
+export const layer = Layer.mergeAll(builtIns, InstructionContext.layer).pipe(
+  Layer.provideMerge(SystemContextRegistry.layer),
 )
 
 export const locationLayer = layer

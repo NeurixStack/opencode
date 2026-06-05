@@ -12,6 +12,9 @@ _Avoid_: System prompt
 One independently observed typed value within the **System Context**, represented by a stable key, JSON codec, infallible loader, pure baseline/update renderers, and an optional removal renderer for dynamic sources.
 _Avoid_: Prompt fragment
 
+**System Context Registry**:
+The Location-scoped registry of ordered, scoped producers that contribute to the current **System Context**.
+
 **Mid-Conversation System Message**:
 A durable chronological instruction that tells the model the newly effective state of a changed **Context Source**.
 _Avoid_: System update, system notification, raw text diff
@@ -35,6 +38,7 @@ The point immediately before a provider call, after durable input promotion and 
 ## Relationships
 
 - A **System Context** is an opaque carrier composed from zero or more **Context Sources**.
+- The **System Context Registry** uses stable-keyed scoped contributions to assemble the current **System Context**; contributor removal naturally removes its sources at the next **Safe Provider-Turn Boundary**.
 - A changed **Context Source** may produce one **Mid-Conversation System Message** containing its newly effective state.
 - A **Mid-Conversation System Message** persists the exact combined rendered text sent to the model.
 - The current **Context Snapshot** advances atomically with the corresponding durable **Mid-Conversation System Message**.
@@ -45,7 +49,7 @@ The point immediately before a provider call, after durable input promotion and 
 - The first provider turn renders the latest **Baseline System Context** and initializes its **Context Snapshot** without emitting a redundant **Mid-Conversation System Message**.
 - Compaction starts a new **Context Epoch** with a freshly rendered **Baseline System Context** and **Context Snapshot**; prior **Mid-Conversation System Messages** remain durable audit history but leave projected model history.
 - A newly registered core or plugin-defined **Context Source** absent from the current snapshot emits its baseline rendering once at the next **Safe Provider-Turn Boundary**.
-- **Context Source** keys are stable and namespaced; duplicate keys fail composition. `SystemContext.combine(...)` preserves caller order; future plugin-source assembly must append plugin-defined sources in lexicographic key order so rendered context remains deterministic.
+- **Context Source** keys are stable and namespaced; duplicate keys fail composition. `SystemContext.combine(...)` preserves caller order; the **System Context Registry** evaluates producers concurrently and combines them in stable contribution-key order so rendered context remains deterministic.
 - Each **Context Source** loader returns one coherent typed value. `SystemContext.make(...)` hides that value type so differently typed sources compose uniformly. Its codec compares and stores that value; its pure renderers produce model-visible baseline, update, and removal text only when needed.
 - `SystemContext.initialize(...)` observes a composed **System Context** once and produces a fresh **Baseline System Context** with its **Context Snapshot**.
 - `SystemContext.reconcile(...)` observes a composed **System Context** once and returns exactly one next action: unchanged, updated, replaced, or replacement blocked.
@@ -56,7 +60,8 @@ The point immediately before a provider call, after durable input promotion and 
 - A discovered nested project instruction remains active for the session while it stays in the same location and is folded into later **Baseline System Contexts** after compaction.
 - Location-scoped services naturally re-resolve effective context when a moved session next runs in its destination location.
 - Instruction discovery, source identity, persistence, and file loading belong to the instruction service; the **System Context** abstraction only composes effectful producers and renders loaded values.
-- Plugin-defined **Context Sources** register through a scoped replayable registry so plugin hot reload adds and removes sources predictably.
+- The first instruction-service slice observes global and upward project `AGENTS.md` files as one ordered aggregate **Context Source** at each **Safe Provider-Turn Boundary**.
+- Built-in, instruction, and plugin-defined context producers register through the **System Context Registry** with stable contribution keys so plugin hot reload and Location-scope cleanup add and remove sources predictably.
 - Context source changes never wake idle sessions; the next naturally scheduled **Safe Provider-Turn Boundary** loads and compares current values lazily.
 - Once admitted, a **Mid-Conversation System Message** remains durable even if the following provider attempt fails and is replayed unchanged on retry.
 - **Mid-Conversation System Messages** remain durable Session-message history; normal user-facing transcript surfaces may hide them.
@@ -67,7 +72,7 @@ The point immediately before a provider call, after durable input promotion and 
 - Compaction or a model/provider switch starts a new **Context Epoch** because the baseline can be replaced without preserving the prior provider cache.
 - A model/provider switch always starts a new **Context Epoch** while preserving chronological conversation history.
 - A **Mid-Conversation System Message** lowers to the provider's native chronological instruction role when supported and to a wrapped chronological fallback otherwise.
-- When an effective instruction file changes, its **Mid-Conversation System Message** includes the complete current contents and supersedes the prior version from that source; when it is removed, the message states that it no longer applies.
+- When the effective aggregate instruction set changes, its **Mid-Conversation System Message** includes the complete current ordered set and supersedes the prior aggregate value; when no ambient instructions remain, the message states that previously loaded instructions no longer apply.
 
 ## Example dialogue
 

@@ -15,7 +15,7 @@ source signal
 -> Context Epoch compares and admits exact changed bytes durably
 ```
 
-The first ambient `AGENTS.md` slice will not depend on filesystem watching. It will directly observe local instruction state whenever `SessionSystemContext.load()` naturally runs before a provider turn.
+The first ambient `AGENTS.md` slice will not depend on filesystem watching. Its scoped contributor will directly observe local instruction state whenever `SystemContextRegistry.load()` naturally runs before a provider turn.
 
 Watcher-backed caches are a later efficiency optimization for roots with proven subscription coverage. URLs remain separate observations with an independently chosen refresh policy.
 
@@ -28,6 +28,7 @@ Watcher-backed caches are a later efficiency optimization for roots with proven 
 | `State.create(...)`                 | Rebuild replayable plugin and config contribution state from scoped transforms.                                                  |
 | `SynchronizedRef.modifyEffect(...)` | Serialize effectful state refresh and store the next value only after success.                                                   |
 | `SystemContext`                     | Convert coherent source samples into one immutable baseline, chronological updates, unavailable state, and removal tombstones.   |
+| `SystemContextRegistry`             | Assemble Location-scoped built-in, instruction, and plugin context producers in stable contribution-key order.                   |
 | `LocationServiceMap`                | Own and clean up Location-scoped services, watcher subscriptions, and observation caches together.                               |
 
 The missing reusable piece is deliberately small: retain the last successful value, mark it stale, and serialize refresh attempts.
@@ -91,9 +92,9 @@ stateDiagram-v2
   Stale --> Stale: invalidate or reload fails
 ```
 
-### Why Custom Instead Of Effect `Cache`
+### Why Custom Instead Of Existing Effect Caches
 
-Effect `Cache`, `ScopedCache`, and `Effect.cachedInvalidateWithTTL(...)` cache failed exits. Context-source observation requires a narrower rule:
+Effect `Cache`, `ScopedCache`, and `Effect.cachedInvalidateWithTTL(...)` cache failed exits. Effect `Resource` preserves its prior value after a failed refresh, but eagerly acquires and does not reload lazily after explicit invalidation. Context-source observation requires the narrower lazy `Empty` / `Fresh` / `Stale` rule:
 
 ```text
 failed refresh
@@ -147,23 +148,24 @@ embedded skill
 -> direct value, no refreshable
 ```
 
-## Ambient Instruction Service
+## Ambient Instruction Contributor
 
-Add a Location-scoped service:
+Add a Location-scoped contributor to `SystemContextRegistry`:
 
 ```ts
-export interface InstructionContext.Interface {
-  readonly loadAmbient: () => Effect.Effect<SystemContext.SystemContext>
-}
+yield* registry.contribute({
+  key: "core/instructions",
+  load: loadAmbientInstructions(),
+})
 ```
 
-`InstructionContext` owns instruction discovery, stable source identity, deterministic ordering, and source loading. `SystemContext` remains unaware of files and URLs.
+`InstructionContext` owns instruction discovery, deterministic ordering, and source loading. `SystemContextRegistry` owns contributor composition and lifecycle. `SystemContext` remains unaware of files and URLs.
 
-Each effective instruction becomes one independently keyed `SystemContext.Source<string>` closed into the aggregate context with `SystemContext.make(...)`:
+The first slice closes one coherent ordered instruction set into an aggregate source:
 
 ```text
-core/instructions/file/<stable-hash-of-normalized-absolute-path>
-core/instructions/url/<stable-hash-of-normalized-url>
+core/instructions
+-> [{ path, content }, ...]
 ```
 
 Rendered text retains the human-readable source identity:
@@ -185,46 +187,46 @@ The first implementation directly observes global and upward project `AGENTS.md`
 ```mermaid
 sequenceDiagram
   participant Runner as Safe Provider Boundary
+  participant Registry as System Context Registry
   participant Instructions as Instruction Context
   participant Files
   participant Epoch as Context Epoch
 
-  Runner->>Instructions: loadAmbient
+  Runner->>Registry: load
+  Registry->>Instructions: run contribution
   Instructions->>Files: discover and read AGENTS.md files
   Files-->>Instructions: coherent current observation
-  Instructions-->>Runner: composed SystemContext
+  Instructions-->>Registry: instruction SystemContext
+  Registry-->>Runner: composed SystemContext
   Runner->>Epoch: compare and durably admit changes
 ```
 
 ## Source Outcomes
 
-Discovery state and per-source byte observation are separate concerns.
+Discovery and file reads form one coherent aggregate observation in the first slice.
 
 ```text
-discovery
--> which stable source identities currently exist?
+successful discovery and reads
+-> one ordered aggregate instruction value
 
-observation
--> what bytes or temporary failure does each identity currently produce?
+temporary discovery or read failure
+-> aggregate SystemContext.unavailable
 ```
 
 | Observation                                                    | Source outcome                                                                                                  |
 | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Local scan succeeds and discovers readable file                | Available source with exact contents.                                                                           |
-| Local scan succeeds and a previously discovered file is absent | Remove source so `SystemContext` emits a tombstone.                                                             |
-| Local scan fails transiently                                   | Preserve the domain-owned prior source graph as unavailable or fail the current turn; never emit mass removals. |
-| Known local file read fails transiently                        | Preserve the source as `SystemContext.unavailable`.                                                             |
-| Known local file read reports not-found after discovery        | Invalidate discovery and report unavailable until a coherent rescan confirms removal.                           |
-| Empty local file                                               | Available exact content, not absence.                                                                           |
+| Local scan succeeds and discovers readable file                | Include its exact contents in the available aggregate source.                                                   |
+| Local scan succeeds and a previously discovered file is absent | Remove it from the aggregate value; remove the aggregate source when no instructions remain.                    |
+| Local scan or file read fails transiently                      | Preserve the admitted aggregate source as `SystemContext.unavailable`; never emit mass removals.                |
+| Empty local file                                               | Include the empty exact content in the available aggregate source.                                              |
 | URL returns `2xx` body                                         | Available source with exact contents.                                                                           |
 | URL times out or returns transient failure                     | `SystemContext.unavailable`.                                                                                    |
 | URL returns `404` or `410`                                     | Decide the explicit removal contract before URL implementation.                                                 |
 
-Instruction removal text must be model-meaningful. If instruction source keys hash source identities, add source-specific removal rendering before unlink support is considered complete:
+Aggregate instruction removal text must be model-meaningful:
 
 ```text
-Instructions removed: /repo/packages/core/AGENTS.md
-Do not continue applying instructions previously loaded from this source.
+Previously loaded instructions no longer apply.
 ```
 
 ## First Ambient Slice
@@ -234,7 +236,7 @@ Implement only:
 ```text
 global config AGENTS.md
 + upward project AGENTS.md ancestors
-+ one keyed source per file
++ one aggregate core/instructions source
 + direct safe-turn observation
 ```
 
@@ -362,7 +364,7 @@ Nested instructions discovered after successful read-tool activity remain a Sess
 
 ## Lifecycle
 
-- Location scope owns instruction services, optional watcher-consumer fibers, and refreshable state.
+- Location scope owns the System Context Registry, scoped context contributions, optional watcher-consumer fibers, and refreshable state.
 - `Effect.forkScoped(...)` interrupts watcher-consumer fibers when the cached Location runtime is disposed.
 - Stream finalization unsubscribes `EventV2` PubSub subscriptions.
 - `Watcher.locationLayer` separately finalizes native Parcel watcher subscriptions.
@@ -374,8 +376,8 @@ Nested instructions discovered after successful read-tool activity remain a Sess
 
 1. Add and unit-test `Refreshable.make(load)` with `get` and `invalidate`.
 2. Add model-meaningful instruction removal rendering support before unlink lands.
-3. Add Location-scoped `InstructionContext` for global and upward project `AGENTS.md` only.
-4. Compose instruction sources into `SessionSystemContext.load()`.
+3. Add the Location-scoped `SystemContextRegistry` backed by stable-keyed scoped contributions.
+4. Register built-in and ambient instruction producers with `SystemContextRegistry`.
 5. Observe local instructions directly at each safe provider boundary.
 6. Test add, edit, unlink, empty file, transient scan failure, transient read failure, restart, and deterministic ordering.
 7. Add configured local exact paths and globs.

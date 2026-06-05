@@ -40,13 +40,14 @@ import { RequestExecutor } from "@opencode-ai/llm/route"
 import * as SessionRunnerLLM from "./session/runner/llm"
 import { SessionRunnerModel } from "./session/runner/model"
 import { SessionRunCoordinator } from "./session/run-coordinator"
-import { SessionSystemContext } from "./session-system-context"
+import { SystemContextBuiltIns } from "./system-context-builtins"
 import { FetchHttpClient } from "effect/unstable/http"
 
 export class LocationServiceMap extends LayerMap.Service<LocationServiceMap>()("@opencode/example/LocationServiceMap", {
   lookup: (ref: Location.Ref) => {
     const location = Location.layer(ref)
     const permissionsAndTools = ToolRegistry.layer.pipe(Layer.provideMerge(PermissionV2.locationLayer))
+    const systemContext = SystemContextBuiltIns.locationLayer
     const services = Layer.mergeAll(
       location,
       Policy.locationLayer,
@@ -56,12 +57,12 @@ export class LocationServiceMap extends LayerMap.Service<LocationServiceMap>()("
       Catalog.locationLayer,
       CommandV2.locationLayer,
       AgentV2.locationLayer,
-      PluginBoot.locationLayer,
+      PluginBoot.locationLayer.pipe(Layer.provide(systemContext)),
       FileSystem.locationLayer,
       Watcher.locationLayer,
       Pty.locationLayer,
       SkillV2.locationLayer,
-      SessionSystemContext.locationLayer,
+      systemContext,
       permissionsAndTools,
       LocationMutation.locationLayer.pipe(Layer.orDie),
     ).pipe(Layer.provideMerge(location))

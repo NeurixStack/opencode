@@ -25,6 +25,7 @@ import { EnvPlugin } from "./env"
 import { ModelsDevPlugin } from "./models-dev"
 import { ProviderPlugins } from "./provider"
 import { SkillV2 } from "../skill"
+import { SystemContextRegistry } from "../system-context-registry"
 
 type Plugin = {
   id: PluginV2.ID
@@ -42,6 +43,7 @@ type Plugin = {
     | Config.Service
     | ModelsDev.Service
     | SkillV2.Service
+    | SystemContextRegistry.Service
   >
 }
 
@@ -67,6 +69,7 @@ export const layer = Layer.effect(
     const fs = yield* FSUtil.Service
     const global = yield* Global.Service
     const skill = yield* SkillV2.Service
+    const systemContext = yield* SystemContextRegistry.Service
     const done = yield* Deferred.make<void>()
 
     const add = Effect.fn("PluginBoot.add")(function* (input: Plugin) {
@@ -86,6 +89,7 @@ export const layer = Layer.effect(
           Effect.provideService(Global.Service, global),
           Effect.provideService(SkillV2.Service, skill),
           Effect.provideService(PluginV2.Service, plugin),
+          Effect.provideService(SystemContextRegistry.Service, systemContext),
         ),
       })
     })
