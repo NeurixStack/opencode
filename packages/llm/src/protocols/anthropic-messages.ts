@@ -386,7 +386,6 @@ const lowerMessages = Effect.fn("AnthropicMessages.lowerMessages")(function* (
 
   for (const [index, message] of request.messages.entries()) {
     if (message.role === "system") {
-      yield* ProviderShared.guardSystemUpdatePlacement("Anthropic Messages", request.messages, index)
       if (supportsNativeSystemUpdates(request) && canUseNativeSystemUpdate(request.messages, index)) {
         messages.push(yield* lowerNativeSystemUpdate(message, breakpoints))
         continue

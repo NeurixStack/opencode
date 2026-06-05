@@ -127,9 +127,6 @@ describe("Anthropic Messages route", () => {
 
   it.effect("falls back for unsupported native chronological system update placement", () =>
     Effect.gen(function* () {
-      const placementError = (messages: Parameters<typeof LLM.request>[0]["messages"]) =>
-        LLMClient.prepare(LLM.request({ model: opus48, messages, cache: "none" })).pipe(Effect.flip)
-
       expect(
         (yield* LLMClient.prepare<AnthropicMessages.AnthropicMessagesBody>(
           LLM.request({
@@ -168,17 +165,6 @@ describe("Anthropic Messages route", () => {
           ],
         },
       ])
-      expect(
-        (yield* placementError([
-          Message.user("Use the tool."),
-          Message.assistant([
-            ToolCallPart.make({ id: "call_1", name: "lookup", input: {} }),
-            { type: "text", text: "Waiting." },
-          ]),
-          Message.system("Too early."),
-          Message.tool({ id: "call_1", name: "lookup", result: "Done." }),
-        ])).message,
-      ).toContain("cannot appear between a local tool call and its tool result")
     }),
   )
 
