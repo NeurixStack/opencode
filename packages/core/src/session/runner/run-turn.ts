@@ -1,13 +1,12 @@
 export * as RunTurn from "./run-turn"
 
 /**
- * Drives one logical provider turn to settlement.
+ * Sends the next request to the model and finishes every tool call it starts.
  *
- * A logical turn may rebuild its immutable preparation when concurrent Session,
- * agent, model, or Context Epoch changes make a prepared request stale. Each
- * prepared attempt invokes `llm.stream` at most once. A pre-output context
- * overflow may compact and rebuild once; later rebuilds do not restore that
- * recovery budget.
+ * Before sending, it makes admitted input visible, loads the latest Session
+ * history and instructions, and compacts oversized history. If the model rejects
+ * the request for being too large before producing output, it may compact and
+ * try once more. Returns `true` when tool results require another model request.
  */
 
 import {
@@ -50,9 +49,9 @@ export type Run = (
   promotion: SessionInput.Delivery | undefined,
 ) => Effect.Effect<boolean, RunError>
 
-const TurnTransition = Schema.TaggedUnion({
-  RebuildPreparedTurn: { promotion: SessionInput.Delivery.pipe(Schema.optional) },
-  ContinueAfterOverflowCompaction: {},
+const AttemptResult = Schema.TaggedUnion({
+  Complete: { needsContinuation: Schema.Boolean },
+  CompactedOverflow: {},
 })
 
 export const make = Effect.gen(function* () {
@@ -78,92 +77,89 @@ export const make = Effect.gen(function* () {
     Effect.raceFirst(FiberSet.join(fibers), FiberSet.awaitEmpty(fibers))
   const isQuestionRejected = (cause: Cause.Cause<unknown>) =>
     cause.reasons.some((reason) => Cause.isDieReason(reason) && reason.defect instanceof QuestionV2.RejectedError)
-  const rebuildPreparedTurn = (promotion?: SessionInput.Delivery) =>
-    TurnTransition.cases.RebuildPreparedTurn.make({ promotion })
-  const continueAfterOverflowCompaction = TurnTransition.cases.ContinueAfterOverflowCompaction.make({})
-  const retryAgentMismatch = (promotion: SessionInput.Delivery | undefined) =>
-    Effect.catchDefect((defect) =>
-      defect instanceof SessionContextEpoch.AgentMismatch
-        ? Effect.fail(rebuildPreparedTurn(promotion))
-        : Effect.die(defect),
+  const stale = Symbol("stale turn preparation")
+  const retryAgentMismatch = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(
+      Effect.catchDefect((defect) =>
+        defect instanceof SessionContextEpoch.AgentMismatch ? Effect.succeed(stale) : Effect.die(defect),
+      ),
     )
-  const sameModel = Schema.toEquivalence(Schema.UndefinedOr(ModelV2.Ref))
   const loadSystemContext = (agent: AgentV2.Selection) =>
     Effect.all([systemContext.load(), skillGuidance.load(agent)], { concurrency: "unbounded" }).pipe(
       Effect.map(SystemContext.combine),
     )
 
   /**
-   * Promotes admitted input and builds one coherent immutable request snapshot.
+   * Builds the next model request from durable Session state.
    *
-   * If initialization becomes stale before input is promoted, the rebuilt
-   * attempt must still perform that promotion. Once promotion has completed,
-   * later rebuilds read it from durable history instead of promoting again;
-   * repeating a queue promotion could open the next queued prompt too early.
+   * Initial instructions must be available before admitted input becomes visible.
+   * Once input is promoted, retries load it from history instead of promoting
+   * again. This matters for queued input because promotion opens the next item.
    */
   const prepareTurn = Effect.fn("SessionRunner.prepareTurn")(function* (
     sessionID: SessionSchema.ID,
     promotion: SessionInput.Delivery | undefined,
   ) {
-    const session = yield* getSession(sessionID)
-    if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
-      return yield* Effect.interrupt
-    const agent = yield* agents.select(session.agent)
-    const initialized = yield* SessionContextEpoch.initialize(
-      db,
-      loadSystemContext(agent),
-      session.id,
-      session.location,
-      agent.id,
-    ).pipe(retryAgentMismatch(promotion))
-    if (promotion) {
-      const cutoff = yield* SessionInput.latestSeq(db, session.id)
-      if (promotion === "steer") yield* SessionInput.promoteSteers(db, events, session.id, cutoff)
-      if (promotion === "queue") {
-        yield* SessionInput.promoteNextQueued(db, events, session.id)
-        yield* SessionInput.promoteSteers(db, events, session.id, cutoff)
+    let pendingPromotion = promotion
+    while (true) {
+      const session = yield* getSession(sessionID)
+      if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
+        return yield* Effect.interrupt
+      const agent = yield* agents.select(session.agent)
+      const initialized = yield* retryAgentMismatch(
+        SessionContextEpoch.initialize(db, loadSystemContext(agent), session.id, session.location, agent.id),
+      )
+      if (initialized === stale) continue
+      if (pendingPromotion) {
+        const cutoff = yield* SessionInput.latestSeq(db, session.id)
+        if (pendingPromotion === "steer") yield* SessionInput.promoteSteers(db, events, session.id, cutoff)
+        if (pendingPromotion === "queue") {
+          yield* SessionInput.promoteNextQueued(db, events, session.id)
+          yield* SessionInput.promoteSteers(db, events, session.id, cutoff)
+        }
+        pendingPromotion = undefined
       }
+      const prepared =
+        initialized ??
+        (yield* retryAgentMismatch(
+          SessionContextEpoch.prepare(db, events, loadSystemContext(agent), session.id, session.location, agent.id),
+        ))
+      if (prepared === stale) continue
+      const system = prepared
+      const model = yield* models.resolve(session)
+      const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
+      const toolMaterialization = yield* tools.materialize(agent.info?.permissions)
+      const request = LLM.request({
+        model,
+        providerOptions: {
+          openai: { promptCacheKey: /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id },
+        },
+        system: [agent.info?.system, system.baseline]
+          .filter((part): part is string => part !== undefined && part.length > 0)
+          .map(SystemPart.make),
+        messages: toLLMMessages(
+          entries.map((entry) => entry.message),
+          model,
+        ),
+        tools: toolMaterialization.definitions,
+      })
+      if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request })) {
+        continue
+      }
+      if (!(yield* SessionContextEpoch.current(db, session.id, agent.id, system.revision))) {
+        continue
+      }
+      return { session, agent, model, entries, request, toolMaterialization }
     }
-    const system =
-      initialized ??
-      (yield* SessionContextEpoch.prepare(
-        db,
-        events,
-        loadSystemContext(agent),
-        session.id,
-        session.location,
-        agent.id,
-      ).pipe(retryAgentMismatch(undefined)))
-    const current = yield* getSession(sessionID)
-    if ((yield* agents.select(current.agent)).id !== agent.id || !sameModel(current.model, session.model))
-      return yield* Effect.fail(rebuildPreparedTurn())
-    const model = yield* models.resolve(session)
-    const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
-    const context = entries.map((entry) => entry.message)
-    const toolMaterialization = yield* tools.materialize(agent.info?.permissions)
-    const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
-    const request = LLM.request({
-      model,
-      providerOptions: { openai: { promptCacheKey } },
-      system: [agent.info?.system, system.baseline]
-        .filter((part): part is string => part !== undefined && part.length > 0)
-        .map(SystemPart.make),
-      messages: toLLMMessages(context, model),
-      tools: toolMaterialization.definitions,
-    })
-    if (yield* compaction.compactIfNeeded({ sessionID: session.id, entries, model, request }))
-      return yield* Effect.fail(rebuildPreparedTurn())
-    return { session, agent, model, entries, request, system, toolMaterialization }
   })
 
-  type PreparedTurn = Effect.Success<ReturnType<typeof prepareTurn>>
+  type RequestSnapshot = Effect.Success<ReturnType<typeof prepareTurn>>
 
   /**
-   * Allocates the mutable state shared by provider consumption and settlement.
-   * Publication is serialized because provider events and local tool results may
-   * arrive concurrently but mutate one durable publisher state machine.
+   * Provider events and tool results can arrive concurrently. They share one
+   * permit so their durable Session events are written in order.
    */
-  const makeRuntime = Effect.fnUntraced(function* (prepared: PreparedTurn) {
+  const startTurn = Effect.fnUntraced(function* (prepared: RequestSnapshot) {
     const publisher = createLLMEventPublisher(events, {
       sessionID: prepared.session.id,
       agent: prepared.agent.id,
@@ -185,16 +181,14 @@ export const make = Effect.gen(function* () {
     }
   })
 
-  type TurnRuntime = Effect.Success<ReturnType<typeof makeRuntime>>
+  type ActiveTurn = Effect.Success<ReturnType<typeof startTurn>>
 
   /**
-   * Consumes exactly one provider stream.
-   *
-   * Every event is durably published before a local tool starts. Tool settlement
-   * is registered with the turn FiberSet before interruption can resume. A
-   * recoverable pre-output overflow is withheld until the settlement phase.
+   * Reads one model response. A tool call is recorded before its side effect
+   * starts. An overflow error is held back briefly so successful compaction does
+   * not leave a terminal error in Session history.
    */
-  const consumeProvider = (prepared: PreparedTurn, runtime: TurnRuntime) =>
+  const consumeProvider = (prepared: RequestSnapshot, runtime: ActiveTurn) =>
     llm.stream(prepared.request).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function* () {
@@ -239,10 +233,8 @@ export const make = Effect.gen(function* () {
     )
 
   /**
-   * Runs one prepared provider attempt and settles every local tool it starts.
-   *
-   * The interruption mask keeps the handoff from stream completion to tool
-   * settlement atomic, while provider consumption and tool work remain interruptible.
+   * The model response and tools remain interruptible. The short handoff after
+   * the response ends is protected so no started tool is forgotten before cleanup.
    */
   const runAttempt = Effect.fn("SessionRunner.runTurn")(function* (
     sessionID: SessionSchema.ID,
@@ -250,10 +242,7 @@ export const make = Effect.gen(function* () {
     recoverOverflow?: typeof compaction.compactAfterOverflow,
   ) {
     const prepared = yield* prepareTurn(sessionID, promotion)
-    const runtime = yield* makeRuntime(prepared)
-    if (!(yield* SessionContextEpoch.current(db, prepared.session.id, prepared.agent.id, prepared.system.revision)))
-      return yield* Effect.fail(rebuildPreparedTurn())
-
+    const runtime = yield* startTurn(prepared)
     return yield* Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         const stream = yield* restore(consumeProvider(prepared, runtime)).pipe(Effect.exit)
@@ -272,7 +261,7 @@ export const make = Effect.gen(function* () {
             }),
           ))
         )
-          return yield* Effect.fail(continueAfterOverflowCompaction)
+          return AttemptResult.cases.CompactedOverflow.make({})
         if (runtime.overflowFailure) yield* runtime.publish(runtime.overflowFailure)
         const llmFailure = failure instanceof LLMError ? failure : undefined
         if (llmFailure && !runtime.publisher.hasProviderError()) {
@@ -315,36 +304,22 @@ export const make = Effect.gen(function* () {
           )
         if (stream._tag === "Failure") return yield* Effect.failCause(stream.cause)
         if (settled._tag === "Failure") return yield* Effect.failCause(settled.cause)
-        return !runtime.publisher.hasProviderError() && runtime.needsContinuation
+        return AttemptResult.cases.Complete.make({
+          needsContinuation: !runtime.publisher.hasProviderError() && runtime.needsContinuation,
+        })
       }),
     )
   }, Effect.scoped)
 
-  /** Rebuilds stale attempts while preserving the single overflow-recovery budget. */
-  const runState = Effect.fnUntraced(function* (
-    sessionID: SessionSchema.ID,
-    promotion: SessionInput.Delivery | undefined,
-    canRecoverOverflow: boolean,
-  ): Effect.fn.Return<boolean, RunError> {
-    return yield* runAttempt(
-      sessionID,
-      promotion,
-      canRecoverOverflow ? compaction.compactAfterOverflow : undefined,
-    ).pipe(
-      Effect.catchTags({
-        ContinueAfterOverflowCompaction: Effect.fnUntraced(function* () {
-          yield* Effect.yieldNow
-          return yield* runState(sessionID, undefined, false)
-        }),
-        RebuildPreparedTurn: Effect.fnUntraced(function* (transition) {
-          yield* Effect.yieldNow
-          return yield* runState(sessionID, transition.promotion, canRecoverOverflow)
-        }),
-      }),
-    )
+  const run: Run = Effect.fnUntraced(function* (sessionID, promotion) {
+    const first = yield* runAttempt(sessionID, promotion, compaction.compactAfterOverflow)
+    if (first._tag === "Complete") return first.needsContinuation
+    const second = yield* runAttempt(sessionID, undefined)
+    return AttemptResult.match(second, {
+      Complete: (result) => result.needsContinuation,
+      CompactedOverflow: () => false,
+    })
   })
-
-  const run: Run = (sessionID, promotion) => runState(sessionID, promotion, true)
 
   return run
 })
