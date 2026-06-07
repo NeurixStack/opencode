@@ -750,10 +750,10 @@ describe("SessionRunCoordinator", () => {
         yield* coordinator.wake("session", 1)
         yield* coordinator.wake("session", 2)
         yield* Deferred.succeed(firstGate, undefined)
-          const idle = yield* coordinator.awaitIdle("session").pipe(Effect.exit)
+        const idle = yield* coordinator.awaitIdle("session").pipe(Effect.exit)
 
-          expect(runs).toBe(3)
-          expect(Exit.isSuccess(idle)).toBeTrue()
+        expect(runs).toBe(3)
+        expect(Exit.isSuccess(idle)).toBeTrue()
       }),
     ),
   )
