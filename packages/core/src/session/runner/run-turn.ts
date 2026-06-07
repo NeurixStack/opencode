@@ -240,31 +240,45 @@ export const make = Effect.gen(function* () {
         }),
       )
     })
+    const finishToolsSuccessfully = Effect.fnUntraced(function* <A, E>(stream: Exit.Exit<A, E>) {
+      if (Exit.hasInterrupts(stream) || publisher.hasProviderError()) yield* failUnsettled("Tool execution interrupted")
+      if (Exit.isSuccess(stream) && !publisher.hasProviderError())
+        yield* failUnsettled("Provider did not return a tool result", true)
+      if (Exit.isFailure(stream)) return yield* Effect.failCause(stream.cause)
+    })
+    const finishToolsAfterFailure = Effect.fnUntraced(function* <A, E>(
+      stream: Exit.Exit<A, E>,
+      tools: FiberSet.FiberSet<void, ToolOutputStore.Error>,
+      cause: Cause.Cause<ToolOutputStore.Error>,
+    ) {
+      if (isQuestionRejected(cause)) {
+        yield* FiberSet.clear(tools)
+        yield* failUnsettled("Tool execution interrupted")
+        return yield* Effect.interrupt
+      }
+      const interrupted = Cause.hasInterrupts(cause)
+      if (interrupted) yield* FiberSet.clear(tools)
+      if (Exit.hasInterrupts(stream) || interrupted || publisher.hasProviderError())
+        yield* failUnsettled("Tool execution interrupted")
+      if (!interrupted) {
+        const failure = Cause.squash(cause)
+        yield* failUnsettled(`Tool execution failed: ${failure instanceof Error ? failure.message : String(failure)}`)
+      }
+      if (Exit.isFailure(stream)) return yield* Effect.failCause(stream.cause)
+      return yield* Effect.failCause(cause)
+    })
     const finishTools = Effect.fnUntraced(function* <A, E>(
       stream: Exit.Exit<A, E>,
       tools: FiberSet.FiberSet<void, ToolOutputStore.Error>,
       wait: Effect.Effect<void, ToolOutputStore.Error>,
     ) {
-      const streamInterrupted = stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)
-      if (streamInterrupted) yield* FiberSet.clear(tools)
-      const settled = yield* wait.pipe(Effect.exit)
-      if (settled._tag === "Failure" && isQuestionRejected(settled.cause)) {
-        yield* FiberSet.clear(tools)
-        yield* failUnsettled("Tool execution interrupted")
-        return yield* Effect.interrupt
-      }
-      const toolInterrupted = settled._tag === "Failure" && Cause.hasInterrupts(settled.cause)
-      if (toolInterrupted) yield* FiberSet.clear(tools)
-      if (streamInterrupted || toolInterrupted || publisher.hasProviderError())
-        yield* failUnsettled("Tool execution interrupted")
-      if (settled._tag === "Failure" && !toolInterrupted) {
-        const failure = Cause.squash(settled.cause)
-        yield* failUnsettled(`Tool execution failed: ${failure instanceof Error ? failure.message : String(failure)}`)
-      }
-      if (stream._tag === "Success" && !publisher.hasProviderError())
-        yield* failUnsettled("Provider did not return a tool result", true)
-      if (stream._tag === "Failure") return yield* Effect.failCause(stream.cause)
-      if (settled._tag === "Failure") return yield* Effect.failCause(settled.cause)
+      if (Exit.hasInterrupts(stream)) yield* FiberSet.clear(tools)
+      return yield* wait.pipe(
+        Effect.matchCauseEffect({
+          onFailure: (cause) => finishToolsAfterFailure(stream, tools, cause),
+          onSuccess: () => finishToolsSuccessfully(stream),
+        }),
+      )
     })
     const settleProviderTurn = Effect.fnUntraced(function* () {
       const tools = yield* FiberSet.make<void, ToolOutputStore.Error>()
