@@ -68,14 +68,21 @@ export const layer = Layer.effectDiscard(
                 return yield* Effect.fail(new FileSystem.BinaryFileError(resolved.resource))
               return content
             }).pipe(
+              Effect.catchDefect((defect) =>
+                defect instanceof FileSystem.PathValidationError
+                  ? Effect.fail(new ToolFailure({ message: defect.message }))
+                  : Effect.die(defect),
+              ),
               Effect.mapError((error) => {
                 const message =
-                  error instanceof FileSystem.BinaryFileError ||
-                  error instanceof FileSystem.MediaIngestLimitError ||
-                  error instanceof Image.DecodeError ||
-                  error instanceof Image.SizeError
+                  error instanceof ToolFailure
                     ? error.message
-                    : `Unable to read ${input.path}`
+                    : error instanceof FileSystem.BinaryFileError ||
+                        error instanceof FileSystem.MediaIngestLimitError ||
+                        error instanceof Image.DecodeError ||
+                        error instanceof Image.SizeError
+                      ? error.message
+                      : `Unable to read ${input.path}`
                 return new ToolFailure({ message })
               }),
             )

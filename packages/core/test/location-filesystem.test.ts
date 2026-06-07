@@ -67,6 +67,11 @@ describe("FileSystem", () => {
 
         expect(yield* service.read({ path: output })).toMatchObject({ type: "text", content: "failure here" })
         expect((yield* service.resolveRoot({ path: output })).real).toBe(output)
+        expect(
+          yield* service
+            .resolveReadPath({ path: unrelated })
+            .pipe(Effect.catchDefect((defect) => Effect.succeed(defect))),
+        ).toBeInstanceOf(FileSystem.PathValidationError)
         expect(yield* Effect.exit(service.read({ path: unrelated }))).toMatchObject({ _tag: "Failure" })
         expect(yield* Effect.exit(service.read({ path: managed }))).toMatchObject({ _tag: "Failure" })
       }).pipe(provide(worktree, inertReferences, FSUtil.defaultLayer, data))

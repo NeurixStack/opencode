@@ -490,6 +490,23 @@ describe("ReadTool", () => {
     }),
   )
 
+  it.effect("returns path validation failures as model-visible tool output", () =>
+    Effect.gen(function* () {
+      const registry = yield* ToolRegistry.Service
+
+      resolveFailure = new FileSystem.PathValidationError("Absolute path is not managed tool output")
+      expect(
+        yield* executeTool(registry, {
+          sessionID,
+          ...toolIdentity,
+          call: { type: "tool-call", id: "call-unmanaged", name: "read", input: { path: "/tmp/private.txt" } },
+        }),
+      ).toEqual({ type: "error", value: "Absolute path is not managed tool output" })
+
+      expect(readCalls).toEqual([])
+    }),
+  )
+
   it.effect("forwards pagination and returns bounded text pages with continuation", () =>
     Effect.gen(function* () {
       readResult = new FileSystem.TextPage({

@@ -35,6 +35,13 @@ export class BinaryFileError extends Error {
   }
 }
 
+export class PathValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "PathValidationError"
+  }
+}
+
 const BINARY_EXTENSIONS = new Set([
   ".zip",
   ".tar",
@@ -265,21 +272,23 @@ export const layer = Layer.effect(
         ToolOutputStore.MANAGED_DIRECTORY,
       )
       if (input && path.isAbsolute(input)) {
-        if (reference) return yield* Effect.die(new Error("Absolute paths cannot use a project reference"))
+        if (reference)
+          return yield* Effect.die(new PathValidationError("Absolute paths cannot use a project reference"))
         if (path.dirname(input) !== managed || !path.basename(input).startsWith("tool_"))
-          return yield* Effect.die(new Error("Absolute path is not managed tool output"))
+          return yield* Effect.die(new PathValidationError("Absolute path is not managed tool output"))
         const real = yield* fs.realPath(input).pipe(Effect.orDie)
         const managedRoot = yield* fs.realPath(managed).pipe(Effect.orDie)
         if (path.dirname(real) !== managedRoot || !path.basename(real).startsWith("tool_"))
-          return yield* Effect.die(new Error("Path escapes managed tool output"))
+          return yield* Effect.die(new PathValidationError("Path escapes managed tool output"))
         return { absolute: input, real, directory: managed, root: managedRoot }
       }
       const selected = yield* select(reference)
       const absolute = path.resolve(selected.directory, input ?? ".")
       if (!FSUtil.contains(selected.directory, absolute))
-        return yield* Effect.die(new Error("Path escapes the location"))
+        return yield* Effect.die(new PathValidationError("Path escapes the location"))
       const real = yield* fs.realPath(absolute).pipe(Effect.orDie)
-      if (!FSUtil.contains(selected.root, real)) return yield* Effect.die(new Error("Path escapes the location"))
+      if (!FSUtil.contains(selected.root, real))
+        return yield* Effect.die(new PathValidationError("Path escapes the location"))
       return { absolute, real, ...selected }
     })
     const entry = Effect.fnUntraced(function* (absolute: string, selected = { directory: location.directory, root }) {
