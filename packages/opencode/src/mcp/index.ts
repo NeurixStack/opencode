@@ -9,6 +9,7 @@ import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import {
   CallToolResultSchema,
   ListToolsResultSchema,
+  PromptListChangedNotificationSchema,
   ToolSchema,
   type Tool as MCPToolDef,
   ToolListChangedNotificationSchema,
@@ -51,6 +52,13 @@ export type Resource = Schema.Schema.Type<typeof Resource>
 
 export const ToolsChanged = EventV2.define({
   type: "mcp.tools.changed",
+  schema: {
+    server: Schema.String,
+  },
+})
+
+export const PromptsChanged = EventV2.define({
+  type: "mcp.prompts.changed",
   schema: {
     server: Schema.String,
   },
@@ -508,18 +516,27 @@ export const layer = Layer.effect(
     )
 
     function watch(s: State, name: string, client: MCPClient, bridge: EffectBridge.Shape, timeout?: number) {
-      if (!client.getServerCapabilities()?.tools) return
-      client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
-        log.info("tools list changed notification received", { server: name })
-        if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
+      const capabilities = client.getServerCapabilities()
+      if (capabilities?.tools) {
+        client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+          log.info("tools list changed notification received", { server: name })
+          if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
-        const listed = await bridge.promise(defs(name, client, timeout))
-        if (!listed) return
-        if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
+          const listed = await bridge.promise(defs(name, client, timeout))
+          if (!listed) return
+          if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
-        s.defs[name] = listed
-        await bridge.promise(events.publish(ToolsChanged, { server: name }).pipe(Effect.ignore))
-      })
+          s.defs[name] = listed
+          await bridge.promise(events.publish(ToolsChanged, { server: name }).pipe(Effect.ignore))
+        })
+      }
+      if (capabilities?.prompts?.listChanged) {
+        client.setNotificationHandler(PromptListChangedNotificationSchema, async () => {
+          log.info("prompts list changed notification received", { server: name })
+          if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
+          await bridge.promise(events.publish(PromptsChanged, { server: name }).pipe(Effect.ignore))
+        })
+      }
     }
 
     const state = yield* InstanceState.make<State>(

@@ -1,5 +1,5 @@
 import { expect, mock, beforeEach } from "bun:test"
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import type { MCP as MCPNS } from "../../src/mcp/index"
 import { testEffect } from "../lib/effect"
 
@@ -191,9 +191,10 @@ beforeEach(() => {
 
 // Import after mocks
 const { MCP } = await import("../../src/mcp/index")
+const { Command } = await import("../../src/command/index")
 const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
 
-const it = testEffect(MCP.defaultLayer)
+const it = testEffect(Layer.merge(MCP.defaultLayer, Command.defaultLayer))
 
 function statusName(status: Record<string, MCPNS.Status> | MCPNS.Status, server: string) {
   if ("status" in status) return status.status
@@ -575,6 +576,73 @@ it.instance(
       },
     },
   },
+)
+
+it.instance(
+  "prompt list change notifications refresh cached commands",
+  () =>
+    Effect.gen(function* () {
+      const mcp = yield* MCP.Service
+      const command = yield* Command.Service
+      lastCreatedClientName = "prompt-server"
+      const serverState = getOrCreateClientState("prompt-server")
+      serverState.capabilities = { prompts: { listChanged: true } }
+      serverState.prompts = [{ name: "first" }]
+
+      yield* mcp.add("prompt-server", {
+        type: "local",
+        command: ["echo", "test"],
+      })
+
+      expect((yield* command.list()).some((item) => item.name === "prompt-server:first")).toBe(true)
+      serverState.prompts = [{ name: "second" }]
+
+      const handler = Array.from(serverState.notificationHandlers.values())[0]
+      expect(handler).toBeDefined()
+      yield* Effect.promise(() => handler?.())
+
+      const commands = yield* command.list()
+      expect(commands.some((item) => item.name === "prompt-server:second")).toBe(true)
+      expect(commands.some((item) => item.name === "prompt-server:first")).toBe(false)
+    }),
+  { config: { mcp: {} } },
+)
+
+it.instance(
+  "prompt notifications from replaced clients do not refresh commands",
+  () =>
+    Effect.gen(function* () {
+      const mcp = yield* MCP.Service
+      const command = yield* Command.Service
+      lastCreatedClientName = "prompt-server"
+      const firstState = getOrCreateClientState("prompt-server")
+      firstState.capabilities = { prompts: { listChanged: true } }
+      firstState.prompts = [{ name: "first" }]
+
+      yield* mcp.add("prompt-server", {
+        type: "local",
+        command: ["echo", "test"],
+      })
+      expect((yield* command.list()).some((item) => item.name === "prompt-server:first")).toBe(true)
+      const staleHandler = Array.from(firstState.notificationHandlers.values())[0]
+
+      clientStates.delete("prompt-server")
+      const secondState = getOrCreateClientState("prompt-server")
+      secondState.capabilities = { prompts: { listChanged: true } }
+      secondState.prompts = [{ name: "second" }]
+      yield* mcp.add("prompt-server", {
+        type: "local",
+        command: ["echo", "test"],
+      })
+
+      yield* Effect.promise(() => staleHandler?.())
+      expect((yield* command.list()).some((item) => item.name === "prompt-server:second")).toBe(false)
+
+      const activeHandler = Array.from(secondState.notificationHandlers.values())[0]
+      yield* Effect.promise(() => activeHandler?.())
+      expect((yield* command.list()).some((item) => item.name === "prompt-server:second")).toBe(true)
+    }),
+  { config: { mcp: {} } },
 )
 
 it.instance(

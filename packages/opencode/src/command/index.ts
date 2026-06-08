@@ -7,6 +7,7 @@ import { Config } from "@/config/config"
 import { MCP } from "../mcp"
 import { Skill } from "../skill"
 import { EventV2 } from "@opencode-ai/core/event"
+import { EventV2Bridge } from "@/event-v2-bridge"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
 
@@ -68,6 +69,7 @@ export const layer = Layer.effect(
     const config = yield* Config.Service
     const mcp = yield* MCP.Service
     const skill = yield* Skill.Service
+    const events = yield* EventV2Bridge.Service
 
     const init = Effect.fn("Command.state")(function* (ctx: InstanceContext) {
       const cfg = yield* config.get()
@@ -157,6 +159,11 @@ export const layer = Layer.effect(
     })
 
     const state = yield* InstanceState.make<State>((ctx) => init(ctx))
+    const unsubscribe = yield* events.listen((event) => {
+      if (event.type !== MCP.PromptsChanged.type) return Effect.void
+      return InstanceState.invalidate(state)
+    })
+    yield* Effect.addFinalizer(() => unsubscribe)
 
     const get = Effect.fn("Command.get")(function* (name: string) {
       const s = yield* InstanceState.get(state)
@@ -176,6 +183,7 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Config.defaultLayer),
   Layer.provide(MCP.defaultLayer),
   Layer.provide(Skill.defaultLayer),
+  Layer.provide(EventV2Bridge.defaultLayer),
 )
 
 export * as Command from "."
