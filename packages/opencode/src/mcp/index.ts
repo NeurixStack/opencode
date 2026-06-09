@@ -10,7 +10,6 @@ import {
   CallToolResultSchema,
   ListToolsResultSchema,
   ToolSchema,
-  type Tool as MCPToolDef,
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "@/config/config"
@@ -71,6 +70,7 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("MCP
 }) {}
 
 type MCPClient = Client
+type MCPToolDef = Awaited<ReturnType<MCPClient["listTools"]>>["tools"][number]
 
 const StatusConnected = Schema.Struct({ status: Schema.Literal("connected") }).annotate({
   identifier: "MCPStatusConnected",
@@ -124,6 +124,10 @@ function isOutputSchemaValidationError(error: Error) {
   )
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 async function paginate<T, R extends { nextCursor?: string }>(
   list: (cursor?: string) => Promise<R>,
   items: (result: R) => T[],
@@ -168,12 +172,12 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
   const inputSchema = mcpTool.inputSchema
 
   // Spread first, then override type to ensure it's always "object"
-  const schema: JSONSchema7 = {
-    ...(inputSchema as JSONSchema7),
+  const schema = {
+    ...inputSchema,
     type: "object",
-    properties: (inputSchema.properties ?? {}) as JSONSchema7["properties"],
+    properties: inputSchema.properties ?? {},
     additionalProperties: false,
-  }
+  } satisfies JSONSchema7
 
   return dynamicTool({
     description: mcpTool.description ?? "",
@@ -182,7 +186,7 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
       return client.callTool(
         {
           name: mcpTool.name,
-          arguments: (args || {}) as Record<string, unknown>,
+          arguments: isRecord(args) ? args : {},
         },
         CallToolResultSchema,
         {
@@ -218,6 +222,10 @@ function fetchFromClient<T extends { name: string }>(
 }
 
 type UnavailableStatus = Exclude<Status, { status: "connected" }>
+type ConnectResult = { type: "connected"; client: MCPClient } | { type: "unavailable"; status: UnavailableStatus }
+type CreateResult =
+  | { type: "connected"; client: MCPClient; defs: MCPToolDef[] }
+  | { type: "unavailable"; status: UnavailableStatus }
 
 interface AuthResult {
   authorizationUrl: string
@@ -294,7 +302,10 @@ export const layer = Layer.effect(
         (t, exit) => (Exit.isFailure(exit) ? Effect.tryPromise(() => t.close()).pipe(Effect.ignore) : Effect.void),
       )
 
-    const DISABLED_RESULT = { status: { status: "disabled" as const } }
+    const DISABLED_RESULT = {
+      type: "unavailable",
+      status: { status: "disabled" },
+    } satisfies CreateResult
 
     const connectRemote = Effect.fn("MCP.connectRemote")(function* (key: string, mcp: ConfigMCPV1.Remote) {
       const oauthDisabled = mcp.oauth === false
@@ -302,8 +313,9 @@ export const layer = Layer.effect(
       const url = remoteURL(mcp.url)
       if (!url) {
         return {
-          status: { status: "failed" as const, error: `Invalid MCP URL for "${key}"` },
-        }
+          type: "unavailable",
+          status: { status: "failed", error: `Invalid MCP URL for "${key}"` },
+        } satisfies ConnectResult
       }
       let authProvider: McpOAuthProvider | undefined
 
@@ -356,7 +368,7 @@ export const layer = Layer.effect(
             if (isAuthError) {
               if (lastError.message.includes("registration") || lastError.message.includes("client_id")) {
                 lastStatus = {
-                  status: "needs_client_registration" as const,
+                  status: "needs_client_registration",
                   error: "Server does not support dynamic client registration. Please provide clientId in config.",
                 }
                 return events
@@ -369,7 +381,7 @@ export const layer = Layer.effect(
                   .pipe(Effect.ignore, Effect.as(undefined))
               } else {
                 pendingOAuthTransports.set(key, transport)
-                lastStatus = { status: "needs_auth" as const }
+                lastStatus = { status: "needs_auth" }
                 return events
                   .publish(TuiEvent.ToastShow, {
                     title: "MCP Authentication Required",
@@ -381,18 +393,19 @@ export const layer = Layer.effect(
               }
             }
 
-            lastStatus = { status: "failed" as const, error: lastError.message }
+            lastStatus = { status: "failed", error: lastError.message }
             return Effect.void
           }),
         )
-        if (result) return { client: result.client }
+        if (result) return { type: "connected", client: result.client } satisfies ConnectResult
         // If this was an auth error, stop trying other transports
         if (lastStatus?.status === "needs_auth" || lastStatus?.status === "needs_client_registration") break
       }
 
       return {
-        status: lastStatus ?? { status: "failed" as const, error: "Unknown error" },
-      }
+        type: "unavailable",
+        status: lastStatus ?? { status: "failed", error: "Unknown error" },
+      } satisfies ConnectResult
     })
 
     const connectLocal = Effect.fn("MCP.connectLocal")(function* (mcp: ConfigMCPV1.Local) {
@@ -412,10 +425,13 @@ export const layer = Layer.effect(
 
       const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT
       return yield* connectTransport(transport, connectTimeout).pipe(
-        Effect.map((client) => ({ client })),
+        Effect.map((client) => ({ type: "connected", client }) satisfies ConnectResult),
         Effect.catch((error) => {
           const msg = error instanceof Error ? error.message : String(error)
-          return Effect.succeed({ status: { status: "failed" as const, error: msg } })
+          return Effect.succeed({
+            type: "unavailable",
+            status: { status: "failed", error: msg },
+          } satisfies ConnectResult)
         }),
       )
     })
@@ -427,24 +443,27 @@ export const layer = Layer.effect(
 
       const result = mcp.type === "remote" ? yield* connectRemote(key, mcp) : yield* connectLocal(mcp)
 
-      if ("status" in result) {
+      if (result.type === "unavailable") {
         yield* Effect.logWarning("server unavailable", { key, type: mcp.type, status: result.status.status })
-        return result
+        return result satisfies CreateResult
       }
 
       const listed = result.client.getServerCapabilities()?.tools ? yield* defs(result.client, mcp.timeout) : []
       if (!listed) {
         yield* Effect.tryPromise(() => result.client.close()).pipe(Effect.ignore)
-        return { status: { status: "failed" as const, error: "Failed to get tools" } }
+        return {
+          type: "unavailable",
+          status: { status: "failed", error: "Failed to get tools" },
+        } satisfies CreateResult
       }
 
-      return { client: result.client, defs: listed }
+      return { type: "connected", client: result.client, defs: listed } satisfies CreateResult
     })
     const cfgSvc = yield* Config.Service
 
     const descendants = Effect.fnUntraced(
       function* (pid: number) {
-        if (process.platform === "win32") return [] as number[]
+        if (process.platform === "win32") return Array<number>()
         const pids: number[] = []
         const queue = [pid]
         for (let index = 0; index < queue.length; index++) {
@@ -463,7 +482,7 @@ export const layer = Layer.effect(
         return pids
       },
       Effect.scoped,
-      Effect.catch(() => Effect.succeed([] as number[])),
+      Effect.catch(() => Effect.succeed(Array<number>())),
     )
 
     function watch(s: State, name: string, client: MCPClient, bridge: EffectBridge.Shape, timeout?: number) {
@@ -508,7 +527,7 @@ export const layer = Layer.effect(
               const result = yield* create(key, mcp).pipe(Effect.catch(() => Effect.void))
               if (!result) return
 
-              if ("status" in result) {
+              if (result.type === "unavailable") {
                 s.status[key] = result.status
                 return
               }
@@ -598,7 +617,7 @@ export const layer = Layer.effect(
       const s = yield* InstanceState.get(state)
       const result = yield* create(name, mcp)
 
-      if ("status" in result) {
+      if (result.type === "unavailable") {
         s.status[name] = result.status
         yield* closeClient(s, name)
         delete s.clients[name]
@@ -843,7 +862,7 @@ export const layer = Layer.effect(
       if (!transport) throw new Error(`No pending OAuth flow for MCP server: ${mcpName}`)
 
       const result = yield* Effect.tryPromise({
-        try: () => transport.finishAuth(authorizationCode).then(() => true as const),
+        try: () => transport.finishAuth(authorizationCode).then((): true => true),
         catch: (error) => {
           return error
         },
