@@ -3962,6 +3962,226 @@ describe("ProviderTransform.variants", () => {
   })
 })
 
+describe("ProviderTransform.variants - models.dev reasoning_options", () => {
+  const createModel = (overrides: Partial<any> = {}): any => ({
+    id: "test/test-model",
+    providerID: "test",
+    api: {
+      id: "test-model",
+      url: "https://api.test.com",
+      npm: "@ai-sdk/openai-compatible",
+    },
+    name: "Test Model",
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      attachment: false,
+      toolcall: true,
+      input: { text: true, audio: false, image: false, video: false, pdf: false },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 200_000, output: 64_000 },
+    status: "active",
+    options: {},
+    headers: {},
+    release_date: "2024-01-01",
+    ...overrides,
+  })
+
+  const withOptions = (model: any, reasoningOptions: any[]) => {
+    model.capabilities.reasoningOptions = reasoningOptions
+    return model
+  }
+
+  test("effort values drive variants for openai-compatible packages", () => {
+    const model = withOptions(createModel(), [{ type: "toggle" }, { type: "effort", values: ["high", "max"] }])
+    expect(ProviderTransform.variants(model)).toEqual({
+      high: { reasoningEffort: "high" },
+      max: { reasoningEffort: "max" },
+    })
+  })
+
+  test("effort values drive variants for openai with summary and encrypted reasoning", () => {
+    const model = withOptions(createModel({ api: { id: "gpt-x", url: "", npm: "@ai-sdk/openai" } }), [
+      { type: "effort", values: ["low", "high"] },
+    ])
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { reasoningEffort: "low", reasoningSummary: "auto", include: ["reasoning.encrypted_content"] },
+      high: { reasoningEffort: "high", reasoningSummary: "auto", include: ["reasoning.encrypted_content"] },
+    })
+  })
+
+  test("null efforts, duplicates, and unknown option types are ignored", () => {
+    const model = withOptions(createModel(), [
+      { type: "future-thing", anything: true },
+      { type: "effort", values: [null, "low"] },
+      { type: "effort", values: ["low", "high"] },
+    ])
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { reasoningEffort: "low" },
+      high: { reasoningEffort: "high" },
+    })
+  })
+
+  test("toggle-only data falls back to the hardcoded tables", () => {
+    const model = withOptions(
+      createModel({
+        id: "minimax/minimax-m3",
+        providerID: "minimax",
+        api: { id: "MiniMax-M3", url: "", npm: "@ai-sdk/anthropic" },
+      }),
+      [{ type: "toggle" }],
+    )
+    expect(ProviderTransform.variants(model)).toEqual({
+      none: { thinking: { type: "disabled" } },
+      thinking: { thinking: { type: "adaptive" } },
+    })
+  })
+
+  test("budget-only data falls back to the hardcoded anthropic budget variants", () => {
+    const model = withOptions(
+      createModel({
+        id: "anthropic/claude-haiku-4-5",
+        providerID: "anthropic",
+        api: { id: "claude-haiku-4-5", url: "", npm: "@ai-sdk/anthropic" },
+      }),
+      [{ type: "budget_tokens", min: 1024 }],
+    )
+    expect(ProviderTransform.variants(model)).toEqual({
+      high: { thinking: { type: "enabled", budgetTokens: 16_000 } },
+      max: { thinking: { type: "enabled", budgetTokens: 31_999 } },
+    })
+  })
+
+  test("empty effort values fall back to the hardcoded tables", () => {
+    const model = withOptions(createModel({ api: { id: "gpt-x", url: "", npm: "@ai-sdk/openai" } }), [
+      { type: "effort", values: [] },
+    ])
+    expect(Object.keys(ProviderTransform.variants(model))).toEqual(["low", "medium", "high"])
+  })
+
+  test("anthropic adaptive models wrap data efforts in adaptive thinking", () => {
+    const model = withOptions(
+      createModel({
+        id: "anthropic/claude-sonnet-4-6",
+        providerID: "anthropic",
+        api: { id: "claude-sonnet-4-6", url: "", npm: "@ai-sdk/anthropic" },
+      }),
+      [
+        { type: "effort", values: ["low", "medium", "high", "max"] },
+        { type: "budget_tokens", min: 1024 },
+      ],
+    )
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { thinking: { type: "adaptive" }, effort: "low" },
+      medium: { thinking: { type: "adaptive" }, effort: "medium" },
+      high: { thinking: { type: "adaptive" }, effort: "high" },
+      max: { thinking: { type: "adaptive" }, effort: "max" },
+    })
+  })
+
+  test("anthropic non-adaptive models encode data efforts as plain effort", () => {
+    const model = withOptions(
+      createModel({
+        id: "anthropic/claude-opus-4-5",
+        providerID: "anthropic",
+        api: { id: "claude-opus-4-5", url: "", npm: "@ai-sdk/anthropic" },
+      }),
+      [{ type: "effort", values: ["low", "medium", "high"] }],
+    )
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { effort: "low" },
+      medium: { effort: "medium" },
+      high: { effort: "high" },
+    })
+  })
+
+  test("github-copilot anthropic models filter unsupported data efforts", () => {
+    const model = withOptions(
+      createModel({
+        id: "github-copilot/claude-sonnet-4-6",
+        providerID: "github-copilot",
+        api: { id: "claude-sonnet-4-6", url: "", npm: "@ai-sdk/anthropic" },
+      }),
+      [{ type: "effort", values: ["low", "medium", "high", "max"] }],
+    )
+    expect(Object.keys(ProviderTransform.variants(model))).toEqual(["low", "medium", "high"])
+  })
+
+  test("openrouter encodes data efforts as reasoning.effort", () => {
+    const model = withOptions(
+      createModel({
+        id: "openrouter/x-ai/grok-4.3",
+        providerID: "openrouter",
+        api: { id: "x-ai/grok-4.3", url: "", npm: "@openrouter/ai-sdk-provider" },
+      }),
+      [{ type: "effort", values: ["low", "high"] }],
+    )
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { reasoning: { effort: "low" } },
+      high: { reasoning: { effort: "high" } },
+    })
+  })
+
+  test("google encodes data efforts as thinkingConfig levels", () => {
+    const model = withOptions(
+      createModel({
+        id: "google/gemini-3-pro-preview",
+        providerID: "google",
+        api: { id: "gemini-3-pro-preview", url: "", npm: "@ai-sdk/google" },
+      }),
+      [{ type: "effort", values: ["low", "high"] }],
+    )
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } },
+      high: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } },
+    })
+  })
+
+  test("bedrock non-adaptive models encode data efforts as enabled maxReasoningEffort", () => {
+    const model = withOptions(
+      createModel({
+        id: "amazon-bedrock/anthropic.claude-opus-4-5-20251101-v1:0",
+        providerID: "amazon-bedrock",
+        api: { id: "anthropic.claude-opus-4-5-20251101-v1:0", url: "", npm: "@ai-sdk/amazon-bedrock" },
+      }),
+      [{ type: "effort", values: ["low", "medium", "high"] }],
+    )
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { reasoningConfig: { type: "enabled", maxReasoningEffort: "low" } },
+      medium: { reasoningConfig: { type: "enabled", maxReasoningEffort: "medium" } },
+      high: { reasoningConfig: { type: "enabled", maxReasoningEffort: "high" } },
+    })
+  })
+
+  test("sap anthropic adaptive models wrap data efforts in modelParams", () => {
+    const model = withOptions(
+      createModel({
+        id: "sap-ai-core/anthropic--claude-4.6-sonnet",
+        providerID: "sap-ai-core",
+        api: { id: "anthropic--claude-4.6-sonnet", url: "", npm: "@jerome-benoit/sap-ai-provider-v2" },
+      }),
+      [{ type: "effort", values: ["low", "max"] }],
+    )
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { modelParams: { thinking: { type: "adaptive" }, output_config: { effort: "low" } } },
+      max: { modelParams: { thinking: { type: "adaptive" }, output_config: { effort: "max" } } },
+    })
+  })
+
+  test("unknown packages default to openai-compatible reasoningEffort", () => {
+    const model = withOptions(createModel({ api: { id: "some-model", url: "", npm: "@ai-sdk/some-future-sdk" } }), [
+      { type: "effort", values: ["low", "ultrathink"] },
+    ])
+    expect(ProviderTransform.variants(model)).toEqual({
+      low: { reasoningEffort: "low" },
+      ultrathink: { reasoningEffort: "ultrathink" },
+    })
+  })
+})
+
 describe("ProviderTransform.smallOptions - gpt-5 chat/search", () => {
   const createModel = (apiId: string) => {
     const model = {

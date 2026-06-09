@@ -146,10 +146,20 @@ const AnthropicToolChoice = Schema.Union([
   Schema.Struct({ type: Schema.tag("tool"), name: Schema.String }),
 ])
 
-const AnthropicThinking = Schema.Struct({
-  type: Schema.tag("enabled"),
-  budget_tokens: Schema.Number,
-})
+const AnthropicThinking = Schema.Union([
+  Schema.Struct({
+    type: Schema.tag("enabled"),
+    budget_tokens: Schema.Number,
+  }),
+  // Adaptive thinking (Claude 4.6+) lets the model choose its own budget.
+  // `display` controls how thinking is surfaced ("summarized" forces summaries
+  // on models that default to "omitted"); keep it an open string so new display
+  // modes flow through.
+  Schema.Struct({
+    type: Schema.tag("adaptive"),
+    display: Schema.optional(Schema.String),
+  }),
+])
 
 const AnthropicBodyFields = {
   model: Schema.String,
@@ -164,6 +174,8 @@ const AnthropicBodyFields = {
   top_k: Schema.optional(Schema.Number),
   stop_sequences: optionalArray(Schema.String),
   thinking: Schema.optional(AnthropicThinking),
+  // Reasoning effort (beta `effort-2025-11-24`); open string so new tiers flow through.
+  output_config: Schema.optional(Schema.Struct({ effort: Schema.String })),
 }
 const AnthropicMessagesBody = Schema.Struct(AnthropicBodyFields)
 export type AnthropicMessagesBody = Schema.Schema.Type<typeof AnthropicMessagesBody>
@@ -490,7 +502,14 @@ const anthropicOptions = (request: LLMRequest) => request.providerOptions?.anthr
 
 const lowerThinking = Effect.fn("AnthropicMessages.lowerThinking")(function* (request: LLMRequest) {
   const thinking = anthropicOptions(request)?.thinking
-  if (!ProviderShared.isRecord(thinking) || thinking.type !== "enabled") return undefined
+  if (!ProviderShared.isRecord(thinking)) return undefined
+  if (thinking.type === "adaptive") {
+    return {
+      type: "adaptive" as const,
+      ...(typeof thinking.display === "string" ? { display: thinking.display } : {}),
+    }
+  }
+  if (thinking.type !== "enabled") return undefined
   const budget =
     typeof thinking.budgetTokens === "number"
       ? thinking.budgetTokens
@@ -500,6 +519,14 @@ const lowerThinking = Effect.fn("AnthropicMessages.lowerThinking")(function* (re
   if (budget === undefined) return yield* invalid("Anthropic thinking provider option requires budgetTokens")
   return { type: "enabled" as const, budget_tokens: budget }
 })
+
+// Reasoning effort lowers to `output_config.effort` (mirrors @ai-sdk/anthropic);
+// the matching beta header is added by the route headers hook below.
+const lowerOutputConfig = (request: LLMRequest) => {
+  const effort = anthropicOptions(request)?.effort
+  if (typeof effort !== "string") return undefined
+  return { effort }
+}
 
 const fromRequest = Effect.fn("AnthropicMessages.fromRequest")(function* (request: LLMRequest) {
   const toolChoice = request.toolChoice ? yield* lowerToolChoice(request.toolChoice) : undefined
@@ -539,6 +566,7 @@ const fromRequest = Effect.fn("AnthropicMessages.fromRequest")(function* (reques
     top_k: generation?.topK,
     stop_sequences: generation?.stop,
     thinking: yield* lowerThinking(request),
+    output_config: lowerOutputConfig(request),
   }
 })
 
@@ -839,7 +867,12 @@ export const route = Route.make({
   endpoint: Endpoint.path(PATH, { baseURL: DEFAULT_BASE_URL }),
   auth: Auth.none,
   framing: Framing.sse,
-  headers: () => ({ "anthropic-version": "2023-06-01" }),
+  // `output_config.effort` is beta-gated. Explicit per-request `anthropic-beta`
+  // headers override this hook (the transport spreads request headers last).
+  headers: ({ request }) => ({
+    "anthropic-version": "2023-06-01",
+    ...(typeof anthropicOptions(request)?.effort === "string" ? { "anthropic-beta": "effort-2025-11-24" } : {}),
+  }),
 })
 
 export * as AnthropicMessages from "./anthropic-messages"

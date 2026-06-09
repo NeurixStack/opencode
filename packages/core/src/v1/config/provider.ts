@@ -12,6 +12,28 @@ export const Model = Schema.Struct({
   release_date: Schema.optional(Schema.String),
   attachment: Schema.optional(Schema.Boolean),
   reasoning: Schema.optional(Schema.Boolean),
+  reasoning_options: Schema.optional(
+    // Mirrors the models.dev reasoning_options union; effort values stay open
+    // strings so new tiers don't break configs.
+    Schema.mutable(
+      Schema.Array(
+        Schema.Union([
+          Schema.Struct({
+            type: Schema.Literal("toggle"),
+          }),
+          Schema.Struct({
+            type: Schema.Literal("effort"),
+            values: Schema.mutable(Schema.Array(Schema.NullOr(Schema.String))),
+          }),
+          Schema.Struct({
+            type: Schema.Literal("budget_tokens"),
+            min: Schema.optional(Schema.Finite),
+            max: Schema.optional(Schema.Finite),
+          }),
+        ]),
+      ),
+    ),
+  ).annotate({ description: "Reasoning controls this model supports; effort values drive reasoning variants" }),
   temperature: Schema.optional(Schema.Boolean),
   tool_call: Schema.optional(Schema.Boolean),
   interleaved: Schema.optional(

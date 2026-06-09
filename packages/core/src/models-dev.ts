@@ -43,6 +43,30 @@ const Cost = Schema.Struct({
   ),
 })
 
+// models.dev curates reasoning_options per provider model as a discriminated
+// union. The shape is expected to evolve, so stay lenient where it can grow:
+// effort values are open strings (tiers like "xhigh" were added over time) and
+// budget bounds are optional. The api.json payload is cast, never decoded, so
+// option types this union doesn't know about yet can appear at runtime;
+// consumers must filter for the types they understand instead of matching
+// exhaustively.
+export const ReasoningOption = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("toggle"),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("effort"),
+    // null means the provider accepts an explicit "no reasoning" effort.
+    values: Schema.Array(Schema.NullOr(Schema.String)),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("budget_tokens"),
+    min: Schema.optional(Schema.Finite),
+    max: Schema.optional(Schema.Finite),
+  }),
+])
+export type ReasoningOption = Schema.Schema.Type<typeof ReasoningOption>
+
 export const Model = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -50,6 +74,7 @@ export const Model = Schema.Struct({
   release_date: Schema.String,
   attachment: Schema.Boolean,
   reasoning: Schema.Boolean,
+  reasoning_options: Schema.optional(Schema.Array(ReasoningOption)),
   temperature: Schema.Boolean,
   tool_call: Schema.Boolean,
   interleaved: Schema.optional(

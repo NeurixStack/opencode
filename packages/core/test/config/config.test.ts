@@ -568,7 +568,12 @@ describe("Config", () => {
                 model: {
                   request: {
                     body: {
-                      output_config: { effort: "high", task_budget: 4096 },
+                      // `effort` stays aisdk-shaped: the catalog re-partitions it
+                      // into the semantic anthropic effort option, which lowers to
+                      // output_config.effort plus the effort beta header. taskBudget
+                      // has no semantic and lowers to a raw output_config overlay.
+                      effort: "high",
+                      output_config: { task_budget: 4096 },
                       metadata: { user_id: "user-1" },
                     },
                   },

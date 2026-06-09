@@ -957,9 +957,30 @@ const ProviderInterleaved = Schema.Union([
   }),
 ])
 
+// Mirrors the models.dev reasoning_options union. Option types this union does
+// not know about yet, and null effort values (models.dev's marker for "accepts
+// an explicit no-reasoning effort"), are dropped when mapping models.dev data
+// into the resolved catalog, so this schema only ever sees known variants;
+// effort values stay open strings so new tiers flow through.
+const ProviderReasoningOption = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("toggle"),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("effort"),
+    values: Schema.Array(Schema.String),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("budget_tokens"),
+    min: optionalOmitUndefined(Schema.Finite),
+    max: optionalOmitUndefined(Schema.Finite),
+  }),
+])
+
 const ProviderCapabilities = Schema.Struct({
   temperature: Schema.Boolean,
   reasoning: Schema.Boolean,
+  reasoningOptions: optionalOmitUndefined(Schema.Array(ProviderReasoningOption)),
   attachment: Schema.Boolean,
   toolcall: Schema.Boolean,
   input: ProviderModalities,
@@ -1155,6 +1176,20 @@ function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
   return result
 }
 
+// models.dev api.json is cast rather than decoded, so reasoning_options can
+// contain option types newer than our union at runtime; drop those (and null
+// effort values) here so downstream schema boundaries only ever see known
+// variants.
+function reasoningOptions(options: ModelsDev.Model["reasoning_options"]): Model["capabilities"]["reasoningOptions"] {
+  return options
+    ?.filter((option) => option.type === "toggle" || option.type === "effort" || option.type === "budget_tokens")
+    .map((option) =>
+      option.type === "effort"
+        ? { ...option, values: option.values.filter((value): value is string => value !== null) }
+        : { ...option },
+    )
+}
+
 function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model): Model {
   const base: Model = {
     id: ModelV2.ID.make(model.id),
@@ -1178,6 +1213,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
     capabilities: {
       temperature: model.temperature ?? false,
       reasoning: model.reasoning ?? false,
+      reasoningOptions: reasoningOptions(model.reasoning_options),
       attachment: model.attachment ?? false,
       toolcall: model.tool_call ?? true,
       input: {
@@ -1400,6 +1436,8 @@ export const layer = Layer.effect(
               capabilities: {
                 temperature: model.temperature ?? existingModel?.capabilities.temperature ?? false,
                 reasoning: model.reasoning ?? existingModel?.capabilities.reasoning ?? false,
+                reasoningOptions:
+                  reasoningOptions(model.reasoning_options) ?? existingModel?.capabilities.reasoningOptions,
                 attachment: model.attachment ?? existingModel?.capabilities.attachment ?? false,
                 toolcall: model.tool_call ?? existingModel?.capabilities.toolcall ?? true,
                 input: {
