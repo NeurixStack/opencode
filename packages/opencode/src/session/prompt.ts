@@ -741,13 +741,23 @@ export const layer = Layer.effect(
                   })
                 } else if ("blob" in c && c.blob) {
                   const mime = ("mimeType" in c ? c.mimeType : undefined) ?? part.mime
+                  const url = `data:${mime};base64,${c.blob}`
+                  if (mime === "text/plain") {
+                    pieces.push({
+                      messageID: info.id,
+                      sessionID: input.sessionID,
+                      type: "text",
+                      synthetic: true,
+                      text: decodeDataUrl(url),
+                    })
+                  }
                   pieces.push({
                     messageID: info.id,
                     sessionID: input.sessionID,
                     type: "file",
                     mime,
                     filename: part.filename,
-                    url: `data:${mime};base64,${c.blob}`,
+                    url,
                   })
                 }
               }

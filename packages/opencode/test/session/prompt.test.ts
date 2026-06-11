@@ -258,6 +258,14 @@ const resourceNoLLMServer = testEffect(
                   text: "# MCP resource fixture",
                 },
               ]
+            : uri === "opencode-fixture://text-blob"
+              ? [
+                  {
+                    uri,
+                    mimeType: "text/plain",
+                    blob: Buffer.from("MCP text blob fixture").toString("base64"),
+                  },
+                ]
             : [
                 {
                   uri,
@@ -2077,6 +2085,18 @@ resourceNoLLMServer.instance(
           },
           {
             type: "file",
+            mime: "text/plain",
+            url: "opencode-fixture://text-blob",
+            filename: "fixture-text-blob",
+            source: {
+              type: "resource",
+              clientName: "resource-only-fixture",
+              uri: "opencode-fixture://text-blob",
+              text: { value: "@fixture-text-blob", start: 15, end: 33 },
+            },
+          },
+          {
+            type: "file",
             mime: "image/png",
             url: "opencode-fixture://pixel",
             filename: "fixture-pixel",
@@ -2091,6 +2111,16 @@ resourceNoLLMServer.instance(
       })
 
       expect(message.parts.some((part) => part.type === "text" && part.text === "# MCP resource fixture")).toBe(true)
+      expect(message.parts.some((part) => part.type === "text" && part.text === "MCP text blob fixture")).toBe(true)
+      expect(
+        message.parts.some(
+          (part) =>
+            part.type === "file" &&
+            !part.source &&
+            part.mime === "text/plain" &&
+            part.url.startsWith("data:text/plain;base64,"),
+        ),
+      ).toBe(true)
       expect(
         message.parts.some(
           (part) => part.type === "file" && part.source?.type === "resource" && part.url === "opencode-fixture://pixel",
