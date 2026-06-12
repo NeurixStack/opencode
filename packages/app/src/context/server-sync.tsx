@@ -375,6 +375,12 @@ export function createServerSyncContextInner(_serverSDK?: ServerSDK) {
     const event = e.details
     const recent = bootingRoot || Date.now() - bootedAt < 1500
 
+    if (event.type === "provider.models.updated") {
+      void queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0] === serverSDK.scope && query.queryKey[2] === "providers",
+      })
+    }
+
     if (directory === "global") {
       applyGlobalEvent({
         event,

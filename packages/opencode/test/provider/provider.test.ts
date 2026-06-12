@@ -20,6 +20,7 @@ import { InstanceLayer } from "@/project/instance-layer"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { EventV2Bridge } from "@/event-v2-bridge"
 
 const originalEnv = new Map<string, string | undefined>()
 
@@ -65,6 +66,7 @@ const providerLayer = (flags: Partial<RuntimeFlags.Info> = {}) =>
     Layer.provide(Plugin.defaultLayer),
     Layer.provide(ModelsDev.defaultLayer),
     Layer.provide(RuntimeFlags.layer(flags)),
+    Layer.provide(EventV2Bridge.defaultLayer),
   )
 
 const list = Provider.use.list()

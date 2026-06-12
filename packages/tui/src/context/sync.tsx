@@ -159,10 +159,25 @@ export const {
         .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
     }
 
+    async function refreshProviders(workspace: string | undefined) {
+      const [providers, providerList] = await Promise.all([
+        sdk.client.config.providers({ workspace }, { throwOnError: true }).then((x) => x.data),
+        sdk.client.provider.list({ workspace }, { throwOnError: true }).then((x) => x.data),
+      ])
+      batch(() => {
+        setStore("provider", reconcile(providers.providers))
+        setStore("provider_default", reconcile(providers.default))
+        setStore("provider_next", reconcile(providerList))
+      })
+    }
+
     event.subscribe((event, { workspace }) => {
       switch (event.type) {
         case "server.instance.disposed":
           void bootstrap()
+          break
+        case "provider.models.updated":
+          void refreshProviders(workspace)
           break
         case "permission.replied": {
           const requests = store.permission[event.properties.sessionID]

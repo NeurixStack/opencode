@@ -28,9 +28,11 @@ import { optionalOmitUndefined } from "@opencode-ai/core/schema"
 import { ProviderTransform } from "./transform"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { EventV2 } from "@opencode-ai/core/event"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderError } from "./error"
+import { EventV2Bridge } from "@/event-v2-bridge"
 
 const OPENAI_HEADER_TIMEOUT_DEFAULT = 10_000
 
@@ -1045,6 +1047,13 @@ export const ConfigProvidersResult = Schema.Struct({
 })
 export type ConfigProvidersResult = Types.DeepMutable<Schema.Schema.Type<typeof ConfigProvidersResult>>
 
+export const Event = {
+  ModelsUpdated: EventV2.define({
+    type: "provider.models.updated",
+    schema: { providerID: ProviderV2.ID },
+  }),
+}
+
 export function toPublicInfo(provider: Info): Info {
   return JSON.parse(
     JSON.stringify(provider, (_, value) => {
@@ -1279,6 +1288,7 @@ export const layer = Layer.effect(
     const plugin = yield* Plugin.Service
     const modelsDevSvc = yield* ModelsDev.Service
     const runtimeFlags = yield* RuntimeFlags.Service
+    const events = yield* EventV2Bridge.Service
 
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
@@ -1334,35 +1344,15 @@ export const layer = Layer.effect(
           return true
         }
 
-        for (const hook of plugins) {
-          const p = hook.provider
-          const models = p?.models
-          if (!p || !models) continue
-
-          const providerID = ProviderV2.ID.make(p.id)
-          if (disabled.has(providerID)) continue
-
-          const provider = database[providerID]
-          if (!provider) continue
-          const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
-
-          provider.models = yield* Effect.promise(async () => {
-            const next = await models(toPublicInfo(provider), { auth: pluginAuth })
-            return Object.fromEntries(
-              Object.entries(next).map(([id, model]) => [
-                id,
-                {
-                  ...model,
-                  id: ModelV2.ID.make(id),
-                  providerID,
-                },
-              ]),
-            )
-          })
-        }
-
+        const providerHooks = plugins.flatMap((hook) => {
+          const provider = hook.provider
+          if (!provider?.models) return []
+          const providerID = ProviderV2.ID.make(provider.id)
+          if (!isProviderAllowed(providerID) || !database[providerID]) return []
+          return [{ providerID, models: provider.models }]
+        })
         // extend database from config
-        for (const [providerID, provider] of configProviders) {
+        function applyConfigProvider(providerID: string, provider: (typeof configProviders)[number][1]) {
           const existing = database[providerID]
           const parsed: Info = {
             id: ProviderV2.ID.make(providerID),
@@ -1454,6 +1444,7 @@ export const layer = Layer.effect(
           }
           database[providerID] = parsed
         }
+        for (const [providerID, provider] of configProviders) applyConfigProvider(providerID, provider)
 
         // load env
         const envs = yield* env.all()
@@ -1544,13 +1535,7 @@ export const layer = Layer.effect(
           })
         }
 
-        for (const [id, provider] of Object.entries(providers)) {
-          const providerID = ProviderV2.ID.make(id)
-          if (!isProviderAllowed(providerID)) {
-            delete providers[providerID]
-            continue
-          }
-
+        function finalizeProvider(providerID: ProviderV2.ID, provider: Info) {
           const configProvider = cfg.provider?.[providerID]
 
           for (const [modelID, model] of Object.entries(provider.models)) {
@@ -1586,14 +1571,26 @@ export const layer = Layer.effect(
               )
             }
           }
+        }
 
-          if (Object.keys(provider.models).length === 0) {
+        const refreshProviders = new Map(
+          [...new Set(providerHooks.map((hook) => hook.providerID))].flatMap((providerID) => {
+            const provider = providers[providerID]
+            return provider ? [[providerID, { ...provider, models: {} }] as const] : []
+          }),
+        )
+
+        for (const [id, provider] of Object.entries(providers)) {
+          const providerID = ProviderV2.ID.make(id)
+          if (!isProviderAllowed(providerID)) {
             delete providers[providerID]
             continue
           }
+          finalizeProvider(providerID, provider)
+          if (Object.keys(provider.models).length === 0) delete providers[providerID]
         }
 
-        return {
+        const result = {
           models: languages,
           providers,
           catalog,
@@ -1601,6 +1598,41 @@ export const layer = Layer.effect(
           modelLoaders,
           varsLoaders,
         }
+
+        yield* Effect.forEach(providerHooks, ({ providerID, models }) =>
+          Effect.gen(function* () {
+            const provider = database[providerID]
+            if (!provider) return
+            const pluginAuth = yield* auth.get(providerID).pipe(Effect.orDie)
+            const next = yield* Effect.promise(() => models(toPublicInfo(provider), { auth: pluginAuth }))
+            provider.models = Object.fromEntries(
+              Object.entries(next).map(([id, model]) => [
+                id,
+                {
+                  ...model,
+                  id: ModelV2.ID.make(id),
+                  providerID,
+                },
+              ]),
+            )
+            const configProvider = configProviders.find(([id]) => id === providerID)
+            if (configProvider) applyConfigProvider(...configProvider)
+            const current = providers[providerID] ?? refreshProviders.get(providerID)
+            if (!current) return
+            const nextProvider = { ...current, models: database[providerID].models }
+            finalizeProvider(providerID, nextProvider)
+            if (Object.keys(nextProvider.models).length === 0) delete providers[providerID]
+            else providers[providerID] = nextProvider
+            for (const key of languages.keys()) {
+              if (key.startsWith(`${providerID}/`)) languages.delete(key)
+            }
+            yield* events.publish(Event.ModelsUpdated, { providerID })
+          }).pipe(
+            Effect.catchCause((cause) => Effect.logWarning("Failed to refresh provider models", { providerID, cause })),
+          ),
+        ).pipe(Effect.forkScoped)
+
+        return result
       }),
     )
 
@@ -1928,6 +1960,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Plugin.defaultLayer),
     Layer.provide(ModelsDev.defaultLayer),
     Layer.provide(RuntimeFlags.defaultLayer),
+    Layer.provide(EventV2Bridge.defaultLayer),
   ),
 )
 
@@ -1957,6 +1990,7 @@ export const node = LayerNode.make(layer, [
   Plugin.node,
   ModelsDev.node,
   RuntimeFlags.node,
+  EventV2Bridge.node,
 ])
 
 export * as Provider from "./provider"

@@ -77,6 +77,7 @@ export type Event =
   | EventTuiSessionSelect2
   | EventMcpToolsChanged
   | EventMcpBrowserOpenFailed
+  | EventProviderModelsUpdated
   | EventCommandExecuted
   | EventProjectDirectoriesUpdated
   | EventProjectUpdated
@@ -1493,6 +1494,13 @@ export type GlobalEvent = {
         properties: {
           mcpName: string
           url: string
+        }
+      }
+    | {
+        id: string
+        type: "provider.models.updated"
+        properties: {
+          providerID: string
         }
       }
     | {
@@ -5135,6 +5143,14 @@ export type EventMcpBrowserOpenFailed = {
   properties: {
     mcpName: string
     url: string
+  }
+}
+
+export type EventProviderModelsUpdated = {
+  id: string
+  type: "provider.models.updated"
+  properties: {
+    providerID: string
   }
 }
 
