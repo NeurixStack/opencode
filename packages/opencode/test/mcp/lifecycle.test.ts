@@ -458,6 +458,40 @@ it.instance(
   { config: { mcp: {} } },
 )
 
+it.instance(
+  "replacing a prompt-capable server publishes catalog invalidation",
+  () =>
+    Effect.gen(function* () {
+      const mcp = yield* MCP.Service
+      lastCreatedClientName = "prompt-replace-server"
+      const serverState = getOrCreateClientState("prompt-replace-server")
+      serverState.prompts = [{ name: "original" }]
+
+      yield* mcp.add("prompt-replace-server", {
+        type: "local",
+        command: ["echo", "test"],
+      })
+
+      serverState.capabilities = { tools: {} }
+
+      let changed = 0
+      const listener = (event: GlobalEvent) => {
+        if (event.payload.type !== MCP.CatalogChanged.type) return
+        changed += 1
+      }
+      GlobalBus.on("event", listener)
+
+      yield* mcp.add("prompt-replace-server", {
+        type: "local",
+        command: ["echo", "test"],
+      })
+      GlobalBus.off("event", listener)
+
+      expect(changed).toBe(1)
+    }),
+  { config: { mcp: {} } },
+)
+
 // ========================================================================
 // Test: connect() / disconnect() lifecycle
 // ========================================================================

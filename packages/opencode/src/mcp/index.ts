@@ -555,7 +555,7 @@ export const layer = Layer.effect(
       s.defs[name] = listed
       watch(s, name, client, bridge, timeout)
       if (previous) yield* Effect.tryPromise(() => previous.close()).pipe(Effect.ignore)
-      if (client.getServerCapabilities()?.prompts) {
+      if (previous || client.getServerCapabilities()?.prompts) {
         yield* events.publish(CatalogChanged, { server: name, kinds: ["prompts"] }).pipe(Effect.ignore)
       }
       return s.status[name]
