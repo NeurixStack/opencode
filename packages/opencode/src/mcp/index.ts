@@ -210,6 +210,7 @@ export const layer = Layer.effect(
           status: { status: "failed" as const, error: `Invalid MCP URL for "${key}"` },
         }
       }
+      const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT
       let authProvider: McpOAuthProvider | undefined
 
       if (!oauthDisabled) {
@@ -230,7 +231,10 @@ export const layer = Layer.effect(
         )
         authProvider = provider
         yield* Effect.tryPromise(() =>
-          provider.refreshTokensIfExpired(mcp.headers ? createFetchWithInit(fetch, { headers: mcp.headers }) : undefined),
+          withTimeout(
+            provider.refreshTokensIfExpired(mcp.headers ? createFetchWithInit(fetch, { headers: mcp.headers }) : undefined),
+            connectTimeout,
+          ),
         ).pipe(Effect.ignore)
       }
 
@@ -251,7 +255,6 @@ export const layer = Layer.effect(
         },
       ]
 
-      const connectTimeout = mcp.timeout ?? DEFAULT_TIMEOUT
       let lastStatus: Status | undefined
 
       for (const { name, transport } of transports) {

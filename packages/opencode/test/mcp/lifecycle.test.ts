@@ -307,6 +307,41 @@ it.live("McpOAuthProvider refreshes expired stored tokens", () =>
 )
 
 it.instance(
+  "remote connect bounds expired token refresh by mcp timeout",
+  () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => {
+        const original = McpOAuthProvider.prototype.refreshTokensIfExpired
+        McpOAuthProvider.prototype.refreshTokensIfExpired = () => {
+          refreshAuthorizationCalls++
+          return new Promise(() => {})
+        }
+        return original
+      }),
+      () =>
+        MCP.Service.use((mcp: MCPNS.Interface) =>
+          Effect.gen(function* () {
+            lastCreatedClientName = "remote-timeout"
+
+            const result = yield* mcp.add("remote-timeout", {
+              type: "remote",
+              url: "https://mcp.example.com/mcp",
+              timeout: 20,
+            })
+
+            expect(statusName(result.status, "remote-timeout")).toBe("connected")
+            expect(refreshAuthorizationCalls).toBe(1)
+          }),
+        ),
+      (original) =>
+        Effect.sync(() => {
+          McpOAuthProvider.prototype.refreshTokensIfExpired = original
+        }),
+    ),
+  { config: { mcp: {} } },
+)
+
+it.instance(
   "local mcp cwd resolves relative paths against instance directory",
   () =>
     MCP.Service.use((mcp: MCPNS.Interface) =>
