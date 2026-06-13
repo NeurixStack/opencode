@@ -128,7 +128,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
     )
   }
 
-  async refreshTokensIfExpired(fetchFn?: FetchLike): Promise<boolean> {
+  async refreshTokensIfExpired(fetchFn?: FetchLike, signal?: AbortSignal): Promise<boolean> {
     const entry = await Effect.runPromise(this.auth.getForUrl(this.mcpName, this.serverUrl))
     if (!entry?.tokens?.refreshToken) return false
     if (!entry.tokens.expiresAt) return false
@@ -137,14 +137,17 @@ export class McpOAuthProvider implements OAuthClientProvider {
     const clientInformation = await this.clientInformation()
     if (!clientInformation) return false
 
-    const info = await discoverOAuthServerInfo(this.serverUrl, { fetchFn })
+    const request = signal
+      ? (url: string | URL, init?: RequestInit) => (fetchFn ?? fetch)(url, { ...init, signal })
+      : fetchFn
+    const info = await discoverOAuthServerInfo(this.serverUrl, { fetchFn: request })
     await this.saveTokens(
       await refreshAuthorization(info.authorizationServerUrl, {
         metadata: info.authorizationServerMetadata,
         clientInformation,
         refreshToken: entry.tokens.refreshToken,
         resource: await selectResourceURL(this.serverUrl, this, info.resourceMetadata),
-        fetchFn,
+        fetchFn: request,
       }),
     )
     return true

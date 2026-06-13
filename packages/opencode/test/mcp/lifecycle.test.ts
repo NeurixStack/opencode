@@ -54,6 +54,7 @@ let transportCloseCount = 0
 // Captures the opts passed to each MockStdioTransport, keyed by lastCreatedClientName
 const stdioOptsByName = new Map<string, any>()
 let refreshAuthorizationCalls = 0
+let refreshAborted = false
 
 function getOrCreateClientState(name?: string): MockClientState {
   const key = name ?? "default"
@@ -253,6 +254,7 @@ beforeEach(() => {
   clientCreateCount = 0
   transportCloseCount = 0
   refreshAuthorizationCalls = 0
+  refreshAborted = false
 })
 
 // Import after mocks
@@ -307,14 +309,23 @@ it.live("McpOAuthProvider refreshes expired stored tokens", () =>
 )
 
 it.instance(
-  "remote connect bounds expired token refresh by mcp timeout",
+  "remote connect cancels expired token refresh after mcp timeout",
   () =>
     Effect.acquireUseRelease(
       Effect.sync(() => {
         const original = McpOAuthProvider.prototype.refreshTokensIfExpired
-        McpOAuthProvider.prototype.refreshTokensIfExpired = () => {
+        McpOAuthProvider.prototype.refreshTokensIfExpired = (_fetchFn, signal) => {
           refreshAuthorizationCalls++
-          return new Promise(() => {})
+          return new Promise((_, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => {
+                refreshAborted = true
+                reject(signal.reason)
+              },
+              { once: true },
+            )
+          })
         }
         return original
       }),
@@ -331,6 +342,7 @@ it.instance(
 
             expect(statusName(result.status, "remote-timeout")).toBe("connected")
             expect(refreshAuthorizationCalls).toBe(1)
+            expect(refreshAborted).toBe(true)
           }),
         ),
       (original) =>

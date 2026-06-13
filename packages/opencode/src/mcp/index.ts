@@ -230,11 +230,15 @@ export const layer = Layer.effect(
           auth,
         )
         authProvider = provider
+        const controller = new AbortController()
         yield* Effect.tryPromise(() =>
           withTimeout(
-            provider.refreshTokensIfExpired(mcp.headers ? createFetchWithInit(fetch, { headers: mcp.headers }) : undefined),
+            provider.refreshTokensIfExpired(
+              mcp.headers ? createFetchWithInit(fetch, { headers: mcp.headers }) : undefined,
+              controller.signal,
+            ),
             connectTimeout,
-          ),
+          ).finally(() => controller.abort()),
         ).pipe(Effect.ignore)
       }
 
