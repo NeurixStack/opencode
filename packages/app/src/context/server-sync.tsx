@@ -412,7 +412,13 @@ export function createServerSyncContextInner(_serverSDK?: ServerSDK) {
           sdkFor(directory)
             .command.list()
             .then((x) => setStore("command", x.data ?? [])),
-        )
+        ).catch((err) => {
+          showToast({
+            variant: "error",
+            title: language.t("toast.project.reloadFailed.title", { project: getFilename(directory) }),
+            description: formatServerError(err, language.t),
+          })
+        })
       },
       loadLsp: () => {
         void queryClient.fetchQuery(queryOptionsApi.lsp(key))

@@ -140,7 +140,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           })
           break
         case "command.changed": {
-          void refreshCommands({ directory: metadata.directory, workspaceID: metadata.workspace })
+          void refreshCommands({ directory: metadata.directory, workspaceID: metadata.workspace }).catch(() => {})
           break
         }
         case "session.next.model.switched":

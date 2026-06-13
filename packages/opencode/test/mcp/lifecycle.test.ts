@@ -1,7 +1,7 @@
 import path from "node:path"
 import { expect, mock, beforeEach } from "bun:test"
 import { PromptListChangedNotificationSchema, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js"
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Effect, Exit, Layer } from "effect"
 import type { MCP as MCPNS } from "../../src/mcp/index"
 import { GlobalBus, type GlobalEvent } from "../../src/bus/global"
 import { testEffect } from "../lib/effect"
@@ -11,7 +11,7 @@ import { TestInstance } from "../fixture/fixture"
 
 // Per-client state for controlling mock behavior
 interface MockClientState {
-  capabilities: { tools?: object; prompts?: object; resources?: object }
+  capabilities: { tools?: object; prompts?: { listChanged?: boolean }; resources?: object }
   capabilitiesShouldThrow: boolean
   tools: Array<{ name: string; description?: string; inputSchema: object; outputSchema?: object }>
   listToolsCalls: number
@@ -59,7 +59,7 @@ function getOrCreateClientState(name?: string): MockClientState {
   let state = clientStates.get(key)
   if (!state) {
     state = {
-      capabilities: { tools: {}, prompts: {}, resources: {} },
+      capabilities: { tools: {}, prompts: { listChanged: true }, resources: {} },
       capabilitiesShouldThrow: false,
       tools: [{ name: "test_tool", description: "A test tool", inputSchema: { type: "object", properties: {} } }],
       listToolsCalls: 0,
@@ -243,9 +243,11 @@ beforeEach(() => {
 
 // Import after mocks
 const { MCP } = await import("../../src/mcp/index")
+const { Command } = await import("../../src/command/index")
 const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
 
 const it = testEffect(MCP.defaultLayer)
+const commandIt = testEffect(Layer.mergeAll(Command.defaultLayer, MCP.defaultLayer))
 
 function statusName(status: Record<string, MCPNS.Status> | MCPNS.Status, server: string) {
   if ("status" in status) return status.status
@@ -453,6 +455,44 @@ it.instance(
       yield* Effect.promise(() => handler?.())
       GlobalBus.off("event", listener)
 
+      expect(changed).toBe(1)
+    }),
+  { config: { mcp: {} } },
+)
+
+commandIt.instance(
+  "prompt change notifications rebuild slash commands",
+  () =>
+    Effect.gen(function* () {
+      const mcp = yield* MCP.Service
+      const command = yield* Command.Service
+      yield* command.list()
+
+      lastCreatedClientName = "prompt-command-server"
+      const serverState = getOrCreateClientState("prompt-command-server")
+      serverState.prompts = [{ name: "original" }]
+      yield* mcp.add("prompt-command-server", {
+        type: "local",
+        command: ["echo", "test"],
+      })
+
+      expect((yield* command.get("prompt-command-server:original"))?.source).toBe("mcp")
+      serverState.prompts = [{ name: "replacement" }]
+
+      let changed = 0
+      const listener = (event: GlobalEvent) => {
+        if (event.payload.type !== Command.Event.Changed.type) return
+        changed += 1
+      }
+      GlobalBus.on("event", listener)
+
+      const handler = serverState.notificationHandlers.get(PromptListChangedNotificationSchema)
+      expect(handler).toBeDefined()
+      yield* Effect.promise(() => handler?.())
+      GlobalBus.off("event", listener)
+
+      expect(yield* command.get("prompt-command-server:original")).toBeUndefined()
+      expect((yield* command.get("prompt-command-server:replacement"))?.source).toBe("mcp")
       expect(changed).toBe(1)
     }),
   { config: { mcp: {} } },

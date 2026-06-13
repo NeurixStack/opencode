@@ -438,7 +438,7 @@ export const layer = Layer.effect(
         })
       }
 
-      if (!client.getServerCapabilities()?.prompts) return
+      if (!client.getServerCapabilities()?.prompts?.listChanged) return
       client.setNotificationHandler(PromptListChangedNotificationSchema, async () => {
         if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
         await bridge.promise(events.publish(CatalogChanged, { server: name, kinds: ["prompts"] }).pipe(Effect.ignore))

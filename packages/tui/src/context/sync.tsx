@@ -165,7 +165,10 @@ export const {
           void bootstrap()
           break
         case "command.changed":
-          void sdk.client.command.list({ workspace }).then((x) => setStore("command", reconcile(x.data ?? [])))
+          void sdk.client.command
+            .list({ workspace })
+            .then((x) => setStore("command", reconcile(x.data ?? [])))
+            .catch(() => {})
           break
         case "permission.replied": {
           const requests = store.permission[event.properties.sessionID]
