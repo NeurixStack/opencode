@@ -27,17 +27,18 @@ const Event = Schema.Struct({
   }),
   data: Schema.Unknown,
 })
+const EventEnvelope = Schema.Struct({ type: Schema.String })
 
-async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
+async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<unknown> {
   const value = await reader.read()
   if (value.done) throw new Error("event stream closed")
-  return Schema.decodeUnknownSync(Event)(JSON.parse(new TextDecoder().decode(value.value).replace(/^data: /, "")))
+  return JSON.parse(new TextDecoder().decode(value.value).replace(/^data: /, ""))
 }
 
 async function readEventType(reader: ReadableStreamDefaultReader<Uint8Array>, type: string) {
   for (let index = 0; index < 20; index++) {
     const event = await readEvent(reader)
-    if (event.type === type) return event
+    if (Schema.decodeUnknownSync(EventEnvelope)(event).type === type) return event
   }
   throw new Error(`timed out waiting for ${type}`)
 }
@@ -48,6 +49,28 @@ afterEach(async () => {
 })
 
 describe("v2 location HttpApi", () => {
+  test("skips unrelated event payload shapes while waiting for a type", async () => {
+    const encoder = new TextEncoder()
+    const reader = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"id":"1","type":"project.updated","location":{"directory":"/tmp"},"data":{}}'),
+        )
+        controller.enqueue(
+          encoder.encode(
+            'data: {"id":"2","type":"session.created","location":{"directory":"/tmp","project":{"id":"project","directory":"/tmp"}},"data":{"sessionID":"session"}}',
+          ),
+        )
+        controller.close()
+      },
+    }).getReader()
+
+    expect(Schema.decodeUnknownSync(Event)(await readEventType(reader, "session.created"))).toMatchObject({
+      type: "session.created",
+      data: { sessionID: "session" },
+    })
+  })
+
   test("returns command and skill snapshots with resolved locations", async () => {
     await using tmp = await tmpdir({ git: true })
 
@@ -68,11 +91,13 @@ describe("v2 location HttpApi", () => {
     await using tmp = await tmpdir({ git: true })
     const response = await request("/api/event", tmp.path)
     const reader = response.body!.getReader()
-    expect((await readEvent(reader)).type).toBe("server.connected")
+    expect(Schema.decodeUnknownSync(EventEnvelope)(await readEventType(reader, "server.connected")).type).toBe(
+      "server.connected",
+    )
 
     const created = await request("/session", tmp.path, { method: "POST" })
     expect(created.status).toBe(200)
-    expect(await readEventType(reader, "session.created")).toMatchObject({
+    expect(Schema.decodeUnknownSync(Event)(await readEventType(reader, "session.created"))).toMatchObject({
       type: "session.created",
       location: { directory: tmp.path, project: { directory: tmp.path } },
       data: { sessionID: expect.any(String) },
