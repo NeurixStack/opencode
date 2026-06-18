@@ -1570,12 +1570,20 @@ export default function Page() {
     />
   )
 
-  const mobileTabs = (compact = false) => (
+  const mobileTabs = (compact = false, bottom = false) => (
     <Tabs value={store.mobileTab} class="h-auto">
-      <Tabs.List class={compact ? "!h-9" : undefined}>
+      <Tabs.List
+        classList={{
+          "!h-9": compact,
+          "[&::after]:!border-b-0 [&::after]:!border-t [&::after]:!border-border-weak-base": bottom,
+        }}
+      >
         <Tabs.Trigger
           value="session"
-          class="!w-1/2 !max-w-none"
+          classList={{
+            "!w-1/2 !max-w-none": true,
+            "!border-b-0 !border-t !border-border-weak-base [&:has([data-selected])]:!border-t-transparent": bottom,
+          }}
           classes={{ button: compact ? "w-full !py-2" : "w-full" }}
           onClick={() => setStore("mobileTab", "session")}
         >
@@ -1583,7 +1591,10 @@ export default function Page() {
         </Tabs.Trigger>
         <Tabs.Trigger
           value="changes"
-          class="!w-1/2 !max-w-none !border-r-0"
+          classList={{
+            "!w-1/2 !max-w-none !border-r-0": true,
+            "!border-b-0 !border-t !border-border-weak-base [&:has([data-selected])]:!border-t-transparent": bottom,
+          }}
           classes={{ button: compact ? "w-full !py-2" : "w-full" }}
           onClick={() => setStore("mobileTab", "changes")}
         >
@@ -1593,6 +1604,9 @@ export default function Page() {
         </Tabs.Trigger>
       </Tabs.List>
     </Tabs>
+  )
+  const mobileTabsBottom = createMemo(
+    () => !isDesktop() && settings.general.newLayoutDesigns() && settings.general.mobileTitlebarPosition() === "bottom",
   )
 
   return (
@@ -1624,7 +1638,7 @@ export default function Page() {
               "shadow-[var(--v2-elevation-raised)]": settings.general.newLayoutDesigns() && !!params.id,
             }}
           >
-            <Show when={!isDesktop() && !!params.id && settings.general.newLayoutDesigns()}>
+            <Show when={!isDesktop() && !!params.id && settings.general.newLayoutDesigns() && !mobileTabsBottom()}>
               {mobileTabs(true)}
             </Show>
             <div class="flex-1 min-h-0 overflow-hidden">
@@ -1692,6 +1706,7 @@ export default function Page() {
             </div>
 
             <Show when={(params.id || !newSessionDesign()) && !mobileChanges()}>{composerRegion("dock")}</Show>
+            <Show when={!!params.id && mobileTabsBottom()}>{mobileTabs(true, true)}</Show>
           </div>
 
           <Show when={desktopReviewOpen()}>
