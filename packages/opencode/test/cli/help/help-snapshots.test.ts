@@ -102,6 +102,8 @@ describe("opencode CLI help-text snapshots", () => {
         const topLevel = yield* opencode.spawn(["--help"], { env: SNAPSHOT_ENV })
         expect(topLevel.exitCode).toBe(0)
         expect(topLevel.stderr.endsWith(EOL)).toBe(true)
+        expect(topLevel.stderr).toContain("--dangerously-skip-permissions")
+        expect(topLevel.stderr).toContain("--yolo")
 
         const argvs: Array<readonly string[]> = [...TOP_LEVEL.map((c) => [c] as const), ...SUBCOMMANDS]
 

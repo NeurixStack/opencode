@@ -229,6 +229,7 @@ export const RunCommand = effectCmd({
         default: false,
       })
       .option("dangerously-skip-permissions", {
+        alias: ["yolo"],
         type: "boolean",
         describe: "auto-approve permissions that are not explicitly denied (dangerous!)",
         default: false,

@@ -7,6 +7,7 @@ import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
+import { RuntimeFlags } from "@/effect/runtime-flags"
 
 export const Event = {
   Asked: EventV2.define({ type: "permission.asked", schema: PermissionV1.Request.fields }),
@@ -54,6 +55,7 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const events = yield* EventV2Bridge.Service
+    const flags = yield* RuntimeFlags.Service
     const state = yield* InstanceState.make<State>(
       Effect.fn("Permission.state")(function* (ctx) {
         void ctx
@@ -89,6 +91,7 @@ export const layer = Layer.effect(
           })
         }
         if (rule.action === "allow") continue
+        if (flags.dangerouslySkipPermissions) continue
         needsAsk = true
       }
 
@@ -223,8 +226,11 @@ export function disabled(tools: string[], ruleset: PermissionV1.Ruleset): Set<st
   )
 }
 
-export const defaultLayer = layer.pipe(Layer.provide(EventV2Bridge.defaultLayer))
+export const defaultLayer = layer.pipe(
+  Layer.provide(EventV2Bridge.defaultLayer),
+  Layer.provide(RuntimeFlags.defaultLayer),
+)
 
-export const node = LayerNode.make(layer, [EventV2Bridge.node])
+export const node = LayerNode.make(layer, [EventV2Bridge.node, RuntimeFlags.node])
 
 export * as Permission from "."

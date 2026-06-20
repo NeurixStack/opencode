@@ -11,16 +11,21 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { RuntimeFlags } from "../../src/effect/runtime-flags"
 
 const events = EventV2Bridge.defaultLayer
 const noopBootstrap = Layer.succeed(InstanceBootstrap.Service, InstanceBootstrap.Service.of({ run: Effect.void }))
-const env = Layer.mergeAll(
-  Permission.layer.pipe(Layer.provide(Database.defaultLayer), Layer.provide(events)),
-  events,
-  CrossSpawnSpawner.defaultLayer,
-  InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)),
-)
-const it = testEffect(env)
+const makeEnv = (flags: Partial<RuntimeFlags.Info> = {}) => {
+  const runtimeFlags = RuntimeFlags.layer(flags)
+  return Layer.mergeAll(
+    Permission.layer.pipe(Layer.provide(Database.defaultLayer), Layer.provide(events), Layer.provide(runtimeFlags)),
+    events,
+    CrossSpawnSpawner.defaultLayer,
+    InstanceStore.defaultLayer.pipe(Layer.provide(noopBootstrap)),
+  )
+}
+const it = testEffect(makeEnv())
+const dangerousIt = testEffect(makeEnv({ dangerouslySkipPermissions: true }))
 
 const rejectAll = (message?: string) =>
   Effect.gen(function* () {
@@ -609,6 +614,39 @@ it.instance(
       expect(yield* waitForPending(1)).toHaveLength(1)
       yield* rejectAll()
       yield* Fiber.await(fiber)
+    }),
+  { git: true },
+)
+
+dangerousIt.instance(
+  "ask - resolves ask rules when dangerous permission skipping is enabled",
+  () =>
+    ask({
+      sessionID: SessionID.make("session_test"),
+      permission: "bash",
+      patterns: ["ls"],
+      metadata: {},
+      always: [],
+      ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+    }),
+  { git: true },
+)
+
+dangerousIt.instance(
+  "ask - preserves deny rules when dangerous permission skipping is enabled",
+  () =>
+    Effect.gen(function* () {
+      const err = yield* fail(
+        ask({
+          sessionID: SessionID.make("session_test"),
+          permission: "bash",
+          patterns: ["rm -rf /"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "deny" }],
+        }),
+      )
+      expect(err).toBeInstanceOf(PermissionV1.DeniedError)
     }),
   { git: true },
 )

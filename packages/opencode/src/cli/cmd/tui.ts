@@ -103,6 +103,12 @@ export const TuiThreadCommand = cmd({
       .option("agent", {
         type: "string",
         describe: "agent to use",
+      })
+      .option("dangerously-skip-permissions", {
+        alias: ["yolo"],
+        type: "boolean",
+        describe: "auto-approve permissions that are not explicitly denied (dangerous!)",
+        default: false,
       }),
   handler: async (args) => {
     const unguard = win32InstallCtrlCGuard()

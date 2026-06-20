@@ -66,6 +66,7 @@ const cli = yargs(args)
   .middleware(async (opts) => {
     if (opts.printLogs) process.env.OPENCODE_PRINT_LOGS = "1"
     if (opts.logLevel) process.env.OPENCODE_LOG_LEVEL = opts.logLevel
+    if (opts.dangerouslySkipPermissions) process.env.OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS = "1"
     if (opts.pure) {
       process.env.OPENCODE_PURE = "1"
     }

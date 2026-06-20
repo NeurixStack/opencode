@@ -29,19 +29,20 @@ opencode [project]
 
 #### Flags
 
-| Flag                                        | Short | Description                                                             |
-| ------------------------------------------- | ----- | ----------------------------------------------------------------------- |
-| <nobr><code>{"--continue"}</code></nobr>    | `-c`  | Continue the last session                                               |
-| <nobr><code>{"--session"}</code></nobr>     | `-s`  | Session ID to continue                                                  |
-| <nobr><code>{"--fork"}</code></nobr>        |       | Fork the session when continuing (use with `--continue` or `--session`) |
-| <nobr><code>{"--prompt"}</code></nobr>      |       | Prompt to use                                                           |
-| <nobr><code>{"--model"}</code></nobr>       | `-m`  | Model to use in the form of provider/model                              |
-| <nobr><code>{"--agent"}</code></nobr>       |       | Agent to use                                                            |
-| <nobr><code>{"--port"}</code></nobr>        |       | Port to listen on                                                       |
-| <nobr><code>{"--hostname"}</code></nobr>    |       | Hostname to listen on                                                   |
-| <nobr><code>{"--mdns"}</code></nobr>        |       | Enable mDNS discovery                                                   |
-| <nobr><code>{"--mdns-domain"}</code></nobr> |       | Custom mDNS domain name                                                 |
-| <nobr><code>{"--cors"}</code></nobr>        |       | Additional browser origin(s) to allow CORS                              |
+| Flag                                                         | Short | Description                                                             |
+| ------------------------------------------------------------ | ----- | ----------------------------------------------------------------------- |
+| <nobr><code>{"--continue"}</code></nobr>                     | `-c`  | Continue the last session                                               |
+| <nobr><code>{"--session"}</code></nobr>                      | `-s`  | Session ID to continue                                                  |
+| <nobr><code>{"--fork"}</code></nobr>                         |       | Fork the session when continuing (use with `--continue` or `--session`) |
+| <nobr><code>{"--prompt"}</code></nobr>                       |       | Prompt to use                                                           |
+| <nobr><code>{"--model"}</code></nobr>                        | `-m`  | Model to use in the form of provider/model                              |
+| <nobr><code>{"--agent"}</code></nobr>                        |       | Agent to use                                                            |
+| <nobr><code>{"--port"}</code></nobr>                         |       | Port to listen on                                                       |
+| <nobr><code>{"--hostname"}</code></nobr>                     |       | Hostname to listen on                                                   |
+| <nobr><code>{"--mdns"}</code></nobr>                         |       | Enable mDNS discovery                                                   |
+| <nobr><code>{"--mdns-domain"}</code></nobr>                  |       | Custom mDNS domain name                                                 |
+| <nobr><code>{"--cors"}</code></nobr>                         |       | Additional browser origin(s) to allow CORS                              |
+| <nobr><code>{"--dangerously-skip-permissions"}</code></nobr> |       | Auto-approve permissions not explicitly denied. Alias: `--yolo`         |
 
 ---
 
@@ -380,7 +381,7 @@ opencode run --attach http://localhost:4096 "Explain async/await in JavaScript"
 | <nobr><code>{"--port"}</code></nobr>                         |       | Port for the local server (defaults to random port)                        |
 | <nobr><code>{"--variant"}</code></nobr>                      |       | Model variant (provider-specific reasoning effort)                         |
 | <nobr><code>{"--thinking"}</code></nobr>                     |       | Show thinking blocks                                                       |
-| <nobr><code>{"--dangerously-skip-permissions"}</code></nobr> |       | Auto-approve permissions that are not explicitly denied (dangerous!)       |
+| <nobr><code>{"--dangerously-skip-permissions"}</code></nobr> |       | Auto-approve permissions that are not explicitly denied. Alias: `--yolo`   |
 
 ---
 
@@ -676,33 +677,34 @@ The opencode CLI takes the following global flags.
 
 OpenCode can be configured using environment variables.
 
-| Variable                              | Type    | Description                                       |
-| ------------------------------------- | ------- | ------------------------------------------------- |
-| `OPENCODE_AUTO_SHARE`                 | boolean | Automatically share sessions                      |
-| `OPENCODE_GIT_BASH_PATH`              | string  | Path to Git Bash executable on Windows            |
-| `OPENCODE_CONFIG`                     | string  | Path to config file                               |
-| `OPENCODE_TUI_CONFIG`                 | string  | Path to TUI config file                           |
-| `OPENCODE_CONFIG_DIR`                 | string  | Path to config directory                          |
-| `OPENCODE_CONFIG_CONTENT`             | string  | Inline json config content                        |
-| `OPENCODE_DISABLE_AUTOUPDATE`         | boolean | Disable automatic update checks                   |
-| `OPENCODE_DISABLE_PRUNE`              | boolean | Disable pruning of old data                       |
-| `OPENCODE_DISABLE_TERMINAL_TITLE`     | boolean | Disable automatic terminal title updates          |
-| `OPENCODE_PERMISSION`                 | string  | Inlined json permissions config                   |
-| `OPENCODE_DISABLE_DEFAULT_PLUGINS`    | boolean | Disable default plugins                           |
-| `OPENCODE_DISABLE_LSP_DOWNLOAD`       | boolean | Disable automatic LSP server downloads            |
-| `OPENCODE_ENABLE_EXPERIMENTAL_MODELS` | boolean | Enable experimental models                        |
-| `OPENCODE_DISABLE_AUTOCOMPACT`        | boolean | Disable automatic context compaction              |
-| `OPENCODE_DISABLE_CLAUDE_CODE`        | boolean | Disable reading from `.claude` (prompt + skills)  |
-| `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT` | boolean | Disable reading `~/.claude/CLAUDE.md`             |
-| `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` | boolean | Disable loading `.claude/skills`                  |
-| `OPENCODE_DISABLE_MODELS_FETCH`       | boolean | Disable fetching models from remote sources       |
-| `OPENCODE_DISABLE_MOUSE`              | boolean | Disable mouse capture in the TUI                  |
-| `OPENCODE_FAKE_VCS`                   | string  | Fake VCS provider for testing purposes            |
-| `OPENCODE_CLIENT`                     | string  | Client identifier (defaults to `cli`)             |
-| `OPENCODE_ENABLE_EXA`                 | boolean | Enable Exa web search tools                       |
-| `OPENCODE_SERVER_PASSWORD`            | string  | Enable basic auth for `serve`/`web`               |
-| `OPENCODE_SERVER_USERNAME`            | string  | Override basic auth username (default `opencode`) |
-| `OPENCODE_MODELS_URL`                 | string  | Custom URL for fetching models configuration      |
+| Variable                                | Type    | Description                                       |
+| --------------------------------------- | ------- | ------------------------------------------------- |
+| `OPENCODE_AUTO_SHARE`                   | boolean | Automatically share sessions                      |
+| `OPENCODE_GIT_BASH_PATH`                | string  | Path to Git Bash executable on Windows            |
+| `OPENCODE_CONFIG`                       | string  | Path to config file                               |
+| `OPENCODE_TUI_CONFIG`                   | string  | Path to TUI config file                           |
+| `OPENCODE_CONFIG_DIR`                   | string  | Path to config directory                          |
+| `OPENCODE_CONFIG_CONTENT`               | string  | Inline json config content                        |
+| `OPENCODE_DISABLE_AUTOUPDATE`           | boolean | Disable automatic update checks                   |
+| `OPENCODE_DISABLE_PRUNE`                | boolean | Disable pruning of old data                       |
+| `OPENCODE_DISABLE_TERMINAL_TITLE`       | boolean | Disable automatic terminal title updates          |
+| `OPENCODE_PERMISSION`                   | string  | Inlined json permissions config                   |
+| `OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS` | boolean | Auto-approve permissions not explicitly denied    |
+| `OPENCODE_DISABLE_DEFAULT_PLUGINS`      | boolean | Disable default plugins                           |
+| `OPENCODE_DISABLE_LSP_DOWNLOAD`         | boolean | Disable automatic LSP server downloads            |
+| `OPENCODE_ENABLE_EXPERIMENTAL_MODELS`   | boolean | Enable experimental models                        |
+| `OPENCODE_DISABLE_AUTOCOMPACT`          | boolean | Disable automatic context compaction              |
+| `OPENCODE_DISABLE_CLAUDE_CODE`          | boolean | Disable reading from `.claude` (prompt + skills)  |
+| `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT`   | boolean | Disable reading `~/.claude/CLAUDE.md`             |
+| `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS`   | boolean | Disable loading `.claude/skills`                  |
+| `OPENCODE_DISABLE_MODELS_FETCH`         | boolean | Disable fetching models from remote sources       |
+| `OPENCODE_DISABLE_MOUSE`                | boolean | Disable mouse capture in the TUI                  |
+| `OPENCODE_FAKE_VCS`                     | string  | Fake VCS provider for testing purposes            |
+| `OPENCODE_CLIENT`                       | string  | Client identifier (defaults to `cli`)             |
+| `OPENCODE_ENABLE_EXA`                   | boolean | Enable Exa web search tools                       |
+| `OPENCODE_SERVER_PASSWORD`              | string  | Enable basic auth for `serve`/`web`               |
+| `OPENCODE_SERVER_USERNAME`              | string  | Override basic auth username (default `opencode`) |
+| `OPENCODE_MODELS_URL`                   | string  | Custom URL for fetching models configuration      |
 
 ---
 

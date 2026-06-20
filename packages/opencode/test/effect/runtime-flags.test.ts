@@ -14,6 +14,7 @@ describe("RuntimeFlags", () => {
       const flags = yield* readFlags.pipe(Effect.provide(fromConfig({})))
 
       expect(flags.autoShare).toBe(false)
+      expect(flags.dangerouslySkipPermissions).toBe(false)
     }),
   )
 
@@ -23,6 +24,7 @@ describe("RuntimeFlags", () => {
         Effect.provide(
           fromConfig({
             OPENCODE_PURE: "true",
+            OPENCODE_DANGEROUSLY_SKIP_PERMISSIONS: "true",
             OPENCODE_DISABLE_DEFAULT_PLUGINS: "true",
             OPENCODE_AUTO_SHARE: "true",
             OPENCODE_DISABLE_EMBEDDED_WEB_UI: "true",
@@ -39,6 +41,7 @@ describe("RuntimeFlags", () => {
       )
 
       expect(flags.pure).toBe(true)
+      expect(flags.dangerouslySkipPermissions).toBe(true)
       expect(flags.autoShare).toBe(true)
       expect(flags.disableDefaultPlugins).toBe(true)
       expect(flags.disableEmbeddedWebUi).toBe(true)
