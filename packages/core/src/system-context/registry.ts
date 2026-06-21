@@ -1,6 +1,7 @@
 export * as SystemContextRegistry from "./registry"
 
 import { Context, Effect, Layer, Ref, Scope } from "effect"
+import { LayerNode } from "../effect/layer-node"
 import { SystemContext } from "./index"
 
 export interface Entry {
@@ -44,3 +45,5 @@ export const layer = Layer.effect(
     })
   }),
 )
+
+export const node = LayerNode.make(layer, [])

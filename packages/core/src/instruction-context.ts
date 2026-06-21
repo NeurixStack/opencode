@@ -9,6 +9,7 @@ import { Location } from "./location"
 import { AbsolutePath } from "./schema"
 import { SystemContext } from "./system-context/index"
 import { SystemContextRegistry } from "./system-context/registry"
+import { LayerNode } from "./effect/layer-node"
 
 class File extends Schema.Class<File>("InstructionContext.File")({
   path: AbsolutePath,
@@ -86,6 +87,9 @@ export const layer = Layer.effectDiscard(
     })
   }),
 )
+
+export const node = (location: LayerNode.Node<Location.Service>) =>
+  LayerNode.make(layer, [FSUtil.node, Global.node, location, SystemContextRegistry.node])
 
 function render(files: ReadonlyArray<File>) {
   return files.map((file) => `Instructions from: ${file.path}\n${file.content}`).join("\n\n")
