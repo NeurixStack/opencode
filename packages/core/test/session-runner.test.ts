@@ -1142,7 +1142,7 @@ describe("SessionRunnerLLM", () => {
           sessionID,
           location,
           AgentV2.defaultID,
-        ).pipe(Effect.catchDefect(Effect.succeed)),
+        ).pipe(Effect.flip),
       ).toBeInstanceOf(SessionContextEpoch.AgentMismatch)
 
       expect(

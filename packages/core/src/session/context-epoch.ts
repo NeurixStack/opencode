@@ -18,7 +18,7 @@ type DatabaseService = Database.Interface["db"]
 
 class RevisionMismatch extends Error {}
 class LocationMismatch extends Error {}
-export class AgentMismatch extends Error {}
+export class AgentMismatch extends Schema.TaggedErrorClass<AgentMismatch>()("SessionContextEpoch.AgentMismatch", {}) {}
 export class AgentReplacementBlocked extends Schema.TaggedErrorClass<AgentReplacementBlocked>()(
   "SessionContextEpoch.AgentReplacementBlocked",
   { sessionID: SessionSchema.ID, previous: AgentV2.ID, current: AgentV2.ID },
@@ -45,7 +45,7 @@ export function initialize(
   sessionID: SessionSchema.ID,
   location: Location.Ref,
   agent: AgentV2.ID,
-): Effect.Effect<Prepared | undefined, SystemContext.InitializationBlocked> {
+): Effect.Effect<Prepared | undefined, SystemContext.InitializationBlocked | AgentMismatch> {
   return retryRevisionMismatch(() => initializeOnce(db, context, sessionID, location, agent)).pipe(
     Effect.withSpan("SessionContextEpoch.initialize"),
   )
@@ -58,7 +58,10 @@ export function prepare(
   sessionID: SessionSchema.ID,
   location: Location.Ref,
   agent: AgentV2.ID,
-): Effect.Effect<Prepared, SystemContext.InitializationBlocked | ContextSnapshotDecodeError | AgentReplacementBlocked> {
+): Effect.Effect<
+  Prepared,
+  SystemContext.InitializationBlocked | ContextSnapshotDecodeError | AgentMismatch | AgentReplacementBlocked
+> {
   return retryRevisionMismatch(() => prepareOnce(db, events, context, sessionID, location, agent)).pipe(
     Effect.withSpan("SessionContextEpoch.prepare"),
   )
@@ -153,7 +156,7 @@ const requireAgentSelection = Effect.fnUntraced(function* (
     .where(eq(SessionTable.id, sessionID))
     .get()
     .pipe(Effect.orDie)
-  if (!selected || (selected.agent !== null && selected.agent !== agent)) return yield* Effect.die(new AgentMismatch())
+  if (!selected || (selected.agent !== null && selected.agent !== agent)) return yield* new AgentMismatch({})
 })
 
 export const requestReplacement = Effect.fn("SessionContextEpoch.requestReplacement")(function* (
@@ -212,7 +215,7 @@ const insert = Effect.fnUntraced(function* (
             .get()
             .pipe(Effect.orDie)
           if (!placed) return yield* Effect.die(new LocationMismatch())
-          if (placed.agent !== null && placed.agent !== agent) return yield* Effect.die(new AgentMismatch())
+          if (placed.agent !== null && placed.agent !== agent) return yield* new AgentMismatch({})
           const baselineSeq = yield* SessionInput.latestSeq(db, sessionID)
           yield* db
             .insert(SessionContextEpochTable)
@@ -235,7 +238,7 @@ const insert = Effect.fnUntraced(function* (
         }),
       { behavior: "immediate" },
     )
-    .pipe(Effect.orDie)
+    .pipe(Effect.catch((error) => (error instanceof AgentMismatch ? Effect.fail(error) : Effect.die(error))))
 })
 
 const replace = Effect.fnUntraced(function* (
@@ -274,7 +277,7 @@ const replace = Effect.fnUntraced(function* (
         }),
       { behavior: "immediate" },
     )
-    .pipe(Effect.orDie)
+    .pipe(Effect.catch((error) => (error instanceof AgentMismatch ? Effect.fail(error) : Effect.die(error))))
 })
 
 const fence = Effect.fnUntraced(function* (
@@ -290,8 +293,7 @@ const fence = Effect.fnUntraced(function* (
     .where(eq(SessionContextEpochTable.session_id, sessionID))
     .get()
     .pipe(Effect.orDie)
-  if (!current || (current.selected !== null && current.selected !== agent))
-    return yield* Effect.die(new AgentMismatch())
+  if (!current || (current.selected !== null && current.selected !== agent)) return yield* new AgentMismatch({})
   if (current.revision !== expectedRevision) return yield* Effect.die(new RevisionMismatch())
 })
 
