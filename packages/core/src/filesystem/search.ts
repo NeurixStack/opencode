@@ -10,6 +10,7 @@ import { Location } from "../location"
 import { Ripgrep } from "../ripgrep"
 import { RelativePath } from "../schema"
 import { Flag } from "../flag/flag"
+import { LayerNode } from "../effect/layer-node"
 
 export interface Interface {
   readonly find: (input: FileSystem.FindInput) => Effect.Effect<FileSystem.Entry[]>
@@ -235,3 +236,6 @@ export const fffLayer = Layer.effect(
 export const defaultLayer = Layer.unwrap(
   Effect.sync(() => (Flag.OPENCODE_DISABLE_FFF || !Fff.available() ? ripgrepLayer : fffLayer)),
 )
+
+export const node = (location: LayerNode.Node<Location.Service>) =>
+  LayerNode.make(defaultLayer, [FSUtil.node, Ripgrep.node, location])

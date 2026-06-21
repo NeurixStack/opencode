@@ -2,27 +2,21 @@ import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
 import { Effect, Exit, Layer } from "effect"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { FileSystem } from "@opencode-ai/core/filesystem"
-import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Location } from "@opencode-ai/core/location"
-import { Ripgrep } from "@opencode-ai/core/ripgrep"
 import { AbsolutePath, RelativePath } from "@opencode-ai/core/schema"
 import { location } from "./fixture/location"
 import { tmpdir } from "./fixture/tmpdir"
 import { it } from "./lib/effect"
 
-const provide = (directory: string) =>
-  Effect.provide(
-    FileSystem.layer.pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          FSUtil.defaultLayer,
-          Ripgrep.defaultLayer,
-          Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(directory) }))),
-        ),
-      ),
-    ),
+const provide = (directory: string) => {
+  const activeLocation = LayerNode.make(
+    Layer.succeed(Location.Service, Location.Service.of(location({ directory: AbsolutePath.make(directory) }))),
+    [],
   )
+  return Effect.provide(LayerNode.buildLayer(FileSystem.node(activeLocation)))
+}
 
 const withTmp = <A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) =>
   Effect.acquireRelease(

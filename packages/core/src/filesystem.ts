@@ -8,6 +8,7 @@ import { Location } from "./location"
 import { PositiveInt, RelativePath } from "./schema"
 import { FileSystemSearch } from "./filesystem/search"
 import { Entry, Match } from "./filesystem/schema"
+import { LayerNode } from "./effect/layer-node"
 export { Entry, Match, Submatch } from "./filesystem/schema"
 
 export const ReadInput = Schema.Struct({
@@ -126,3 +127,6 @@ const baseLayer = Layer.effect(
 export const layer = baseLayer.pipe(Layer.provide(FileSystemSearch.defaultLayer), Layer.provide(FSUtil.defaultLayer))
 
 export const locationLayer = layer
+
+export const node = (location: LayerNode.Node<Location.Service>) =>
+  LayerNode.make(baseLayer, [FSUtil.node, FileSystemSearch.node(location), location])
