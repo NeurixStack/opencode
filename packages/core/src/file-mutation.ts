@@ -3,6 +3,7 @@ export * as FileMutation from "./file-mutation"
 import { Context, Effect, Layer, Schema } from "effect"
 import { dirname } from "path"
 import { KeyedMutex } from "./effect/keyed-mutex"
+import { LayerNode } from "./effect/layer-node"
 import { FSUtil } from "./fs-util"
 
 export interface Target {
@@ -170,6 +171,8 @@ export const layer = Layer.effect(
     return Service.of({ create, write, writeTextPreservingBom, writeIfUnchanged, remove })
   }),
 )
+
+export const node = LayerNode.make(layer, [FSUtil.node])
 
 function splitBom(text: string) {
   const stripped = text.replace(/^\uFEFF+/, "")
