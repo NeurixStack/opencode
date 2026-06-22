@@ -450,4 +450,30 @@ describe("SessionV2.list", () => {
       expect(new Set(listed.map((item) => item.id))).toEqual(new Set([core.id, nested.id]))
     }),
   )
+
+  it.effect("treats wildcard characters in subpaths literally", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const { db } = yield* Database.Service
+      const exact = yield* session.create({ location })
+      const nested = yield* session.create({ location })
+      const sibling = yield* session.create({ location })
+
+      yield* Effect.all([
+        db.update(SessionTable).set({ path: "packages/core_test" }).where(eq(SessionTable.id, exact.id)).run(),
+        db.update(SessionTable).set({ path: "packages/core_test/unit" }).where(eq(SessionTable.id, nested.id)).run(),
+        db.update(SessionTable).set({ path: "packages/coreXtest/unit" }).where(eq(SessionTable.id, sibling.id)).run(),
+      ]).pipe(Effect.orDie)
+
+      const listed = yield* session.list({
+        project: ProjectV2.ID.global,
+        subpath: RelativePath.make("packages/core_test"),
+      })
+
+      const ids = listed.map((item) => item.id)
+      expect(ids).toContain(exact.id)
+      expect(ids).toContain(nested.id)
+      expect(ids).not.toContain(sibling.id)
+    }),
+  )
 })

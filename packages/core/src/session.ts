@@ -2,7 +2,7 @@ export * as SessionV2 from "./session"
 export * from "./session/schema"
 
 import { Cause, DateTime, Effect, Layer, Schema, Context, Stream } from "effect"
-import { and, asc, desc, eq, gt, like, lt, or, type SQL } from "drizzle-orm"
+import { and, asc, desc, eq, gt, gte, like, lt, or, type SQL } from "drizzle-orm"
 import { ProjectV2 } from "./project"
 import { WorkspaceV2 } from "./workspace"
 import { ModelV2 } from "./model"
@@ -264,7 +264,12 @@ export const layer = Layer.effect(
         if (input.workspaceID) conditions.push(eq(SessionTable.workspace_id, input.workspaceID))
         if ("project" in input) conditions.push(eq(SessionTable.project_id, input.project))
         if ("subpath" in input && input.subpath)
-          conditions.push(or(eq(SessionTable.path, input.subpath), like(SessionTable.path, `${input.subpath}/%`))!)
+          conditions.push(
+            or(
+              eq(SessionTable.path, input.subpath),
+              and(gte(SessionTable.path, `${input.subpath}/`), lt(SessionTable.path, `${input.subpath}0`)),
+            )!,
+          )
         if (input.search) conditions.push(like(SessionTable.title, `%${input.search}%`))
         if (input.anchor) {
           conditions.push(
