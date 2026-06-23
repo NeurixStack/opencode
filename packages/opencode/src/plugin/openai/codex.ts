@@ -151,7 +151,7 @@ async function refreshAccessToken(refreshToken: string, issuer = ISSUER): Promis
       code === "refresh_token_invalidated"
     ) {
       throw new ProviderError.AuthenticationError(
-        "Your ChatGPT login could not be refreshed. Run `opencode auth login` to sign in again.",
+        "Your ChatGPT login could not be refreshed. Please sign in again.",
       )
     }
     throw new Error(`Token refresh failed: ${response.status}`)
@@ -526,10 +526,10 @@ export async function CodexAuthPlugin(input: PluginInput, options: CodexAuthPlug
               ...init,
               headers,
             }
-            const request = () =>
-              websocketFetch && parsed.pathname.endsWith("/responses")
-                ? websocketFetch(url, requestInit)
-                : fetch(url, OpenAIWebSocketPool.withoutInternalHeaders(requestInit))
+            const request = () => {
+              if (websocketFetch && parsed.pathname.endsWith("/responses")) return websocketFetch(url, requestInit)
+              return fetch(url, OpenAIWebSocketPool.withoutInternalHeaders(requestInit))
+            }
             const response = await request()
             if (response.status !== 401) return response
             await response.body?.cancel()

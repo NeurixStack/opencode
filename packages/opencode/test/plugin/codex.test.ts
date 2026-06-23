@@ -317,7 +317,7 @@ describe("plugin.codex", () => {
     const error = await loaded.fetch!("https://api.openai.com/v1/responses").catch((error: unknown) => error)
 
     expect(error).toBeInstanceOf(ProviderError.AuthenticationError)
-    expect(error.message).toContain("opencode auth login")
+    expect(error.message).toBe("Your ChatGPT login could not be refreshed. Please sign in again.")
   })
 })
 
