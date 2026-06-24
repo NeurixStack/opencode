@@ -7,10 +7,10 @@ export const CerebrasPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (item.provider.api.type !== "aisdk") continue
-          if (item.provider.api.package !== "@ai-sdk/cerebras") continue
+          if (!item.provider.aisdk) continue
+          if (item.provider.package !== "@ai-sdk/cerebras") continue
           evt.provider.update(item.provider.id, (provider) => {
-            provider.request.headers["X-Cerebras-3rd-Party-Integration"] = "opencode"
+            provider.headers = { ...provider.headers, "X-Cerebras-3rd-Party-Integration": "opencode" }
           })
         }
       }),

@@ -53,7 +53,9 @@ describe("DynamicProviderPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("test-model")),
-          api: { id: ModelV2.ID.make("test-model"), type: "aisdk", package: fixtureProvider },
+          modelID: ModelV2.ID.make("test-model"),
+          aisdk: true,
+          package: fixtureProvider,
         }),
         package: fixtureProvider,
         options: { name: "custom", marker: "dynamic" },
@@ -71,7 +73,9 @@ describe("DynamicProviderPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("test-model")),
-          api: { id: ModelV2.ID.make("test-model"), type: "aisdk", package: fixtureProvider },
+          modelID: ModelV2.ID.make("test-model"),
+          aisdk: true,
+          package: fixtureProvider,
         }),
         package: fixtureProvider,
         options: { name: "custom", marker: "dynamic" },
@@ -88,7 +92,9 @@ describe("DynamicProviderPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-provider"), ModelV2.ID.make("test-model")),
-          api: { id: ModelV2.ID.make("test-model"), type: "aisdk", package: fixtureProvider },
+          modelID: ModelV2.ID.make("test-model"),
+          aisdk: true,
+          package: fixtureProvider,
         }),
         package: fixtureProvider,
         options: { name: "custom-provider", marker: "dynamic" },
@@ -104,7 +110,9 @@ describe("DynamicProviderPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("npm-provider"), ModelV2.ID.make("test-model")),
-          api: { id: ModelV2.ID.make("test-model"), type: "aisdk", package: "fixture-provider" },
+          modelID: ModelV2.ID.make("test-model"),
+          aisdk: true,
+          package: "fixture-provider",
         }),
         package: "fixture-provider",
         options: { name: "npm-provider", marker: "npm" },
@@ -121,7 +129,9 @@ describe("DynamicProviderPlugin", () => {
         .language(
           ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("missing-entrypoint"), ModelV2.ID.make("alias")),
-            api: { id: ModelV2.ID.make("alias"), type: "aisdk", package: "fixture-provider" },
+            modelID: ModelV2.ID.make("alias"),
+            aisdk: true,
+            package: "fixture-provider",
           }),
         )
         .pipe(Effect.exit)
@@ -138,7 +148,9 @@ describe("DynamicProviderPlugin", () => {
         .language(
           ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("bad-import"), ModelV2.ID.make("alias")),
-            api: { id: ModelV2.ID.make("alias"), type: "aisdk", package: "file:///missing/provider-factory.js" },
+            modelID: ModelV2.ID.make("alias"),
+            aisdk: true,
+            package: "file:///missing/provider-factory.js",
           }),
         )
         .pipe(Effect.exit)
@@ -157,7 +169,9 @@ describe("DynamicProviderPlugin", () => {
         .language(
           ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("missing-factory"), ModelV2.ID.make("alias")),
-            api: { id: ModelV2.ID.make("alias"), type: "aisdk", package: "fixture-provider" },
+            modelID: ModelV2.ID.make("alias"),
+            aisdk: true,
+            package: "fixture-provider",
           }),
         )
         .pipe(Effect.exit)
@@ -166,7 +180,7 @@ describe("DynamicProviderPlugin", () => {
     }),
   )
 
-  itWithAISDK.effect("uses the model api.id for the default language model", () =>
+  itWithAISDK.effect("uses the model modelID for the default language model", () =>
     Effect.gen(function* () {
       const plugin = yield* PluginV2.Service
       const aisdk = yield* AISDK.Service
@@ -174,7 +188,9 @@ describe("DynamicProviderPlugin", () => {
       const language = yield* aisdk.language(
         ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("alias")),
-          api: { id: ModelV2.ID.make("test-model-api"), type: "aisdk", package: fixtureProvider },
+          modelID: ModelV2.ID.make("test-model-api"),
+          aisdk: true,
+          package: fixtureProvider,
         }),
       )
       expect(language).toMatchObject({ modelID: "test-model-api", options: { name: "custom" } })

@@ -73,10 +73,10 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
 function prepareOptions(model: ModelV2.Info, pkg: string) {
   const options: Record<string, any> = {
     name: model.providerID,
-    ...(model.api.type === "aisdk" ? (model.api.settings ?? {}) : {}),
-    ...model.request.body,
+    ...(model.settings ?? {}),
+    headers: model.headers,
+    body: model.body,
   }
-  if (model.api.type === "aisdk" && model.api.url) options.baseURL = model.api.url
 
   const customFetch = options.fetch
   const chunkTimeout = options.chunkTimeout
@@ -195,24 +195,26 @@ export const locationLayer = Layer.effect(
       runSDK: (event) => run(sdkHooks, event),
       runLanguage: (event) => run(languageHooks, event),
       language: Effect.fn("AISDK.language")(function* (model) {
-        const key = `${model.providerID}/${model.id}/${model.request.variant ?? "default"}`
+        const key = `${model.providerID}/${model.id}/${model.modelID ?? model.id}/${JSON.stringify(model.settings)}`
         const existing = languages.get(key)
         if (existing) return existing
-        if (model.api.type !== "aisdk")
+        if (!model.aisdk)
           return yield* new InitError({
             providerID: model.providerID,
-            cause: new Error(`Unsupported api ${model.api.type}`),
+            cause: new Error(`Unsupported package ${model.package}`),
           })
 
-        const options = prepareOptions(model, model.api.package)
+        const options = prepareOptions(model, model.package ?? "")
         const sdkKey = JSON.stringify({
           providerID: model.providerID,
-          api: model.api,
+          package: model.package,
+          settings: model.settings,
           options,
         })
         const sdk =
           sdks.get(sdkKey) ??
-          (yield* service.runSDK({ model, package: model.api.package, options }).pipe(initError(model.providerID))).sdk
+          (yield* service.runSDK({ model, package: model.package ?? "", options }).pipe(initError(model.providerID)))
+            .sdk
         if (!sdk)
           return yield* new InitError({
             providerID: model.providerID,
@@ -220,7 +222,7 @@ export const locationLayer = Layer.effect(
           })
         sdks.set(sdkKey, sdk)
         const result = yield* service.runLanguage({ model, sdk, options }).pipe(initError(model.providerID))
-        const language = yield* Effect.sync(() => result.language ?? sdk.languageModel(model.api.id)).pipe(
+        const language = yield* Effect.sync(() => result.language ?? sdk.languageModel(model.modelID ?? model.id)).pipe(
           initError(model.providerID),
         )
         languages.set(key, language)

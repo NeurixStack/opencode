@@ -36,12 +36,13 @@ describe("CerebrasPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("cerebras"), (item) => {
-          item.api = { type: "aisdk", package: "@ai-sdk/cerebras" }
-          item.request.headers.Existing = "1"
+          item.aisdk = true
+          item.package = "@ai-sdk/cerebras"
+          item.headers = { ...item.headers, Existing: "1" }
         })
       })
       yield* addPlugin()
-      expect((yield* catalog.provider.get(ProviderV2.ID.make("cerebras")))?.request.headers).toEqual({
+      expect((yield* catalog.provider.get(ProviderV2.ID.make("cerebras")))?.headers).toEqual({
         Existing: "1",
         "X-Cerebras-3rd-Party-Integration": "opencode",
       })
@@ -53,7 +54,7 @@ describe("CerebrasPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => catalog.provider.update(ProviderV2.ID.make("groq"), () => {}))
       yield* addPlugin()
-      expect((yield* catalog.provider.get(ProviderV2.ID.make("groq")))?.request.headers).toEqual({})
+      expect((yield* catalog.provider.get(ProviderV2.ID.make("groq")))?.headers).toBeUndefined()
     }),
   )
 
@@ -69,11 +70,9 @@ describe("CerebrasPlugin", () => {
             ProviderV2.ID.make("custom-cerebras"),
             ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
           ),
-          api: {
-            id: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
-            type: "aisdk",
-            package: "test-provider",
-          },
+          modelID: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/cerebras",
         options: { name: "custom-cerebras", apiKey: "test" },
@@ -95,11 +94,9 @@ describe("CerebrasPlugin", () => {
             ProviderV2.ID.make("custom-cerebras"),
             ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
           ),
-          api: {
-            id: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
-            type: "aisdk",
-            package: "test-provider",
-          },
+          modelID: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/cerebras",
         options: { name: "configured-cerebras", apiKey: "test" },
@@ -120,11 +117,9 @@ describe("CerebrasPlugin", () => {
             ProviderV2.ID.make("custom-cerebras"),
             ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
           ),
-          api: {
-            id: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
-            type: "aisdk",
-            package: "test-provider",
-          },
+          modelID: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/groq",
         options: { name: "custom-cerebras", apiKey: "test" },

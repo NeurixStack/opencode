@@ -28,7 +28,9 @@ describe("GroqPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("groq"), ModelV2.ID.make("llama")),
-          api: { id: ModelV2.ID.make("llama"), type: "aisdk", package: "@ai-sdk/groq" },
+          modelID: ModelV2.ID.make("llama"),
+          aisdk: true,
+          package: "@ai-sdk/groq",
         }),
         package: "@ai-sdk/groq",
         options: { name: "groq" },
@@ -45,7 +47,9 @@ describe("GroqPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("groq"), ModelV2.ID.make("llama")),
-          api: { id: ModelV2.ID.make("llama"), type: "aisdk", package: "@ai-sdk/groq" },
+          modelID: ModelV2.ID.make("llama"),
+          aisdk: true,
+          package: "@ai-sdk/groq",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "groq" },
@@ -62,7 +66,9 @@ describe("GroqPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("groq"), ModelV2.ID.make("llama")),
-          api: { id: ModelV2.ID.make("llama"), type: "aisdk", package: "@ai-sdk/groq" },
+          modelID: ModelV2.ID.make("llama"),
+          aisdk: true,
+          package: "@ai-sdk/groq",
         }),
         package: "@ai-sdk/groq/compat",
         options: { name: "groq" },
@@ -79,7 +85,9 @@ describe("GroqPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-groq"), ModelV2.ID.make("llama")),
-          api: { id: ModelV2.ID.make("llama"), type: "aisdk", package: "@ai-sdk/groq" },
+          modelID: ModelV2.ID.make("llama"),
+          aisdk: true,
+          package: "@ai-sdk/groq",
         }),
         package: "@ai-sdk/groq",
         options: { name: "custom-groq", apiKey: "test" },
@@ -93,7 +101,7 @@ describe("GroqPlugin", () => {
     }),
   )
 
-  it.effect("uses the default languageModel(api.id) behavior", () =>
+  it.effect("uses the default languageModel(modelID) behavior", () =>
     Effect.gen(function* () {
       const plugin = yield* PluginV2.Service
       const aisdk = yield* AISDK.Service
@@ -104,16 +112,14 @@ describe("GroqPlugin", () => {
       const result = yield* aisdk.runLanguage({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("groq"), ModelV2.ID.make("alias")),
-          api: {
-            id: ModelV2.ID.make("llama-api"),
-            type: "aisdk",
-            package: "@ai-sdk/groq",
-          },
+          modelID: ModelV2.ID.make("llama-api"),
+          aisdk: true,
+          package: "@ai-sdk/groq",
         }),
         sdk,
         options: { name: "groq", apiKey: "test" },
       })
-      const language = result.language ?? sdk.languageModel(result.model.api.id)
+      const language = result.language ?? sdk.languageModel(result.model.modelID ?? result.model.id)
       expect(language.modelId).toBe("llama-api")
       expect(language.provider).toBe("groq.chat")
     }),

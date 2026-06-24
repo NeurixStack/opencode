@@ -67,7 +67,9 @@ describe("OpenAIPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-openai"), ModelV2.ID.make("gpt-5")),
-          api: { id: ModelV2.ID.make("gpt-5"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("gpt-5"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/openai",
         options: { name: "custom-openai", apiKey: "test" },
@@ -84,7 +86,9 @@ describe("OpenAIPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.openai, ModelV2.ID.make("gpt-5")),
-          api: { id: ModelV2.ID.make("gpt-5"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("gpt-5"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "openai" },
@@ -102,7 +106,9 @@ describe("OpenAIPlugin", () => {
       const result = yield* aisdk.runLanguage({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.openai, ModelV2.ID.make("alias")),
-          api: { id: ModelV2.ID.make("gpt-5"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("gpt-5"),
+          aisdk: true,
+          package: "test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},
@@ -121,7 +127,9 @@ describe("OpenAIPlugin", () => {
       const result = yield* aisdk.runLanguage({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.anthropic, ModelV2.ID.make("gpt-5")),
-          api: { id: ModelV2.ID.make("gpt-5"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("gpt-5"),
+          aisdk: true,
+          package: "test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},
@@ -137,10 +145,12 @@ describe("OpenAIPlugin", () => {
       yield* catalog.transform((catalog) => {
         const item = ProviderV2.Info.make({
           ...ProviderV2.Info.empty(ProviderV2.ID.openai),
-          api: { type: "aisdk", package: "@ai-sdk/openai" },
+          aisdk: true,
+          package: "@ai-sdk/openai",
         })
         catalog.provider.update(item.id, (draft) => {
-          draft.api = item.api
+          draft.aisdk = item.aisdk
+          draft.package = item.package
         })
         catalog.model.update(item.id, ModelV2.ID.make("gpt-5"), () => {})
         catalog.model.update(item.id, ModelV2.ID.make("gpt-5-chat-latest"), () => {})
@@ -159,10 +169,12 @@ describe("OpenAIPlugin", () => {
       yield* catalog.transform((catalog) => {
         const item = ProviderV2.Info.make({
           ...ProviderV2.Info.empty(ProviderV2.ID.make("custom-openai")),
-          api: { type: "aisdk", package: "test-provider" },
+          aisdk: true,
+          package: "test-provider",
         })
         catalog.provider.update(item.id, (draft) => {
-          draft.api = item.api
+          draft.aisdk = item.aisdk
+          draft.package = item.package
         })
         catalog.model.update(item.id, ModelV2.ID.make("gpt-5-chat-latest"), () => {})
       })

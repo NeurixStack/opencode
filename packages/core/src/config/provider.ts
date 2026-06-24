@@ -36,7 +36,7 @@ class Limit extends Schema.Class<Limit>("ConfigV2.Model.Limit")({
 }) {}
 
 class Model extends Schema.Class<Model>("ConfigV2.Model")({
-  id: ModelV2.ID.pipe(Schema.optional),
+  modelID: ModelV2.ID.pipe(Schema.optional),
   family: ModelV2.Family.pipe(Schema.optional),
   name: Schema.String.pipe(Schema.optional),
   package: Schema.String.pipe(Schema.optional),

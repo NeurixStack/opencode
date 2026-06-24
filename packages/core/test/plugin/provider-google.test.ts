@@ -27,7 +27,9 @@ describe("GooglePlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-google"), ModelV2.ID.make("gemini")),
-          api: { id: ModelV2.ID.make("gemini"), type: "aisdk", package: "@ai-sdk/google" },
+          modelID: ModelV2.ID.make("gemini"),
+          aisdk: true,
+          package: "@ai-sdk/google",
         }),
         package: "@ai-sdk/google",
         options: { name: "custom-google", apiKey: "test" },
@@ -45,7 +47,9 @@ describe("GooglePlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google"), ModelV2.ID.make("gemini")),
-          api: { id: ModelV2.ID.make("gemini"), type: "aisdk", package: "@ai-sdk/google" },
+          modelID: ModelV2.ID.make("gemini"),
+          aisdk: true,
+          package: "@ai-sdk/google",
         }),
         package: "@ai-sdk/google-vertex",
         options: { name: "google" },
@@ -62,7 +66,9 @@ describe("GooglePlugin", () => {
       const sdkEvent = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-google"), ModelV2.ID.make("alias")),
-          api: { id: ModelV2.ID.make("gemini-api"), type: "aisdk", package: "@ai-sdk/google" },
+          modelID: ModelV2.ID.make("gemini-api"),
+          aisdk: true,
+          package: "@ai-sdk/google",
         }),
         package: "@ai-sdk/google",
         options: { name: "custom-google", apiKey: "test" },
@@ -72,7 +78,7 @@ describe("GooglePlugin", () => {
         sdk: sdkEvent.sdk,
         options: sdkEvent.options,
       })
-      const language = result.language ?? result.sdk.languageModel(result.model.api.id)
+      const language = result.language ?? result.sdk.languageModel(result.model.modelID ?? result.model.id)
       expect(language.modelId).toBe("gemini-api")
       expect(language.provider).toBe("custom-google")
     }),

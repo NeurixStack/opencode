@@ -7,11 +7,13 @@ export const AnthropicPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (item.provider.api.type !== "aisdk") continue
-          if (item.provider.api.package !== "@ai-sdk/anthropic") continue
+          if (!item.provider.aisdk) continue
+          if (item.provider.package !== "@ai-sdk/anthropic") continue
           evt.provider.update(item.provider.id, (provider) => {
-            provider.request.headers["anthropic-beta"] =
-              "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14"
+            provider.headers = {
+              ...provider.headers,
+              "anthropic-beta": "interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14",
+            }
           })
         }
       }),

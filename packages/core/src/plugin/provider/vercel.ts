@@ -7,11 +7,10 @@ export const VercelPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (item.provider.api.type !== "aisdk") continue
-          if (item.provider.api.package !== "@ai-sdk/vercel") continue
+          if (!item.provider.aisdk) continue
+          if (item.provider.package !== "@ai-sdk/vercel") continue
           evt.provider.update(item.provider.id, (provider) => {
-            provider.request.headers["http-referer"] = "https://opencode.ai/"
-            provider.request.headers["x-title"] = "opencode"
+            provider.headers = { ...provider.headers, "http-referer": "https://opencode.ai/", "x-title": "opencode" }
           })
         }
       }),

@@ -7,12 +7,11 @@ export const KiloPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (item.provider.api.type !== "aisdk") continue
-          if (item.provider.api.package !== "@ai-sdk/openai-compatible") continue
-          if (item.provider.api.url !== "https://api.kilo.ai/api/gateway") continue
+          if (!item.provider.aisdk) continue
+          if (item.provider.package !== "@ai-sdk/openai-compatible") continue
+          if (item.provider.settings?.baseURL !== "https://api.kilo.ai/api/gateway") continue
           evt.provider.update(item.provider.id, (provider) => {
-            provider.request.headers["HTTP-Referer"] = "https://opencode.ai/"
-            provider.request.headers["X-Title"] = "opencode"
+            provider.headers = { ...provider.headers, "HTTP-Referer": "https://opencode.ai/", "X-Title": "opencode" }
           })
         }
       }),

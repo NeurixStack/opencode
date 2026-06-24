@@ -210,7 +210,7 @@ function migrateModel(info: typeof ConfigProviderV1.Model.Type, packageName?: st
       ? { tools: info.tool_call ?? false, input: info.modalities?.input ?? [], output: info.modalities?.output ?? [] }
       : undefined
   return {
-    id: info.id,
+    modelID: info.id,
     family: info.family,
     name: info.name,
     package: info.provider?.npm,

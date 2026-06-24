@@ -34,23 +34,21 @@ describe("LLMGatewayPlugin", () => {
       })
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("llmgateway"), (provider) => {
-          provider.api = {
-            type: "aisdk",
-            package: "@ai-sdk/openai-compatible",
-            url: "https://api.llmgateway.io/v1",
-          }
-          provider.request = { headers: { Existing: "value" }, body: {} }
+          provider.aisdk = true
+          provider.package = "@ai-sdk/openai-compatible"
+          provider.settings = { ...provider.settings, baseURL: "https://api.llmgateway.io/v1" }
+          provider.headers = { Existing: "value" }
         })
         catalog.provider.update(ProviderV2.ID.openrouter, () => {})
       })
       yield* addPlugin()
-      expect((yield* catalog.provider.get(ProviderV2.ID.make("llmgateway")))?.request.headers).toEqual({
+      expect((yield* catalog.provider.get(ProviderV2.ID.make("llmgateway")))?.headers).toEqual({
         Existing: "value",
         "HTTP-Referer": "https://opencode.ai/",
         "X-Title": "opencode",
         "X-Source": "opencode",
       })
-      expect((yield* catalog.provider.get(ProviderV2.ID.openrouter))?.request.headers).toEqual({})
+      expect((yield* catalog.provider.get(ProviderV2.ID.openrouter))?.headers).toBeUndefined()
     }),
   )
 
@@ -64,17 +62,15 @@ describe("LLMGatewayPlugin", () => {
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("llmgateway"), (provider) => {
           provider.disabled = true
-          provider.api = {
-            type: "aisdk",
-            package: "@ai-sdk/openai-compatible",
-            url: "https://api.llmgateway.io/v1",
-          }
+          provider.aisdk = true
+          provider.package = "@ai-sdk/openai-compatible"
+          provider.settings = { ...provider.settings, baseURL: "https://api.llmgateway.io/v1" }
         })
       })
       yield* addPlugin()
 
       expect((yield* catalog.provider.get(ProviderV2.ID.make("llmgateway")))?.disabled).toBe(true)
-      expect((yield* catalog.provider.get(ProviderV2.ID.make("llmgateway")))?.request.headers).toEqual({})
+      expect((yield* catalog.provider.get(ProviderV2.ID.make("llmgateway")))?.headers).toBeUndefined()
     }),
   )
 })

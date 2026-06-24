@@ -92,17 +92,15 @@ describe("GoogleVertexPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) =>
         catalog.provider.update(ProviderV2.ID.opencode, (provider) => {
-          provider.api = {
-            type: "aisdk",
-            package: "@ai-sdk/openai-compatible",
-            url: "https://opencode.ai/zen/v1",
-          }
+          provider.aisdk = true
+          provider.package = "@ai-sdk/openai-compatible"
+          provider.settings = { ...provider.settings, baseURL: "https://opencode.ai/zen/v1" }
         }),
       )
       yield* addPlugin()
 
       const provider = required(yield* catalog.provider.get(ProviderV2.ID.opencode))
-      expect(provider.request.body).toEqual({})
+      expect(provider.settings).toEqual({ baseURL: "https://opencode.ai/zen/v1" })
     }),
   )
 
@@ -121,21 +119,26 @@ describe("GoogleVertexPlugin", () => {
           const catalog = yield* Catalog.Service
           yield* catalog.transform((catalog) =>
             catalog.provider.update(ProviderV2.ID.make("google-vertex"), (provider) => {
-              provider.api = {
-                type: "aisdk",
-                package: "@ai-sdk/openai-compatible",
-                url: "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
+              provider.aisdk = true
+              provider.package = "@ai-sdk/openai-compatible"
+              provider.settings = {
+                ...provider.settings,
+                baseURL:
+                  "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
               }
             }),
           )
           yield* addPlugin()
           const provider = required(yield* catalog.provider.get(ProviderV2.ID.make("google-vertex")))
-          expect(provider.request.body.project).toBe("google-cloud-project")
-          expect(provider.request.body.location).toBe("google-vertex-location")
-          expect(provider.api).toEqual({
-            type: "aisdk",
+          expect(provider.settings?.project).toBe("google-cloud-project")
+          expect(provider.settings?.location).toBe("google-vertex-location")
+          expect(provider).toMatchObject({
+            aisdk: true,
             package: "@ai-sdk/openai-compatible",
-            url: "https://google-vertex-location-aiplatform.googleapis.com/v1/projects/google-cloud-project/locations/google-vertex-location",
+            settings: {
+              baseURL:
+                "https://google-vertex-location-aiplatform.googleapis.com/v1/projects/google-cloud-project/locations/google-vertex-location",
+            },
           })
         }),
     ),
@@ -160,10 +163,12 @@ describe("GoogleVertexPlugin", () => {
           const catalog = yield* Catalog.Service
           yield* catalog.transform((catalog) =>
             catalog.provider.update(ProviderV2.ID.make("google-vertex"), (provider) => {
-              provider.api = {
-                type: "aisdk",
-                package: "@ai-sdk/openai-compatible",
-                url: "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
+              provider.aisdk = true
+              provider.package = "@ai-sdk/openai-compatible"
+              provider.settings = {
+                ...provider.settings,
+                baseURL:
+                  "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
               }
             }),
           )
@@ -172,21 +177,22 @@ describe("GoogleVertexPlugin", () => {
           yield* aisdk.runSDK({
             model: ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini")),
-              api: {
-                id: ModelV2.ID.make("gemini"),
-                type: "aisdk",
-                package: "@ai-sdk/google-vertex",
-              },
+              modelID: ModelV2.ID.make("gemini"),
+              aisdk: true,
+              package: "@ai-sdk/google-vertex",
             }),
             package: "@ai-sdk/google-vertex",
             options: { name: "google-vertex" },
           })
 
-          expect(provider.request.body.project).toBe("vertex-project")
-          expect(provider.api).toEqual({
-            type: "aisdk",
+          expect(provider.settings?.project).toBe("vertex-project")
+          expect(provider).toMatchObject({
+            aisdk: true,
             package: "@ai-sdk/openai-compatible",
-            url: "https://europe-west4-aiplatform.googleapis.com/v1/projects/vertex-project/locations/europe-west4",
+            settings: {
+              baseURL:
+                "https://europe-west4-aiplatform.googleapis.com/v1/projects/vertex-project/locations/europe-west4",
+            },
           })
           expect(vertexOptions[0].project).toBe("vertex-project")
           expect(vertexOptions[0].location).toBe("europe-west4")
@@ -209,23 +215,24 @@ describe("GoogleVertexPlugin", () => {
           const catalog = yield* Catalog.Service
           yield* catalog.transform((catalog) =>
             catalog.provider.update(ProviderV2.ID.make("google-vertex"), (provider) => {
-              provider.api = {
-                type: "aisdk",
-                package: "@ai-sdk/openai-compatible",
-                url: "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
+              provider.aisdk = true
+              provider.package = "@ai-sdk/openai-compatible"
+              provider.settings = {
+                ...provider.settings,
+                baseURL:
+                  "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
               }
-              provider.request.body.project = "config-project"
-              provider.request.body.location = "global"
+              provider.settings = { ...provider.settings, project: "config-project", location: "global" }
             }),
           )
           yield* addPlugin()
           const provider = required(yield* catalog.provider.get(ProviderV2.ID.make("google-vertex")))
-          expect(provider.request.body.project).toBe("config-project")
-          expect(provider.request.body.location).toBe("global")
-          expect(provider.api).toEqual({
-            type: "aisdk",
+          expect(provider.settings?.project).toBe("config-project")
+          expect(provider.settings?.location).toBe("global")
+          expect(provider).toMatchObject({
+            aisdk: true,
             package: "@ai-sdk/openai-compatible",
-            url: "https://aiplatform.googleapis.com/v1/projects/config-project/locations/global",
+            settings: { baseURL: "https://aiplatform.googleapis.com/v1/projects/config-project/locations/global" },
           })
         }),
     ),
@@ -236,21 +243,22 @@ describe("GoogleVertexPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) =>
         catalog.provider.update(ProviderV2.ID.make("google-vertex"), (provider) => {
-          provider.api = {
-            type: "aisdk",
-            package: "@ai-sdk/openai-compatible",
-            url: "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
+          provider.aisdk = true
+          provider.package = "@ai-sdk/openai-compatible"
+          provider.settings = {
+            ...provider.settings,
+            baseURL:
+              "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}",
           }
-          provider.request.body.project = "config-project"
-          provider.request.body.location = "eu"
+          provider.settings = { ...provider.settings, project: "config-project", location: "eu" }
         }),
       )
       yield* addPlugin()
       const provider = required(yield* catalog.provider.get(ProviderV2.ID.make("google-vertex")))
-      expect(provider.api).toEqual({
-        type: "aisdk",
+      expect(provider).toMatchObject({
+        aisdk: true,
         package: "@ai-sdk/openai-compatible",
-        url: "https://eu-aiplatform.googleapis.com/v1/projects/config-project/locations/eu",
+        settings: { baseURL: "https://eu-aiplatform.googleapis.com/v1/projects/config-project/locations/eu" },
       })
     }),
   )
@@ -270,14 +278,15 @@ describe("GoogleVertexPlugin", () => {
           const catalog = yield* Catalog.Service
           yield* catalog.transform((catalog) =>
             catalog.provider.update(ProviderV2.ID.make("google-vertex"), (provider) => {
-              provider.api = { type: "aisdk", package: "@ai-sdk/google-vertex" }
-              provider.request.body.project = "config-project"
+              provider.aisdk = true
+              provider.package = "@ai-sdk/google-vertex"
+              provider.settings = { ...provider.settings, project: "config-project" }
             }),
           )
           yield* addPlugin()
           const provider = required(yield* catalog.provider.get(ProviderV2.ID.make("google-vertex")))
-          expect(provider.request.body.project).toBe("config-project")
-          expect(provider.request.body.location).toBe("us-central1")
+          expect(provider.settings?.project).toBe("config-project")
+          expect(provider.settings?.location).toBe("us-central1")
         }),
     ),
   )
@@ -297,11 +306,9 @@ describe("GoogleVertexPlugin", () => {
           yield* aisdk.runSDK({
             model: ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini")),
-              api: {
-                id: ModelV2.ID.make("gemini"),
-                type: "aisdk",
-                package: "@ai-sdk/google-vertex",
-              },
+              modelID: ModelV2.ID.make("gemini"),
+              aisdk: true,
+              package: "@ai-sdk/google-vertex",
             }),
             package: "@ai-sdk/google-vertex",
             options: { name: "google-vertex" },
@@ -345,11 +352,9 @@ describe("GoogleVertexPlugin", () => {
           aisdk.runSDK({
             model: ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("gemini")),
-              api: {
-                id: ModelV2.ID.make("gemini"),
-                type: "aisdk",
-                package: "@ai-sdk/openai-compatible",
-              },
+              modelID: ModelV2.ID.make("gemini"),
+              aisdk: true,
+              package: "@ai-sdk/openai-compatible",
             }),
             package: "@ai-sdk/openai-compatible",
             options: { name: "google-vertex" },
@@ -376,7 +381,9 @@ describe("GoogleVertexPlugin", () => {
       yield* aisdk.runLanguage({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make(" gemini-2.5-pro ")),
-          api: { id: ModelV2.ID.make(" gemini-2.5-pro "), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make(" gemini-2.5-pro "),
+          aisdk: true,
+          package: "test-provider",
         }),
         sdk: { languageModel: fakeSelectorSdk(calls).languageModel },
         options: {},

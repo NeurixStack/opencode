@@ -43,11 +43,7 @@ function testLayer(
 }
 
 const provider = {
-  api: { type: "native", settings: {} },
-  request: {
-    headers: {},
-    body: {},
-  },
+  package: "test-provider",
   models: {},
 }
 

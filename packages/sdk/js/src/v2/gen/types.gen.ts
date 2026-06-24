@@ -3986,47 +3986,35 @@ export type SessionMessage =
 
 export type ModelV2Info = {
   id: string
+  modelID?: string
   providerID: string
   family?: string
   name: string
-  api:
-    | {
-        id: string
-        type: "aisdk"
-        package: string
-        url?: string
-        settings?: {
-          [key: string]: unknown
-        }
-      }
-    | {
-        id: string
-        type: "native"
-        url?: string
-        settings: {
-          [key: string]: unknown
-        }
-      }
+  package?: string
+  aisdk?: true
+  settings?: {
+    [key: string]: unknown
+  }
+  headers?: {
+    [key: string]: string
+  }
+  body?: {
+    [key: string]: unknown
+  }
   capabilities: {
     tools: boolean
     input: Array<string>
     output: Array<string>
   }
-  request: {
-    headers: {
-      [key: string]: string
-    }
-    body: {
+  variants?: Array<{
+    id: string
+    settings?: {
       [key: string]: unknown
     }
-    variant?: string
-  }
-  variants: Array<{
-    id: string
-    headers: {
+    headers?: {
       [key: string]: string
     }
-    body: {
+    body?: {
       [key: string]: unknown
     }
   }>
@@ -4059,29 +4047,16 @@ export type ProviderV2Info = {
   integrationID?: string
   name: string
   disabled?: boolean
-  api:
-    | {
-        type: "aisdk"
-        package: string
-        url?: string
-        settings?: {
-          [key: string]: unknown
-        }
-      }
-    | {
-        type: "native"
-        url?: string
-        settings: {
-          [key: string]: unknown
-        }
-      }
-  request: {
-    headers: {
-      [key: string]: string
-    }
-    body: {
-      [key: string]: unknown
-    }
+  package: string
+  aisdk?: true
+  settings?: {
+    [key: string]: unknown
+  }
+  headers?: {
+    [key: string]: string
+  }
+  body?: {
+    [key: string]: unknown
   }
 }
 

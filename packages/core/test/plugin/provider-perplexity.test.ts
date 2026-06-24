@@ -41,7 +41,9 @@ describe("PerplexityPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("perplexity"), ModelV2.ID.make("sonar")),
-          api: { id: ModelV2.ID.make("sonar"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("sonar"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/perplexity",
         options: { name: "perplexity" },
@@ -58,7 +60,9 @@ describe("PerplexityPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("perplexity"), ModelV2.ID.make("sonar")),
-          api: { id: ModelV2.ID.make("sonar"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("sonar"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/perplexity-compatible",
         options: { name: "perplexity" },
@@ -75,7 +79,9 @@ describe("PerplexityPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("perplexity"), ModelV2.ID.make("sonar")),
-          api: { id: ModelV2.ID.make("sonar"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("sonar"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/perplexity",
         options: { name: "perplexity" },
@@ -92,7 +98,9 @@ describe("PerplexityPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-perplexity"), ModelV2.ID.make("sonar")),
-          api: { id: ModelV2.ID.make("sonar"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("sonar"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/perplexity",
         options: { name: "custom-perplexity" },
@@ -110,7 +118,9 @@ describe("PerplexityPlugin", () => {
       const result = yield* aisdk.runLanguage({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("perplexity"), ModelV2.ID.make("alias")),
-          api: { id: ModelV2.ID.make("sonar"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("sonar"),
+          aisdk: true,
+          package: "test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},

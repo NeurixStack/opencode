@@ -28,7 +28,9 @@ describe("MistralPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("mistral-large"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/mistral",
         options: { name: "mistral" },
@@ -45,7 +47,9 @@ describe("MistralPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("mistral-large"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "mistral" },
@@ -68,7 +72,9 @@ describe("MistralPlugin", () => {
       const result = yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("mistral-large"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/mistral",
         options: { name: "mistral" },
@@ -92,7 +98,9 @@ describe("MistralPlugin", () => {
       yield* aisdk.runSDK({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-mistral"), ModelV2.ID.make("mistral-large")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("mistral-large"),
+          aisdk: true,
+          package: "test-provider",
         }),
         package: "@ai-sdk/mistral",
         options: { name: "custom-mistral" },
@@ -101,7 +109,7 @@ describe("MistralPlugin", () => {
     }),
   )
 
-  it.effect("leaves Mistral language selection on the default sdk.languageModel(api.id) path", () =>
+  it.effect("leaves Mistral language selection on the default sdk.languageModel(modelID) path", () =>
     Effect.gen(function* () {
       const plugin = yield* PluginV2.Service
       const aisdk = yield* AISDK.Service
@@ -116,12 +124,14 @@ describe("MistralPlugin", () => {
       const result = yield* aisdk.runLanguage({
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("alias")),
-          api: { id: ModelV2.ID.make("mistral-large"), type: "aisdk", package: "test-provider" },
+          modelID: ModelV2.ID.make("mistral-large"),
+          aisdk: true,
+          package: "test-provider",
         }),
         sdk,
         options: {},
       })
-      const language = result.language ?? sdk.languageModel(result.model.api.id)
+      const language = result.language ?? sdk.languageModel(result.model.modelID ?? result.model.id)
       expect(calls).toEqual(["languageModel:mistral-large"])
       expect(language).toBeDefined()
     }),

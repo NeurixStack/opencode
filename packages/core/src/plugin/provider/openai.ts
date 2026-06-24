@@ -156,8 +156,8 @@ export const OpenAIPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (item.provider.api.type !== "aisdk") continue
-          if (item.provider.api.package !== "@ai-sdk/openai") continue
+          if (!item.provider.aisdk) continue
+          if (item.provider.package !== "@ai-sdk/openai") continue
           if (!item.models.has(ModelV2.ID.make("gpt-5-chat-latest"))) continue
           evt.model.update(item.provider.id, ModelV2.ID.make("gpt-5-chat-latest"), (model) => {
             // OpenAIPlugin sends OpenAI models through Responses; this alias is a
@@ -177,7 +177,7 @@ export const OpenAIPlugin = define({
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
         if (evt.model.providerID !== ProviderV2.ID.openai) return
-        evt.language = evt.sdk.responses(evt.model.api.id)
+        evt.language = evt.sdk.responses(evt.model.modelID ?? evt.model.id)
       }),
     )
   }),
