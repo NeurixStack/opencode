@@ -597,8 +597,8 @@ describe("Config", () => {
               headers: { Authorization: "Bearer secret", "OpenAI-Organization": "org" },
               models: {
                 model: {
-                  body: { temperature: 0.3, reasoningEffort: "high", serviceTier: "priority" },
-                  variants: [{ id: "high", body: { reasoningEffort: "high", reasoningSummary: "auto" } }],
+                  body: { temperature: 0.3, reasoning_effort: "high", service_tier: "priority" },
+                  variants: [{ id: "high", body: { reasoning_effort: "high", reasoning_summary: "auto" } }],
                 },
               },
             })

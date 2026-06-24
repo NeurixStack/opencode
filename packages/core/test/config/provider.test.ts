@@ -129,7 +129,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
     }),
   )
 
-  it.effect("partitions existing model variant bodies without changing config shape", () =>
+  it.effect("keeps configured model variant bodies unchanged", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       const providerID = ProviderV2.ID.opencode
@@ -172,8 +172,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
       expect(model.variants).toMatchObject([
         {
           id: "high",
-          body: {},
-          options: {
+          body: {
             reasoningEffort: "high",
             reasoningSummary: "auto",
             include: ["reasoning.encrypted_content"],
@@ -183,7 +182,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
     }),
   )
 
-  it.effect("uses the effective provider package across layered config", () =>
+  it.effect("keeps layered model variant bodies unchanged", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service
       const providerID = ProviderV2.ID.opencode
@@ -225,8 +224,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
       const model = required(yield* catalog.model.get(providerID, modelID))
       expect(model.variants[0]).toMatchObject({
         id: "high",
-        body: {},
-        options: { reasoningEffort: "high" },
+        body: { reasoningEffort: "high" },
       })
     }),
   )

@@ -11,8 +11,8 @@ import { Catalog } from "../../catalog"
 import { Credential } from "../../credential"
 import { Integration } from "../../integration"
 import { ModelV2 } from "../../model"
-import { ModelRequest } from "../../model-request"
 import { ProviderV2 } from "../../provider"
+import { ProviderOverlay } from "../../provider-overlay"
 import { SessionSchema } from "../schema"
 
 export class ModelNotSelectedError extends Schema.TaggedErrorClass<ModelNotSelectedError>()(
@@ -88,8 +88,6 @@ const apiKey = (model: ModelV2.Info, credential?: Credential.Value) => {
 }
 
 const withDefaults = (model: ModelV2.Info, route: AnyRoute) => {
-  const options = model.request.options ?? {}
-  const namespace = model.api.type === "aisdk" ? ModelRequest.namespace(model.api.package) : undefined
   const body = model.request.body
   const httpBody = Object.hasOwn(body, "apiKey")
     ? Object.fromEntries(Object.entries(body).filter(([key]) => key !== "apiKey"))
@@ -98,8 +96,6 @@ const withDefaults = (model: ModelV2.Info, route: AnyRoute) => {
     provider: model.providerID,
     endpoint: model.api.url === undefined ? undefined : { baseURL: model.api.url },
     headers: model.request.headers,
-    generation: model.request.generation,
-    providerOptions: namespace && Object.keys(options).length > 0 ? { [namespace]: options } : undefined,
     http: { body: httpBody },
     limits: { context: model.limit.context, output: model.limit.output },
   })
@@ -123,12 +119,12 @@ const withVariant = (
     variant
       ? produce(model, (draft) => {
           if (variant.settings !== undefined) {
-            draft.api.settings = ModelRequest.mergeRecords(draft.api.settings, variant.settings)
+            draft.api.settings = ProviderOverlay.mergeRecords(draft.api.settings, variant.settings)
             if (Object.hasOwn(variant.settings, "baseURL")) {
               draft.api.url = typeof draft.api.settings.baseURL === "string" ? draft.api.settings.baseURL : undefined
             }
           }
-          ModelRequest.assign(draft.request, variant)
+          ProviderOverlay.assign(draft.request, variant)
         })
       : model,
   )
