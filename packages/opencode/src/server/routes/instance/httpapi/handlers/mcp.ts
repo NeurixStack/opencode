@@ -37,15 +37,15 @@ export const mcpHandlers = HttpApiBuilder.group(InstanceHttpApi, "mcp", (handler
       params: { name: string }
       payload: typeof AuthCallbackPayload.Type
     }) {
-      return yield* mcp
-        .finishAuth(ctx.params.name, ctx.payload.code)
-        .pipe(
-          Effect.catchTag("MCP.NotFoundError", (error) =>
+      return yield* mcp.finishAuth(ctx.params.name, ctx.payload.code, ctx.payload.state).pipe(
+        Effect.catchTags({
+          "MCP.NotFoundError": (error) =>
             Effect.fail(
               new McpServerNotFoundError({ name: error.name, message: `MCP server not found: ${error.name}` }),
             ),
-          ),
-        )
+          "MCP.OAuthError": () => Effect.fail(new HttpApiError.BadRequest({})),
+        }),
+      )
     })
 
     const authAuthenticate = Effect.fn("McpHttpApi.authAuthenticate")(function* (ctx: { params: { name: string } }) {

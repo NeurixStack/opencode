@@ -49,6 +49,7 @@ export interface Interface {
   readonly clearCodeVerifier: (mcpName: string) => Effect.Effect<void>
   readonly updateOAuthState: (mcpName: string, oauthState: string) => Effect.Effect<void>
   readonly getOAuthState: (mcpName: string) => Effect.Effect<string | undefined>
+  readonly consumeOAuthState: (mcpName: string, oauthState: string) => Effect.Effect<boolean>
   readonly clearOAuthState: (mcpName: string) => Effect.Effect<void>
   readonly isTokenExpired: (mcpName: string) => Effect.Effect<boolean | null>
 }
@@ -142,6 +143,18 @@ export const layer = Layer.effect(
       return entry?.oauthState
     })
 
+    const consumeOAuthState = Effect.fn("McpAuth.consumeOAuthState")(function* (mcpName: string, oauthState: string) {
+      return yield* Effect.gen(function* () {
+        const data = yield* read()
+        const entry = data[mcpName]
+        if (!entry?.oauthState) return false
+        const matches = entry.oauthState === oauthState
+        delete entry.oauthState
+        yield* fs.writeJson(filepath, { ...data, [mcpName]: entry }, 0o600).pipe(Effect.orDie)
+        return matches
+      }).pipe(flock.withLock(lockKey), Effect.orDie)
+    })
+
     const isTokenExpired = Effect.fn("McpAuth.isTokenExpired")(function* (mcpName: string) {
       const entry = yield* get(mcpName)
       if (!entry?.tokens) return null
@@ -161,6 +174,7 @@ export const layer = Layer.effect(
       clearCodeVerifier,
       updateOAuthState,
       getOAuthState,
+      consumeOAuthState,
       clearOAuthState,
       isTokenExpired,
     })
