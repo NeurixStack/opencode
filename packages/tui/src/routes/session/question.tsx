@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store"
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { useRenderer } from "@opentui/solid"
-import type { TextareaRenderable } from "@opentui/core"
+import { usePaste, useRenderer } from "@opentui/solid"
+import { decodePasteBytes, type TextareaRenderable } from "@opentui/core"
 import { selectedForeground, tint, useTheme } from "../../context/theme"
 import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useSDK } from "../../context/sdk"
@@ -128,6 +128,19 @@ export function QuestionPrompt(props: { request: QuestionRequest; directory?: st
   onMount(() => {
     const popMode = modeStack.push(QUESTION_MODE)
     onCleanup(popMode)
+  })
+
+  usePaste((event) => {
+    if (store.editing) return
+
+    // Question options do not own a text input. Capture bracketed paste at the
+    // renderer level and use it to start editing the custom answer.
+    event.preventDefault()
+    if (confirm() || !custom() || !decodePasteBytes(event.bytes).trim()) return
+
+    setStore("selected", options().length)
+    setStore("editing", true)
+    queueMicrotask(() => textarea?.handlePaste(event))
   })
 
   useBindings(() => ({
