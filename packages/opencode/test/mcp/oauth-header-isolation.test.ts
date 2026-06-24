@@ -13,6 +13,69 @@ const staticAuthorization = "Bearer static-resource-token"
 const basicAuthorization = `Basic ${btoa("client:secret")}`
 
 describe("MCP OAuth header isolation", () => {
+  test("keeps resource headers on same-origin protected resource metadata", async () => {
+    using authorizationServer = serve(() =>
+      Response.json({
+        issuer: authorizationServer.origin,
+        authorization_endpoint: `${authorizationServer.origin}/authorize`,
+        token_endpoint: `${authorizationServer.origin}/token`,
+        response_types_supported: ["code"],
+        code_challenge_methods_supported: ["S256"],
+      }),
+    )
+    using resource = serve((request) => {
+      if (new URL(request.url).pathname === "/prm") {
+        return Response.json({
+          resource: `${resource.origin}/mcp`,
+          authorization_servers: [authorizationServer.origin],
+        })
+      }
+      return new Response(null, {
+        status: 401,
+        headers: { "WWW-Authenticate": `Bearer resource_metadata="${resource.origin}/prm"` },
+      })
+    })
+    const transport = new StreamableHTTPClientTransport(new URL(`${resource.origin}/mcp`), {
+      authProvider: createProvider({
+        clientInformation: { client_id: "client", token_endpoint_auth_method: "none" },
+      }),
+      requestInit: { headers: { "X-Resource-Canary": canary, Authorization: staticAuthorization } },
+    })
+
+    await transport.start()
+    await expect(transport.send(request())).rejects.toThrow("Unauthorized")
+    await transport.close()
+
+    expect(resource.requests.map((request) => new URL(request.url).pathname)).toEqual(["/mcp", "/prm"])
+    expectResourceHeaders(resource.requests)
+    expectNoResourceHeaders(authorizationServer.requests)
+  })
+
+  test("does not follow protected resource metadata redirects with resource headers", async () => {
+    using target = serve(() => Response.json({}))
+    using resource = serve((request) => {
+      if (new URL(request.url).pathname === "/prm") {
+        return Response.redirect(`${target.origin}/prm`)
+      }
+      return new Response(null, {
+        status: 401,
+        headers: { "WWW-Authenticate": `Bearer resource_metadata="${resource.origin}/prm"` },
+      })
+    })
+    const transport = new StreamableHTTPClientTransport(new URL(`${resource.origin}/mcp`), {
+      authProvider: createProvider({
+        clientInformation: { client_id: "client", token_endpoint_auth_method: "none" },
+      }),
+      requestInit: { headers: { "X-Resource-Canary": canary } },
+    })
+
+    await transport.start()
+    await expect(transport.send(request())).rejects.toThrow("Unauthorized")
+    await transport.close()
+
+    expect(target.requests).toHaveLength(0)
+  })
+
   test("keeps resource headers out of discovery, registration, and token exchange", async () => {
     using token = serve(() => Response.json({ access_token: "access", token_type: "Bearer", refresh_token: "refresh" }))
     using registration = serve(() =>

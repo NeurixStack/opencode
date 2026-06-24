@@ -1,3 +1,57 @@
+diff --git a/dist/cjs/client/auth.js b/dist/cjs/client/auth.js
+index c2e4fa91d26f5336889f6afa416147db75fc4872..6fe80dd336252838adf47b0a8e022e55d11e3657 100644
+--- a/dist/cjs/client/auth.js
++++ b/dist/cjs/client/auth.js
+@@ -186,7 +186,7 @@ async function auth(provider, options) {
+         throw error;
+     }
+ }
+-async function authInternal(provider, { serverUrl, authorizationCode, scope, resourceMetadataUrl, fetchFn }) {
++async function authInternal(provider, { serverUrl, authorizationCode, scope, resourceMetadataUrl, fetchFn, resourceMetadataFetchFn }) {
+     // Check if the provider has cached discovery state to skip discovery
+     const cachedState = await provider.discoveryState?.();
+     let resourceMetadata;
+@@ -198,6 +198,9 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
+     if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
+         effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
+     }
++    const protectedResourceFetchFn = !effectiveResourceMetadataUrl || effectiveResourceMetadataUrl.origin === new URL(serverUrl).origin
++        ? (resourceMetadataFetchFn ?? fetchFn)
++        : fetchFn;
+     if (cachedState?.authorizationServerUrl) {
+         // Restore discovery state from cache
+         authorizationServerUrl = cachedState.authorizationServerUrl;
+@@ -207,7 +210,7 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
+         // If resource metadata wasn't cached, try to fetch it for selectResourceURL
+         if (!resourceMetadata) {
+             try {
+-                resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl }, fetchFn);
++                resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl }, protectedResourceFetchFn);
+             }
+             catch {
+                 // RFC 9728 not available — selectResourceURL will handle undefined
+@@ -225,7 +228,11 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
+     }
+     else {
+         // Full discovery via RFC 9728
+-        const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });
++        const serverInfo = await discoverOAuthServerInfo(serverUrl, {
++            resourceMetadataUrl: effectiveResourceMetadataUrl,
++            fetchFn,
++            resourceMetadataFetchFn: protectedResourceFetchFn
++        });
+         authorizationServerUrl = serverInfo.authorizationServerUrl;
+         metadata = serverInfo.authorizationServerMetadata;
+         resourceMetadata = serverInfo.resourceMetadata;
+@@ -688,7 +695,7 @@ async function discoverOAuthServerInfo(serverUrl, opts) {
+     let resourceMetadata;
+     let authorizationServerUrl;
+     try {
+-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: opts?.resourceMetadataUrl }, opts?.fetchFn);
++        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: opts?.resourceMetadataUrl }, opts?.resourceMetadataFetchFn ?? opts?.fetchFn);
+         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+             authorizationServerUrl = resourceMetadata.authorization_servers[0];
+         }
 diff --git a/dist/cjs/client/index.d.ts b/dist/cjs/client/index.d.ts
 index 6f567a193626587a2730b5a49293ca5dfd4181ea..5b7c841c000508e389ce617f559f7c2a5126ca9f 100644
 --- a/dist/cjs/client/index.d.ts
@@ -100,20 +154,31 @@ index 6ac1da14dc7f6211ae70f7711c124b76098816d8..88e58b90b673cb0f9c60920edec7d2eb
       * After initialization has completed, this will be populated with the server's reported capabilities.
       */
 diff --git a/dist/cjs/client/sse.js b/dist/cjs/client/sse.js
-index 8ca8dad652e76c299927f836cf622c0be877e1d4..cfbb08438a4e219fcd98d8d4ba8949079f3fcbe5 100644
+index 8ca8dad652e76c299927f836cf622c0be877e1d4..14cc1b969ac51ecb6f894608f079f4f04d8acd62 100644
 --- a/dist/cjs/client/sse.js
 +++ b/dist/cjs/client/sse.js
-@@ -27,7 +27,8 @@ class SSEClientTransport {
+@@ -27,7 +27,9 @@ class SSEClientTransport {
          this._requestInit = opts?.requestInit;
          this._authProvider = opts?.authProvider;
          this._fetch = opts?.fetch;
 -        this._fetchWithInit = (0, transport_js_1.createFetchWithInit)(opts?.fetch, opts?.requestInit);
++        this._resourceFetchWithInit = (0, transport_js_1.createFetchWithInit)(opts?.fetch, { ...opts?.requestInit, redirect: 'error' });
 +        const oauthRequestInit = opts?.requestInit ? { ...opts.requestInit, headers: undefined } : undefined;
 +        this._fetchWithInit = (0, transport_js_1.createFetchWithInit)(opts?.fetch, oauthRequestInit);
      }
      async _authThenStart() {
          if (!this._authProvider) {
-@@ -63,10 +64,11 @@ class SSEClientTransport {
+@@ -39,7 +41,8 @@ class SSEClientTransport {
+                 serverUrl: this._url,
+                 resourceMetadataUrl: this._resourceMetadataUrl,
+                 scope: this._scope,
+-                fetchFn: this._fetchWithInit
++                fetchFn: this._fetchWithInit,
++                resourceMetadataFetchFn: this._resourceFetchWithInit
+             });
+         }
+         catch (error) {
+@@ -63,10 +66,11 @@ class SSEClientTransport {
              headers['mcp-protocol-version'] = this._protocolVersion;
          }
          const extraHeaders = (0, transport_js_1.normalizeHeaders)(this._requestInit?.headers);
@@ -129,21 +194,52 @@ index 8ca8dad652e76c299927f836cf622c0be877e1d4..cfbb08438a4e219fcd98d8d4ba894907
      }
      _startOrAuth() {
          const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch);
+@@ -149,7 +153,8 @@ class SSEClientTransport {
+             authorizationCode,
+             resourceMetadataUrl: this._resourceMetadataUrl,
+             scope: this._scope,
+-            fetchFn: this._fetchWithInit
++            fetchFn: this._fetchWithInit,
++            resourceMetadataFetchFn: this._resourceFetchWithInit
+         });
+         if (result !== 'AUTHORIZED') {
+             throw new auth_js_1.UnauthorizedError('Failed to authorize');
+@@ -185,7 +190,8 @@ class SSEClientTransport {
+                         serverUrl: this._url,
+                         resourceMetadataUrl: this._resourceMetadataUrl,
+                         scope: this._scope,
+-                        fetchFn: this._fetchWithInit
++                        fetchFn: this._fetchWithInit,
++                        resourceMetadataFetchFn: this._resourceFetchWithInit
+                     });
+                     if (result !== 'AUTHORIZED') {
+                         throw new auth_js_1.UnauthorizedError();
 diff --git a/dist/cjs/client/streamableHttp.js b/dist/cjs/client/streamableHttp.js
-index a29a7d3a0f14d9cd800ef5b296485237350c666f..f253f88023c10d44e6cdb74bcf2ffa722619fd0d 100644
+index a29a7d3a0f14d9cd800ef5b296485237350c666f..54ac759eb19df7c6f16fc031a689270acb5c3922 100644
 --- a/dist/cjs/client/streamableHttp.js
 +++ b/dist/cjs/client/streamableHttp.js
-@@ -33,7 +33,8 @@ class StreamableHTTPClientTransport {
+@@ -33,7 +33,9 @@ class StreamableHTTPClientTransport {
          this._requestInit = opts?.requestInit;
          this._authProvider = opts?.authProvider;
          this._fetch = opts?.fetch;
 -        this._fetchWithInit = (0, transport_js_1.createFetchWithInit)(opts?.fetch, opts?.requestInit);
++        this._resourceFetchWithInit = (0, transport_js_1.createFetchWithInit)(opts?.fetch, { ...opts?.requestInit, redirect: 'error' });
 +        const oauthRequestInit = opts?.requestInit ? { ...opts.requestInit, headers: undefined } : undefined;
 +        this._fetchWithInit = (0, transport_js_1.createFetchWithInit)(opts?.fetch, oauthRequestInit);
          this._sessionId = opts?.sessionId;
          this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
      }
-@@ -74,10 +75,11 @@ class StreamableHTTPClientTransport {
+@@ -47,7 +49,8 @@ class StreamableHTTPClientTransport {
+                 serverUrl: this._url,
+                 resourceMetadataUrl: this._resourceMetadataUrl,
+                 scope: this._scope,
+-                fetchFn: this._fetchWithInit
++                fetchFn: this._fetchWithInit,
++                resourceMetadataFetchFn: this._resourceFetchWithInit
+             });
+         }
+         catch (error) {
+@@ -74,10 +77,11 @@ class StreamableHTTPClientTransport {
              headers['mcp-protocol-version'] = this._protocolVersion;
          }
          const extraHeaders = (0, transport_js_1.normalizeHeaders)(this._requestInit?.headers);
@@ -159,7 +255,17 @@ index a29a7d3a0f14d9cd800ef5b296485237350c666f..f253f88023c10d44e6cdb74bcf2ffa72
      }
      async _startOrAuthSse(options) {
          const { resumptionToken } = options;
-@@ -290,7 +292,38 @@ class StreamableHTTPClientTransport {
+@@ -275,7 +279,8 @@ class StreamableHTTPClientTransport {
+             authorizationCode,
+             resourceMetadataUrl: this._resourceMetadataUrl,
+             scope: this._scope,
+-            fetchFn: this._fetchWithInit
++            fetchFn: this._fetchWithInit,
++            resourceMetadataFetchFn: this._resourceFetchWithInit
+         });
+         if (result !== 'AUTHORIZED') {
+             throw new auth_js_1.UnauthorizedError('Failed to authorize');
+@@ -290,7 +295,38 @@ class StreamableHTTPClientTransport {
          this.onclose?.();
      }
      async send(message, options) {
@@ -198,7 +304,7 @@ index a29a7d3a0f14d9cd800ef5b296485237350c666f..f253f88023c10d44e6cdb74bcf2ffa72
              const { resumptionToken, onresumptiontoken } = options || {};
              if (resumptionToken) {
                  // If we have at last event ID, we need to reconnect the SSE stream
-@@ -298,6 +331,7 @@ class StreamableHTTPClientTransport {
+@@ -298,6 +334,7 @@ class StreamableHTTPClientTransport {
                  return;
              }
              const headers = await this._commonHeaders();
@@ -206,7 +312,7 @@ index a29a7d3a0f14d9cd800ef5b296485237350c666f..f253f88023c10d44e6cdb74bcf2ffa72
              headers.set('content-type', 'application/json');
              headers.set('accept', 'application/json, text/event-stream');
              const init = {
-@@ -310,11 +344,20 @@ class StreamableHTTPClientTransport {
+@@ -310,11 +347,20 @@ class StreamableHTTPClientTransport {
              const response = await (this._fetch ?? fetch)(this._url, init);
              // Handle session ID received during initialization
              const sessionId = response.headers.get('mcp-session-id');
@@ -228,7 +334,17 @@ index a29a7d3a0f14d9cd800ef5b296485237350c666f..f253f88023c10d44e6cdb74bcf2ffa72
                  if (response.status === 401 && this._authProvider) {
                      // Prevent infinite recursion when server returns 401 after successful auth
                      if (this._hasCompletedAuthFlow) {
-@@ -335,7 +378,7 @@ class StreamableHTTPClientTransport {
+@@ -327,7 +373,8 @@ class StreamableHTTPClientTransport {
+                         serverUrl: this._url,
+                         resourceMetadataUrl: this._resourceMetadataUrl,
+                         scope: this._scope,
+-                        fetchFn: this._fetchWithInit
++                        fetchFn: this._fetchWithInit,
++                        resourceMetadataFetchFn: this._resourceFetchWithInit
+                     });
+                     if (result !== 'AUTHORIZED') {
+                         throw new auth_js_1.UnauthorizedError();
+@@ -335,7 +382,7 @@ class StreamableHTTPClientTransport {
                      // Mark that we completed auth flow
                      this._hasCompletedAuthFlow = true;
                      // Purposely _not_ awaited, so we don't call onerror twice
@@ -237,7 +353,14 @@ index a29a7d3a0f14d9cd800ef5b296485237350c666f..f253f88023c10d44e6cdb74bcf2ffa72
                  }
                  if (response.status === 403 && this._authProvider) {
                      const { resourceMetadataUrl, scope, error } = (0, auth_js_1.extractWWWAuthenticateParams)(response);
-@@ -362,7 +405,7 @@ class StreamableHTTPClientTransport {
+@@ -357,12 +404,13 @@ class StreamableHTTPClientTransport {
+                             serverUrl: this._url,
+                             resourceMetadataUrl: this._resourceMetadataUrl,
+                             scope: this._scope,
+-                            fetchFn: this._fetch
++                            fetchFn: this._fetchWithInit,
++                            resourceMetadataFetchFn: this._resourceFetchWithInit
+                         });
                          if (result !== 'AUTHORIZED') {
                              throw new auth_js_1.UnauthorizedError();
                          }
@@ -264,6 +387,60 @@ index 3617e787f0ba70447c99501aee7aa67584d89758..4ee4d158391558fdc1f977f5134b7cac
                      this._cleanupTimeout(messageId);
                      reject(error);
                  });
+diff --git a/dist/esm/client/auth.js b/dist/esm/client/auth.js
+index e183040fc2bba22ca1ccc784984f3310854403b7..6b88910ca88f9714abe7cad26fbf3a31c4fb376c 100644
+--- a/dist/esm/client/auth.js
++++ b/dist/esm/client/auth.js
+@@ -161,7 +161,7 @@ export async function auth(provider, options) {
+         throw error;
+     }
+ }
+-async function authInternal(provider, { serverUrl, authorizationCode, scope, resourceMetadataUrl, fetchFn }) {
++async function authInternal(provider, { serverUrl, authorizationCode, scope, resourceMetadataUrl, fetchFn, resourceMetadataFetchFn }) {
+     // Check if the provider has cached discovery state to skip discovery
+     const cachedState = await provider.discoveryState?.();
+     let resourceMetadata;
+@@ -173,6 +173,9 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
+     if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
+         effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
+     }
++    const protectedResourceFetchFn = !effectiveResourceMetadataUrl || effectiveResourceMetadataUrl.origin === new URL(serverUrl).origin
++        ? (resourceMetadataFetchFn ?? fetchFn)
++        : fetchFn;
+     if (cachedState?.authorizationServerUrl) {
+         // Restore discovery state from cache
+         authorizationServerUrl = cachedState.authorizationServerUrl;
+@@ -182,7 +185,7 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
+         // If resource metadata wasn't cached, try to fetch it for selectResourceURL
+         if (!resourceMetadata) {
+             try {
+-                resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl }, fetchFn);
++                resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl }, protectedResourceFetchFn);
+             }
+             catch {
+                 // RFC 9728 not available — selectResourceURL will handle undefined
+@@ -200,7 +203,11 @@ async function authInternal(provider, { serverUrl, authorizationCode, scope, res
+     }
+     else {
+         // Full discovery via RFC 9728
+-        const serverInfo = await discoverOAuthServerInfo(serverUrl, { resourceMetadataUrl: effectiveResourceMetadataUrl, fetchFn });
++        const serverInfo = await discoverOAuthServerInfo(serverUrl, {
++            resourceMetadataUrl: effectiveResourceMetadataUrl,
++            fetchFn,
++            resourceMetadataFetchFn: protectedResourceFetchFn
++        });
+         authorizationServerUrl = serverInfo.authorizationServerUrl;
+         metadata = serverInfo.authorizationServerMetadata;
+         resourceMetadata = serverInfo.resourceMetadata;
+@@ -663,7 +670,7 @@ export async function discoverOAuthServerInfo(serverUrl, opts) {
+     let resourceMetadata;
+     let authorizationServerUrl;
+     try {
+-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: opts?.resourceMetadataUrl }, opts?.fetchFn);
++        resourceMetadata = await discoverOAuthProtectedResourceMetadata(serverUrl, { resourceMetadataUrl: opts?.resourceMetadataUrl }, opts?.resourceMetadataFetchFn ?? opts?.fetchFn);
+         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+             authorizationServerUrl = resourceMetadata.authorization_servers[0];
+         }
 diff --git a/dist/esm/client/index.d.ts b/dist/esm/client/index.d.ts
 index 6f567a193626587a2730b5a49293ca5dfd4181ea..5b7c841c000508e389ce617f559f7c2a5126ca9f 100644
 --- a/dist/esm/client/index.d.ts
@@ -366,20 +543,31 @@ index 49b12c6cd918c457420fef7ad5528a9443d1a191..339153cb7e9299b7a9bdec0e56e41ced
       * After initialization has completed, this will be populated with the server's reported capabilities.
       */
 diff --git a/dist/esm/client/sse.js b/dist/esm/client/sse.js
-index 58c474156ba4b33090ac092be6f3284e695a7ffd..ca088b48eeb04a9b65863d9a6dcd3bd11c4a8f71 100644
+index 58c474156ba4b33090ac092be6f3284e695a7ffd..b813e467b497697208167ad9bfccdecd1200ffac 100644
 --- a/dist/esm/client/sse.js
 +++ b/dist/esm/client/sse.js
-@@ -23,7 +23,8 @@ export class SSEClientTransport {
+@@ -23,7 +23,9 @@ export class SSEClientTransport {
          this._requestInit = opts?.requestInit;
          this._authProvider = opts?.authProvider;
          this._fetch = opts?.fetch;
 -        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
++        this._resourceFetchWithInit = createFetchWithInit(opts?.fetch, { ...opts?.requestInit, redirect: 'error' });
 +        const oauthRequestInit = opts?.requestInit ? { ...opts.requestInit, headers: undefined } : undefined;
 +        this._fetchWithInit = createFetchWithInit(opts?.fetch, oauthRequestInit);
      }
      async _authThenStart() {
          if (!this._authProvider) {
-@@ -59,10 +60,11 @@ export class SSEClientTransport {
+@@ -35,7 +37,8 @@ export class SSEClientTransport {
+                 serverUrl: this._url,
+                 resourceMetadataUrl: this._resourceMetadataUrl,
+                 scope: this._scope,
+-                fetchFn: this._fetchWithInit
++                fetchFn: this._fetchWithInit,
++                resourceMetadataFetchFn: this._resourceFetchWithInit
+             });
+         }
+         catch (error) {
+@@ -59,10 +62,11 @@ export class SSEClientTransport {
              headers['mcp-protocol-version'] = this._protocolVersion;
          }
          const extraHeaders = normalizeHeaders(this._requestInit?.headers);
@@ -395,8 +583,28 @@ index 58c474156ba4b33090ac092be6f3284e695a7ffd..ca088b48eeb04a9b65863d9a6dcd3bd1
      }
      _startOrAuth() {
          const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch);
+@@ -145,7 +149,8 @@ export class SSEClientTransport {
+             authorizationCode,
+             resourceMetadataUrl: this._resourceMetadataUrl,
+             scope: this._scope,
+-            fetchFn: this._fetchWithInit
++            fetchFn: this._fetchWithInit,
++            resourceMetadataFetchFn: this._resourceFetchWithInit
+         });
+         if (result !== 'AUTHORIZED') {
+             throw new UnauthorizedError('Failed to authorize');
+@@ -181,7 +186,8 @@ export class SSEClientTransport {
+                         serverUrl: this._url,
+                         resourceMetadataUrl: this._resourceMetadataUrl,
+                         scope: this._scope,
+-                        fetchFn: this._fetchWithInit
++                        fetchFn: this._fetchWithInit,
++                        resourceMetadataFetchFn: this._resourceFetchWithInit
+                     });
+                     if (result !== 'AUTHORIZED') {
+                         throw new UnauthorizedError();
 diff --git a/dist/esm/client/streamableHttp.js b/dist/esm/client/streamableHttp.js
-index 624172aa24ae255a67c083f9c19053343e4a0581..d833dce32e6dc90a5b72dee03e70acd0676034da 100644
+index 624172aa24ae255a67c083f9c19053343e4a0581..88f7f5c3528d0ce6115efbebfdda98eba7077b8b 100644
 --- a/dist/esm/client/streamableHttp.js
 +++ b/dist/esm/client/streamableHttp.js
 @@ -1,5 +1,5 @@
@@ -406,17 +614,28 @@ index 624172aa24ae255a67c083f9c19053343e4a0581..d833dce32e6dc90a5b72dee03e70acd0
  import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
  import { EventSourceParserStream } from 'eventsource-parser/stream';
  // Default reconnection options for StreamableHTTP connections
-@@ -29,7 +29,8 @@ export class StreamableHTTPClientTransport {
+@@ -29,7 +29,9 @@ export class StreamableHTTPClientTransport {
          this._requestInit = opts?.requestInit;
          this._authProvider = opts?.authProvider;
          this._fetch = opts?.fetch;
 -        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
++        this._resourceFetchWithInit = createFetchWithInit(opts?.fetch, { ...opts?.requestInit, redirect: 'error' });
 +        const oauthRequestInit = opts?.requestInit ? { ...opts.requestInit, headers: undefined } : undefined;
 +        this._fetchWithInit = createFetchWithInit(opts?.fetch, oauthRequestInit);
          this._sessionId = opts?.sessionId;
          this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
      }
-@@ -70,10 +71,11 @@ export class StreamableHTTPClientTransport {
+@@ -43,7 +45,8 @@ export class StreamableHTTPClientTransport {
+                 serverUrl: this._url,
+                 resourceMetadataUrl: this._resourceMetadataUrl,
+                 scope: this._scope,
+-                fetchFn: this._fetchWithInit
++                fetchFn: this._fetchWithInit,
++                resourceMetadataFetchFn: this._resourceFetchWithInit
+             });
+         }
+         catch (error) {
+@@ -70,10 +73,11 @@ export class StreamableHTTPClientTransport {
              headers['mcp-protocol-version'] = this._protocolVersion;
          }
          const extraHeaders = normalizeHeaders(this._requestInit?.headers);
@@ -432,7 +651,17 @@ index 624172aa24ae255a67c083f9c19053343e4a0581..d833dce32e6dc90a5b72dee03e70acd0
      }
      async _startOrAuthSse(options) {
          const { resumptionToken } = options;
-@@ -286,7 +288,38 @@ export class StreamableHTTPClientTransport {
+@@ -271,7 +275,8 @@ export class StreamableHTTPClientTransport {
+             authorizationCode,
+             resourceMetadataUrl: this._resourceMetadataUrl,
+             scope: this._scope,
+-            fetchFn: this._fetchWithInit
++            fetchFn: this._fetchWithInit,
++            resourceMetadataFetchFn: this._resourceFetchWithInit
+         });
+         if (result !== 'AUTHORIZED') {
+             throw new UnauthorizedError('Failed to authorize');
+@@ -286,7 +291,38 @@ export class StreamableHTTPClientTransport {
          this.onclose?.();
      }
      async send(message, options) {
@@ -471,7 +700,7 @@ index 624172aa24ae255a67c083f9c19053343e4a0581..d833dce32e6dc90a5b72dee03e70acd0
              const { resumptionToken, onresumptiontoken } = options || {};
              if (resumptionToken) {
                  // If we have at last event ID, we need to reconnect the SSE stream
-@@ -294,6 +327,7 @@ export class StreamableHTTPClientTransport {
+@@ -294,6 +330,7 @@ export class StreamableHTTPClientTransport {
                  return;
              }
              const headers = await this._commonHeaders();
@@ -479,7 +708,7 @@ index 624172aa24ae255a67c083f9c19053343e4a0581..d833dce32e6dc90a5b72dee03e70acd0
              headers.set('content-type', 'application/json');
              headers.set('accept', 'application/json, text/event-stream');
              const init = {
-@@ -306,11 +340,20 @@ export class StreamableHTTPClientTransport {
+@@ -306,11 +343,20 @@ export class StreamableHTTPClientTransport {
              const response = await (this._fetch ?? fetch)(this._url, init);
              // Handle session ID received during initialization
              const sessionId = response.headers.get('mcp-session-id');
@@ -501,7 +730,17 @@ index 624172aa24ae255a67c083f9c19053343e4a0581..d833dce32e6dc90a5b72dee03e70acd0
                  if (response.status === 401 && this._authProvider) {
                      // Prevent infinite recursion when server returns 401 after successful auth
                      if (this._hasCompletedAuthFlow) {
-@@ -331,7 +374,7 @@ export class StreamableHTTPClientTransport {
+@@ -323,7 +369,8 @@ export class StreamableHTTPClientTransport {
+                         serverUrl: this._url,
+                         resourceMetadataUrl: this._resourceMetadataUrl,
+                         scope: this._scope,
+-                        fetchFn: this._fetchWithInit
++                        fetchFn: this._fetchWithInit,
++                        resourceMetadataFetchFn: this._resourceFetchWithInit
+                     });
+                     if (result !== 'AUTHORIZED') {
+                         throw new UnauthorizedError();
+@@ -331,7 +378,7 @@ export class StreamableHTTPClientTransport {
                      // Mark that we completed auth flow
                      this._hasCompletedAuthFlow = true;
                      // Purposely _not_ awaited, so we don't call onerror twice
@@ -510,7 +749,14 @@ index 624172aa24ae255a67c083f9c19053343e4a0581..d833dce32e6dc90a5b72dee03e70acd0
                  }
                  if (response.status === 403 && this._authProvider) {
                      const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
-@@ -358,7 +401,7 @@ export class StreamableHTTPClientTransport {
+@@ -353,12 +400,13 @@ export class StreamableHTTPClientTransport {
+                             serverUrl: this._url,
+                             resourceMetadataUrl: this._resourceMetadataUrl,
+                             scope: this._scope,
+-                            fetchFn: this._fetch
++                            fetchFn: this._fetchWithInit,
++                            resourceMetadataFetchFn: this._resourceFetchWithInit
+                         });
                          if (result !== 'AUTHORIZED') {
                              throw new UnauthorizedError();
                          }
