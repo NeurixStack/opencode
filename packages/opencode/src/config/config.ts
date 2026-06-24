@@ -128,6 +128,22 @@ export function toPublicInfo(info: Info): Info {
               options: provider.options
                 ? (redactProviderOptions(provider.options) as typeof provider.options)
                 : undefined,
+              models: provider.models
+                ? Object.fromEntries(
+                    Object.entries(provider.models).map(([id, model]) => [
+                      id,
+                      {
+                        ...model,
+                        options: model.options
+                          ? (redactProviderOptions(model.options) as typeof model.options)
+                          : undefined,
+                        headers: model.headers
+                          ? Object.fromEntries(Object.keys(model.headers).map((key) => [key, redacted]))
+                          : undefined,
+                      },
+                    ]),
+                  )
+                : undefined,
             },
           ]),
         )
@@ -168,6 +184,9 @@ export function toPublicInfo(info: Info): Info {
 
 function redactProviderOptions(value: unknown, key?: string): unknown {
   const normalized = key?.replaceAll(/[-_]/g, "").toLowerCase()
+  if (normalized === "headers" && isRecord(value)) {
+    return Object.fromEntries(Object.keys(value).map((key) => [key, redacted]))
+  }
   if (
     normalized &&
     (normalized.endsWith("apikey") ||
