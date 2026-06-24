@@ -808,9 +808,6 @@ export const layer = Layer.effect(
         oauthConfig?.redirectUri ??
         (oauthConfig?.callbackPort ? `http://127.0.0.1:${oauthConfig.callbackPort}${OAUTH_CALLBACK_PATH}` : undefined)
 
-      // Start the callback server with custom redirectUri if configured
-      yield* Effect.promise(() => McpOAuthCallback.ensureRunning(effectiveRedirectUri))
-
       const oauthState = Array.from(crypto.getRandomValues(new Uint8Array(32)))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("")
@@ -827,6 +824,7 @@ export const layer = Layer.effect(
         },
         {
           onRedirect: async (url) => {
+            await McpOAuthCallback.ensureRunning(effectiveRedirectUri)
             capturedUrl = url
           },
         },
