@@ -213,6 +213,7 @@ describe("CatalogV2", () => {
         type: "aisdk",
         package: "@ai-sdk/openai-compatible",
         url: "https://provider.example.com",
+        settings: {},
       })
     }),
   )

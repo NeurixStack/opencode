@@ -122,6 +122,12 @@ const withVariant = (
   return Effect.succeed(
     variant
       ? produce(model, (draft) => {
+          if (variant.settings !== undefined) {
+            draft.api.settings = ModelRequest.mergeRecords(draft.api.settings, variant.settings)
+            if (Object.hasOwn(variant.settings, "baseURL")) {
+              draft.api.url = typeof draft.api.settings.baseURL === "string" ? draft.api.settings.baseURL : undefined
+            }
+          }
           ModelRequest.assign(draft.request, variant)
         })
       : model,

@@ -22,6 +22,19 @@ export const ID = Schema.String.pipe(
 )
 export type ID = typeof ID.Type
 
+export const Overlays = {
+  settings: Schema.Record(Schema.String, Schema.Unknown).pipe(Schema.optional),
+  headers: Schema.Record(Schema.String, Schema.String).pipe(Schema.optional),
+  body: Schema.Record(Schema.String, Schema.Unknown).pipe(Schema.optional),
+}
+
+export const Package = Schema.Struct({
+  package: Schema.String,
+  aiSDK: Schema.Boolean.pipe(Schema.optional),
+  ...Overlays,
+})
+export type Package = typeof Package.Type
+
 export interface AISDK extends Schema.Schema.Type<typeof AISDK> {}
 export const AISDK = Schema.Struct({
   type: Schema.Literal("aisdk"),
@@ -33,6 +46,7 @@ export const AISDK = Schema.Struct({
 export interface Native extends Schema.Schema.Type<typeof Native> {}
 export const Native = Schema.Struct({
   type: Schema.Literal("native"),
+  package: Schema.String.pipe(Schema.optional),
   url: Schema.String.pipe(Schema.optional),
   settings: Schema.Record(Schema.String, Schema.Unknown),
 })

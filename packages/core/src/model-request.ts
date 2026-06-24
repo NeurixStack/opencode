@@ -67,16 +67,41 @@ const profiles = new Map<string, Profile>([
 
 export const namespace = (packageName: string) => profiles.get(packageName)?.namespace
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+export const mergeRecords = (...items: ReadonlyArray<Readonly<Record<string, unknown>> | undefined>) => {
+  const result: Record<string, unknown> = {}
+  for (const item of items) {
+    for (const [key, value] of Object.entries(item ?? {})) {
+      result[key] = isRecord(result[key]) && isRecord(value) ? mergeRecords(result[key], value) : value
+    }
+  }
+  return result
+}
+
+export const mergeHeaders = (...items: ReadonlyArray<Readonly<Record<string, string>> | undefined>) => {
+  const result = new Map<string, readonly [string, string]>()
+  for (const item of items) {
+    for (const entry of Object.entries(item ?? {})) result.set(entry[0].toLowerCase(), entry)
+  }
+  return Object.fromEntries(result.values())
+}
+
 export const merge = (base: Request, override: Partial<Request>) => ({
-  headers: { ...base.headers, ...override.headers },
-  body: { ...base.body, ...override.body },
+  headers: mergeHeaders(base.headers, override.headers),
+  body: mergeRecords(base.body, override.body),
   generation: { ...base.generation, ...override.generation },
   options: { ...base.options, ...override.options },
 })
 
 export const assign = (target: MutableRequest, override: Partial<Request>) => {
-  Object.assign(target.headers, override.headers)
-  Object.assign(target.body, override.body)
+  const headers = mergeHeaders(target.headers, override.headers)
+  Object.keys(target.headers).forEach((key) => delete target.headers[key])
+  Object.assign(target.headers, headers)
+  const body = mergeRecords(target.body, override.body)
+  Object.keys(target.body).forEach((key) => delete target.body[key])
+  Object.assign(target.body, body)
   Object.assign((target.generation ??= {}), override.generation)
   Object.assign((target.options ??= {}), override.options)
 }

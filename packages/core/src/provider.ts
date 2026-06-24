@@ -6,6 +6,11 @@ import { Provider } from "@opencode-ai/schema/provider"
 export const ID = Provider.ID
 export type ID = typeof ID.Type
 
+export const Overlays = Provider.Overlays
+
+export const Package = Provider.Package
+export type Package = Provider.Package
+
 export const AISDK = Provider.AISDK
 
 export const Native = Provider.Native

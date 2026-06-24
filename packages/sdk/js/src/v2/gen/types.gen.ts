@@ -4002,6 +4002,7 @@ export type ModelV2Info = {
     | {
         id: string
         type: "native"
+        package?: string
         url?: string
         settings: {
           [key: string]: unknown
@@ -4036,6 +4037,9 @@ export type ModelV2Info = {
   }
   variants: Array<{
     id: string
+    settings?: {
+      [key: string]: unknown
+    }
     headers: {
       [key: string]: string
     }
@@ -4096,6 +4100,7 @@ export type ProviderV2Info = {
       }
     | {
         type: "native"
+        package?: string
         url?: string
         settings: {
           [key: string]: unknown

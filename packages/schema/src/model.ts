@@ -11,6 +11,14 @@ export type ID = typeof ID.Type
 export const VariantID = Schema.String.pipe(Schema.brand("VariantID"))
 export type VariantID = typeof VariantID.Type
 
+export const Package = Schema.Struct({
+  modelID: ID,
+  package: Schema.String.pipe(Schema.optional),
+  aiSDK: Schema.Boolean.pipe(Schema.optional),
+  ...Provider.Overlays,
+})
+export type Package = typeof Package.Type
+
 export const Ref = Schema.Struct({
   id: ID,
   providerID: Provider.ID,
@@ -68,6 +76,7 @@ export const Info = Schema.Struct({
   }),
   variants: Schema.Struct({
     id: VariantID,
+    settings: Schema.Record(Schema.String, Schema.Unknown).pipe(Schema.optional),
     ...ModelRequest.Request.fields,
   }).pipe(Schema.Array, Schema.mutable),
   time: Schema.Struct({

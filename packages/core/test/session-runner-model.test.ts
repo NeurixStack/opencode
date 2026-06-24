@@ -148,6 +148,40 @@ describe("SessionRunnerModel", () => {
     }),
   )
 
+  it.effect("applies a selected variant base URL", () =>
+    Effect.gen(function* () {
+      const base = model(
+        { type: "aisdk", package: "@ai-sdk/openai", url: "https://default.example/v1" },
+        [
+          {
+            id: ModelV2.VariantID.make("regional"),
+            settings: { baseURL: "https://regional.example/v1" },
+            headers: {},
+            body: {},
+            generation: {},
+            options: {},
+          },
+        ],
+      )
+      const session = SessionV2.Info.make({
+        id: SessionV2.ID.make("ses_regional_variant"),
+        projectID: ProjectV2.ID.global,
+        title: "test",
+        model: { id: base.id, providerID: base.providerID, variant: ModelV2.VariantID.make("regional") },
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
+        location: { directory: AbsolutePath.make("/project") },
+      })
+      const resolved = yield* SessionRunnerModel.resolve(
+        session,
+        base,
+      )
+
+      expect(resolved.route.endpoint.baseURL).toBe("https://regional.example/v1")
+    }),
+  )
+
   it.effect("lowers selected OpenAI-compatible Session variants into Chat options", () =>
     Effect.gen(function* () {
       const catalog = model(
