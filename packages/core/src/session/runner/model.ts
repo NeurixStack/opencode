@@ -12,6 +12,8 @@ import { Credential } from "../../credential"
 import { Integration } from "../../integration"
 import { ModelV2 } from "../../model"
 import { ProviderV2 } from "../../provider"
+import { ProviderPackage } from "../../provider-package"
+import { ProviderOverlay } from "../../provider-overlay"
 import { SessionSchema } from "../schema"
 
 export class ModelNotSelectedError extends Schema.TaggedErrorClass<ModelNotSelectedError>()(
@@ -117,9 +119,9 @@ const withVariant = (
   return Effect.succeed(
     variant
       ? produce(model, (draft) => {
-          draft.settings = merge(draft.settings, variant.settings)
-          draft.headers = { ...draft.headers, ...variant.headers }
-          draft.body = merge(draft.body, variant.body)
+          draft.settings = ProviderOverlay.merge(draft.settings, variant.settings)
+          draft.headers = ProviderOverlay.headers(draft.headers, variant.headers)
+          draft.body = ProviderOverlay.merge(draft.body, variant.body)
         })
       : model,
   )
@@ -133,17 +135,18 @@ export const fromCatalogModel = (
     credential?.metadata === undefined
       ? model
       : produce(model, (draft) => {
-          draft.settings = { ...draft.settings, ...credential.metadata }
+          draft.settings = ProviderOverlay.merge(draft.settings, credential.metadata)
         })
   const key = apiKey(resolved, credential)
-  if (resolved.aisdk && resolved.package === "@ai-sdk/openai") {
+  const packageName = ProviderV2.packageName(resolved.package)
+  if (ProviderV2.isAISDK(resolved.package) && packageName === "@ai-sdk/openai") {
     return Effect.succeed(
       withDefaults(resolved, OpenAIResponses.route)
         .with({ auth: key === undefined ? Auth.none : Auth.bearer(key) })
         .model({ id: resolved.modelID ?? resolved.id }),
     )
   }
-  if (resolved.aisdk && resolved.package === "@ai-sdk/anthropic") {
+  if (ProviderV2.isAISDK(resolved.package) && packageName === "@ai-sdk/anthropic") {
     return Effect.succeed(
       withDefaults(resolved, AnthropicMessages.route)
         .with({ auth: key === undefined ? Auth.none : Auth.header("x-api-key", key) })
@@ -151,8 +154,8 @@ export const fromCatalogModel = (
     )
   }
   if (
-    resolved.aisdk &&
-    resolved.package === "@ai-sdk/openai-compatible" &&
+    ProviderV2.isAISDK(resolved.package) &&
+    packageName === "@ai-sdk/openai-compatible" &&
     typeof resolved.settings?.baseURL === "string"
   ) {
     return Effect.succeed(
@@ -161,11 +164,44 @@ export const fromCatalogModel = (
         .model({ id: resolved.modelID ?? resolved.id }),
     )
   }
+  if (!ProviderV2.isAISDK(resolved.package) && resolved.package) {
+    const specifier = resolved.package
+    return Effect.gen(function* () {
+      const module = yield* ProviderPackage.load(specifier).pipe(
+        Effect.mapError(
+          () =>
+            new UnsupportedPackageError({
+              providerID: resolved.providerID,
+              modelID: resolved.id,
+              package: specifier,
+            }),
+        ),
+      )
+      const settings = {
+        ...resolved.settings,
+        ...(credential?.type === "key" ? { apiKey: credential.key } : {}),
+        ...(credential?.type === "oauth" ? { apiKey: credential.access } : {}),
+        ...credential?.metadata,
+        headers: resolved.headers,
+        body: resolved.body,
+        limits: { context: resolved.limit.context, output: resolved.limit.output },
+      }
+      return yield* Effect.try({
+        try: () => ProviderPackage.make(module, resolved.modelID ?? resolved.id, settings),
+        catch: () =>
+          new UnsupportedPackageError({
+            providerID: resolved.providerID,
+            modelID: resolved.id,
+            package: specifier,
+          }),
+      })
+    })
+  }
   return Effect.fail(
     new UnsupportedPackageError({
       providerID: resolved.providerID,
       modelID: resolved.id,
-      package: resolved.aisdk ? `aisdk:${resolved.package}` : (resolved.package ?? "unknown"),
+      package: resolved.package ?? "unknown",
     }),
   )
 }
@@ -174,10 +210,12 @@ export const resolve = (session: SessionSchema.Info, model: ModelV2.Info, creden
   withVariant(model, session.model?.variant).pipe(Effect.flatMap((model) => fromCatalogModel(model, credential)))
 
 export const supported = (model: ModelV2.Info) =>
-  model.aisdk === true &&
-  (model.package === "@ai-sdk/openai" ||
-    model.package === "@ai-sdk/anthropic" ||
-    (model.package === "@ai-sdk/openai-compatible" && typeof model.settings?.baseURL === "string"))
+  Boolean(model.package) &&
+  (!ProviderV2.isAISDK(model.package) ||
+    ProviderV2.packageName(model.package) === "@ai-sdk/openai" ||
+    ProviderV2.packageName(model.package) === "@ai-sdk/anthropic" ||
+    (ProviderV2.packageName(model.package) === "@ai-sdk/openai-compatible" &&
+      typeof model.settings?.baseURL === "string"))
 
 /** Resolves models from the catalog belonging to the current Location runtime. */
 export const locationLayer = Layer.effect(
@@ -215,26 +253,3 @@ export const locationLayer = Layer.effect(
     })
   }),
 )
-
-function merge(
-  base: Readonly<Record<string, unknown>> | undefined,
-  overlay: Readonly<Record<string, unknown>> | undefined,
-): Record<string, unknown> | undefined {
-  if (base === undefined) return overlay && { ...overlay }
-  if (overlay === undefined) return { ...base }
-  return Object.fromEntries(
-    Array.from(new Set([...Object.keys(base), ...Object.keys(overlay)])).map((key) => {
-      const left = base[key]
-      const right = overlay[key]
-      if (right === undefined) return [key, left]
-      if (plain(left) && plain(right)) return [key, merge(left, right)]
-      return [key, right]
-    }),
-  )
-}
-
-function plain(input: unknown): input is Readonly<Record<string, unknown>> {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) return false
-  const prototype = Object.getPrototypeOf(input)
-  return prototype === Object.prototype || prototype === null
-}

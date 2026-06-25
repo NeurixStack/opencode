@@ -36,8 +36,7 @@ describe("CerebrasPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("cerebras"), (item) => {
-          item.aisdk = true
-          item.package = "@ai-sdk/cerebras"
+          item.package = ProviderV2.aisdk("@ai-sdk/cerebras")
           item.headers = { ...item.headers, Existing: "1" }
         })
       })
@@ -71,8 +70,7 @@ describe("CerebrasPlugin", () => {
             ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
           ),
           modelID: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/cerebras",
         options: { name: "custom-cerebras", apiKey: "test" },
@@ -95,8 +93,7 @@ describe("CerebrasPlugin", () => {
             ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
           ),
           modelID: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/cerebras",
         options: { name: "configured-cerebras", apiKey: "test" },
@@ -118,8 +115,7 @@ describe("CerebrasPlugin", () => {
             ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
           ),
           modelID: ModelV2.ID.make("llama-4-scout-17b-16e-instruct"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/groq",
         options: { name: "custom-cerebras", apiKey: "test" },

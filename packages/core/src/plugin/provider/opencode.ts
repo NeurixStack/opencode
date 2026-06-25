@@ -111,8 +111,7 @@ export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | S
         catalog.provider.update(providerID, (provider) => {
           provider.integrationID = Integration.ID.make("opencode")
           if (item.name !== undefined) provider.name = item.name
-          provider.package = item.npm ?? ""
-          provider.aisdk = item.npm ? true : undefined
+          provider.package = item.npm ? ProviderV2.aisdk(item.npm) : ""
           provider.settings = {
             ...provider.settings,
             ...withoutCredentials(item.options),
@@ -132,8 +131,7 @@ export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | S
             if (config.name !== undefined) model.name = config.name
             if (config.id !== undefined) model.modelID = config.id
             if (config.provider !== undefined) {
-              model.package = config.provider.npm
-              model.aisdk = config.provider.npm ? true : undefined
+              model.package = config.provider.npm ? ProviderV2.aisdk(config.provider.npm) : undefined
               if (config.provider.api) model.settings = { ...model.settings, baseURL: config.provider.api }
             }
             if (config.tool_call !== undefined) model.capabilities.tools = config.tool_call

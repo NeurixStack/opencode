@@ -1,6 +1,6 @@
-import { Types } from "effect"
 import { Model } from "@opencode-ai/schema/model"
 import { ProviderV2 } from "./provider"
+import type { DeepMutable } from "./schema"
 
 export const ID = Model.ID
 export type ID = typeof ID.Type
@@ -23,7 +23,7 @@ export type Ref = typeof Ref.Type
 export const Info = Model.Info
 export type Info = Model.Info
 
-export type MutableInfo = Types.DeepMutable<Info>
+export type MutableInfo = DeepMutable<Info>
 
 export function parse(input: string): { providerID: ProviderV2.ID; modelID: ID } {
   const [providerID, ...modelID] = input.split("/")

@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { ModelV2 } from "../../model"
+import { ProviderV2 } from "../../provider"
 import { define } from "../internal"
 
 export const OpenRouterPlugin = define({
@@ -8,8 +9,8 @@ export const OpenRouterPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (!item.provider.aisdk) continue
-          if (item.provider.package !== "@openrouter/ai-sdk-provider") continue
+          if (!ProviderV2.isAISDK(item.provider.package)) continue
+          if (ProviderV2.packageName(item.provider.package) !== "@openrouter/ai-sdk-provider") continue
           evt.provider.update(item.provider.id, (provider) => {
             provider.headers = { ...provider.headers, "HTTP-Referer": "https://opencode.ai/", "X-Title": "opencode" }
           })

@@ -66,8 +66,7 @@ describe("AzurePlugin", () => {
         const catalog = yield* Catalog.Service
         yield* catalog.transform((catalog) => {
           catalog.provider.update(ProviderV2.ID.azure, (item) => {
-            item.aisdk = true
-            item.package = "@ai-sdk/azure"
+            item.package = ProviderV2.aisdk("@ai-sdk/azure")
           })
         })
         yield* addPlugin()
@@ -83,13 +82,12 @@ describe("AzurePlugin", () => {
         yield* catalog.transform((catalog) => {
           const azure = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.azure),
-            aisdk: true,
-            package: "@ai-sdk/azure",
+            package: "aisdk:@ai-sdk/azure",
             headers: {},
             settings: { resourceName: "from-config" },
           })
           catalog.provider.update(azure.id, (item) => {
-            item.aisdk = azure.aisdk
+            item.package = azure.package
             item.package = azure.package
             item.headers = azure.headers
             item.settings = { resourceName: "from-config" }
@@ -110,13 +108,12 @@ describe("AzurePlugin", () => {
         yield* catalog.transform((catalog) => {
           const azure = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.azure),
-            aisdk: true,
-            package: "@ai-sdk/azure",
+            package: "aisdk:@ai-sdk/azure",
             headers: {},
             settings: { resourceName: "" },
           })
           catalog.provider.update(azure.id, (item) => {
-            item.aisdk = azure.aisdk
+            item.package = azure.package
             item.package = azure.package
             item.headers = azure.headers
             item.settings = { resourceName: "" }
@@ -135,13 +132,12 @@ describe("AzurePlugin", () => {
         yield* catalog.transform((catalog) => {
           const azure = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.azure),
-            aisdk: true,
-            package: "@ai-sdk/azure",
+            package: "aisdk:@ai-sdk/azure",
             headers: {},
             settings: { resourceName: "   " },
           })
           catalog.provider.update(azure.id, (item) => {
-            item.aisdk = azure.aisdk
+            item.package = azure.package
             item.package = azure.package
             item.headers = azure.headers
             item.settings = { resourceName: "   " }
@@ -163,8 +159,7 @@ describe("AzurePlugin", () => {
           model: ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.azure, ModelV2.ID.make("deployment")),
             modelID: ModelV2.ID.make("deployment"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           }),
           package: "@ai-sdk/azure",
           options: { name: "azure", baseURL: "https://proxy.example.com/openai" },
@@ -184,8 +179,7 @@ describe("AzurePlugin", () => {
             model: ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.azure, ModelV2.ID.make("deployment")),
               modelID: ModelV2.ID.make("deployment"),
-              aisdk: true,
-              package: "test-provider",
+              package: "aisdk:test-provider",
             }),
             package: "@ai-sdk/azure",
             options: { name: "azure" },
@@ -206,8 +200,7 @@ describe("AzurePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.azure, ModelV2.ID.make("deployment")),
           modelID: ModelV2.ID.make("deployment"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: { useCompletionUrls: true },
@@ -226,8 +219,7 @@ describe("AzurePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.azure, ModelV2.ID.make("deployment")),
           modelID: ModelV2.ID.make("deployment"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: { useCompletionUrls: true },
@@ -246,8 +238,7 @@ describe("AzurePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.azure, ModelV2.ID.make("deployment")),
           modelID: ModelV2.ID.make("deployment"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
           headers: {},
           settings: { useCompletionUrls: true },
         }),
@@ -268,8 +259,7 @@ describe("AzurePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.azure, ModelV2.ID.make("deployment")),
           modelID: ModelV2.ID.make("deployment"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},
@@ -278,8 +268,7 @@ describe("AzurePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.openai, ModelV2.ID.make("deployment")),
           modelID: ModelV2.ID.make("deployment"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},
@@ -303,8 +292,7 @@ describe("AzurePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.azure, ModelV2.ID.make("messages-deployment")),
           modelID: ModelV2.ID.make("messages-deployment"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: { messages: make("messages"), chat: make("chat"), languageModel: make("languageModel") },
         options: {},
@@ -313,8 +301,7 @@ describe("AzurePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.azure, ModelV2.ID.make("language-deployment")),
           modelID: ModelV2.ID.make("language-deployment"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: { languageModel: make("languageModel") },
         options: {},

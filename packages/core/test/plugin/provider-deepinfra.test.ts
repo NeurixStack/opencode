@@ -49,8 +49,7 @@ describe("DeepInfraPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("deepinfra"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "@ai-sdk/deepinfra",
+          package: "aisdk:@ai-sdk/deepinfra",
         }),
         package: "@ai-sdk/deepinfra",
         options: { name: "deepinfra" },
@@ -69,8 +68,7 @@ describe("DeepInfraPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-deepinfra"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "@ai-sdk/deepinfra",
+          package: "aisdk:@ai-sdk/deepinfra",
         }),
         package: "@ai-sdk/deepinfra",
         options: { name: "custom-deepinfra", apiKey: "test" },
@@ -90,8 +88,7 @@ describe("DeepInfraPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("deepinfra"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "@ai-sdk/deepinfra",
+          package: "aisdk:@ai-sdk/deepinfra",
         }),
         package: "@ai-sdk/deepinfra",
         options: { name: "deepinfra", apiKey: "test" },
@@ -118,8 +115,7 @@ describe("DeepInfraPlugin", () => {
             model: ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.make("deepinfra"), ModelV2.ID.make("model")),
               modelID: ModelV2.ID.make("model"),
-              aisdk: true,
-              package: "@ai-sdk/deepinfra",
+              package: "aisdk:@ai-sdk/deepinfra",
             }),
             package: item,
             options: { name: "deepinfra" },
@@ -131,8 +127,7 @@ describe("DeepInfraPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("deepinfra"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "@ai-sdk/deepinfra",
+          package: "aisdk:@ai-sdk/deepinfra",
         }),
         package: "@ai-sdk/deepinfra",
         options: { name: "deepinfra" },
@@ -152,8 +147,7 @@ describe("DeepInfraPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("deepinfra"), ModelV2.ID.make("meta-llama/Llama-3.3-70B-Instruct")),
           modelID: ModelV2.ID.make("meta-llama/Llama-3.3-70B-Instruct"),
-          aisdk: true,
-          package: "@ai-sdk/deepinfra",
+          package: "aisdk:@ai-sdk/deepinfra",
         }),
         package: "@ai-sdk/deepinfra",
         options: { name: "deepinfra" },

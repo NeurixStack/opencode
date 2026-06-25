@@ -58,8 +58,7 @@ describe("SnowflakeCortexPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("openai"), ModelV2.ID.make("gpt-4")),
           modelID: ModelV2.ID.make("gpt-4"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai",
         options: { name: "openai" },
@@ -78,8 +77,7 @@ describe("SnowflakeCortexPlugin", () => {
           model: ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("snowflake-cortex"), ModelV2.ID.make("claude-sonnet-4-6")),
             modelID: ModelV2.ID.make("claude-sonnet-4-6"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           }),
           package: "@ai-sdk/openai-compatible",
           options: { name: "snowflake-cortex", baseURL: "https://test.snowflakecomputing.com/api/v2/cortex/v1" },
@@ -99,8 +97,7 @@ describe("SnowflakeCortexPlugin", () => {
           model: ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("snowflake-cortex"), ModelV2.ID.make("claude-sonnet-4-6")),
             modelID: ModelV2.ID.make("claude-sonnet-4-6"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           }),
           package: "@ai-sdk/openai-compatible",
           options: {
@@ -124,8 +121,7 @@ describe("SnowflakeCortexPlugin", () => {
           model: ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("snowflake-cortex"), ModelV2.ID.make("claude-sonnet-4-6")),
             modelID: ModelV2.ID.make("claude-sonnet-4-6"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           }),
           package: "@ai-sdk/openai-compatible",
           options: { name: "snowflake-cortex", baseURL: "https://test.snowflakecomputing.com/api/v2/cortex/v1" },
@@ -145,8 +141,7 @@ describe("SnowflakeCortexPlugin", () => {
           model: ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("snowflake-cortex"), ModelV2.ID.make("claude-sonnet-4-6")),
             modelID: ModelV2.ID.make("claude-sonnet-4-6"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           }),
           package: "@ai-sdk/openai-compatible",
           options: {
@@ -170,8 +165,7 @@ describe("SnowflakeCortexPlugin", () => {
           model: ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("snowflake-cortex"), ModelV2.ID.make("claude-sonnet-4-6")),
             modelID: ModelV2.ID.make("claude-sonnet-4-6"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           }),
           package: "@ai-sdk/openai-compatible",
           options: { name: "snowflake-cortex", baseURL: "https://test.snowflakecomputing.com/api/v2/cortex/v1" },

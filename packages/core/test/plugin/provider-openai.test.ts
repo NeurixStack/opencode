@@ -68,8 +68,7 @@ describe("OpenAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-openai"), ModelV2.ID.make("gpt-5")),
           modelID: ModelV2.ID.make("gpt-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai",
         options: { name: "custom-openai", apiKey: "test" },
@@ -87,8 +86,7 @@ describe("OpenAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.openai, ModelV2.ID.make("gpt-5")),
           modelID: ModelV2.ID.make("gpt-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "openai" },
@@ -107,8 +105,7 @@ describe("OpenAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.openai, ModelV2.ID.make("alias")),
           modelID: ModelV2.ID.make("gpt-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},
@@ -128,8 +125,7 @@ describe("OpenAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.anthropic, ModelV2.ID.make("gpt-5")),
           modelID: ModelV2.ID.make("gpt-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},
@@ -145,11 +141,10 @@ describe("OpenAIPlugin", () => {
       yield* catalog.transform((catalog) => {
         const item = ProviderV2.Info.make({
           ...ProviderV2.Info.empty(ProviderV2.ID.openai),
-          aisdk: true,
-          package: "@ai-sdk/openai",
+          package: "aisdk:@ai-sdk/openai",
         })
         catalog.provider.update(item.id, (draft) => {
-          draft.aisdk = item.aisdk
+          draft.package = item.package
           draft.package = item.package
         })
         catalog.model.update(item.id, ModelV2.ID.make("gpt-5"), () => {})
@@ -169,11 +164,10 @@ describe("OpenAIPlugin", () => {
       yield* catalog.transform((catalog) => {
         const item = ProviderV2.Info.make({
           ...ProviderV2.Info.empty(ProviderV2.ID.make("custom-openai")),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         })
         catalog.provider.update(item.id, (draft) => {
-          draft.aisdk = item.aisdk
+          draft.package = item.package
           draft.package = item.package
         })
         catalog.model.update(item.id, ModelV2.ID.make("gpt-5-chat-latest"), () => {})

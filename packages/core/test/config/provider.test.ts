@@ -61,8 +61,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
               info: decode({
                 providers: {
                   opencode: {
-                    package: "@ai-sdk/openai",
-                    aisdk: true,
+                    package: "aisdk:@ai-sdk/openai",
                     settings: { baseURL: "https://opencode.test/v1" },
                     models: {
                       "alpha-gpt-next": {
@@ -114,8 +113,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
               info: decode({
                 providers: {
                   opencode: {
-                    package: "@ai-sdk/openai",
-                    aisdk: true,
+                    package: "aisdk:@ai-sdk/openai",
                     settings: { baseURL: "https://opencode.test/v1" },
                   },
                 },
@@ -195,8 +193,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
                   model: "custom/default",
                   providers: {
                     custom: {
-                      package: "custom-sdk",
-                      aisdk: true,
+                      package: "aisdk:custom-sdk",
                       settings: { baseURL: "https://example.test" },
                       headers: { last: "last", shared: "last" },
                       models: {
@@ -247,8 +244,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
         })
         expect((yield* integrations.get(Integration.ID.make("custom")))?.name).toBe("Renamed")
         expect(provider.disabled).toBeUndefined()
-        expect(provider.package).toBe("custom-sdk")
-        expect(provider.aisdk).toBe(true)
+        expect(provider.package).toBe("aisdk:custom-sdk")
         expect(provider.settings).toEqual({ baseURL: "https://example.test" })
         expect(provider.headers).toEqual({ first: "first", shared: "last", last: "last" })
         expect(model.id).toBe(modelID)

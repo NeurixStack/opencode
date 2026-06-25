@@ -27,8 +27,7 @@ describe("KiloPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("kilo"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://api.kilo.ai/api/gateway" }
           provider.headers = { Existing: "value" }
         })
@@ -49,8 +48,7 @@ describe("KiloPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("kilo"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://api.kilo.ai/api/gateway" }
         })
       })
@@ -71,13 +69,11 @@ describe("KiloPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("kilo"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://api.kilo.ai/api/gateway" }
         })
         catalog.provider.update(ProviderV2.ID.make("custom-kilo"), (provider) => {
-          provider.aisdk = true
-          provider.package = "kilo"
+          provider.package = ProviderV2.aisdk("kilo")
         })
       })
       yield* addPlugin()

@@ -43,8 +43,7 @@ describe("XAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("xai"), ModelV2.ID.make("grok-4")),
           modelID: ModelV2.ID.make("grok-4"),
-          aisdk: true,
-          package: "@ai-sdk/xai",
+          package: "aisdk:@ai-sdk/xai",
         }),
         package: "@ai-sdk/openai-compatible",
         options: {},
@@ -54,8 +53,7 @@ describe("XAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("xai"), ModelV2.ID.make("grok-4")),
           modelID: ModelV2.ID.make("grok-4"),
-          aisdk: true,
-          package: "@ai-sdk/xai",
+          package: "aisdk:@ai-sdk/xai",
         }),
         package: "@ai-sdk/xai",
         options: {},
@@ -76,8 +74,7 @@ describe("XAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-xai"), ModelV2.ID.make("grok-4")),
           modelID: ModelV2.ID.make("grok-4"),
-          aisdk: true,
-          package: "@ai-sdk/xai",
+          package: "aisdk:@ai-sdk/xai",
         }),
         package: "@ai-sdk/xai",
         options: {},
@@ -98,8 +95,7 @@ describe("XAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("xai"), ModelV2.ID.make("alias")),
           modelID: ModelV2.ID.make("grok-4"),
-          aisdk: true,
-          package: "@ai-sdk/xai",
+          package: "aisdk:@ai-sdk/xai",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},
@@ -121,8 +117,7 @@ describe("XAIPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.openai, ModelV2.ID.make("grok-4")),
           modelID: ModelV2.ID.make("grok-4"),
-          aisdk: true,
-          package: "@ai-sdk/xai",
+          package: "aisdk:@ai-sdk/xai",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},

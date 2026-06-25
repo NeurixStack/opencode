@@ -31,13 +31,12 @@ describe("AnthropicPlugin", () => {
       yield* catalog.transform((catalog) => {
         const item = ProviderV2.Info.make({
           ...ProviderV2.Info.empty(ProviderV2.ID.anthropic),
-          aisdk: true,
-          package: "@ai-sdk/anthropic",
+          package: "aisdk:@ai-sdk/anthropic",
           headers: { Existing: "1" },
           settings: {},
         })
         catalog.provider.update(item.id, (draft) => {
-          draft.aisdk = item.aisdk
+          draft.package = item.package
           draft.package = item.package
           draft.headers = item.headers
         })
@@ -68,8 +67,7 @@ describe("AnthropicPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-anthropic"), ModelV2.ID.make("claude-sonnet-4-5")),
           modelID: ModelV2.ID.make("claude-sonnet-4-5"),
-          aisdk: true,
-          package: "@ai-sdk/anthropic",
+          package: "aisdk:@ai-sdk/anthropic",
         }),
         package: "@ai-sdk/anthropic",
         options: { name: "custom-anthropic", apiKey: "test" },
@@ -87,8 +85,7 @@ describe("AnthropicPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-sonnet-4-5")),
           modelID: ModelV2.ID.make("claude-sonnet-4-5"),
-          aisdk: true,
-          package: "@ai-sdk/anthropic",
+          package: "aisdk:@ai-sdk/anthropic",
         }),
         package: "@ai-sdk/anthropic",
         options: { name: "anthropic", apiKey: "test" },

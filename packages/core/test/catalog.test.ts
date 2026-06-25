@@ -141,15 +141,13 @@ describe("CatalogV2", () => {
       const providerID = ProviderV2.ID.make("test")
       yield* catalog.transform((catalog) =>
         catalog.provider.update(providerID, (provider) => {
-          provider.package = "@ai-sdk/openai-compatible"
-          provider.aisdk = true
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { baseURL: "https://override.example.com" }
         }),
       )
 
       expect(required(yield* catalog.provider.get(providerID))).toMatchObject({
-        package: "@ai-sdk/openai-compatible",
-        aisdk: true,
+        package: "aisdk:@ai-sdk/openai-compatible",
         settings: { baseURL: "https://override.example.com" },
       })
     }),
@@ -162,8 +160,7 @@ describe("CatalogV2", () => {
       const modelID = ModelV2.ID.make("model")
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, (provider) => {
-          provider.package = "@ai-sdk/openai-compatible"
-          provider.aisdk = true
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { baseURL: "https://provider.example.com" }
         })
         catalog.model.update(providerID, modelID, (model) => {
@@ -175,8 +172,7 @@ describe("CatalogV2", () => {
       expect(required(yield* catalog.model.get(providerID, modelID))).toMatchObject({
         id: modelID,
         modelID: ModelV2.ID.make("upstream-model"),
-        package: "@ai-sdk/openai-compatible",
-        aisdk: true,
+        package: "aisdk:@ai-sdk/openai-compatible",
         settings: { baseURL: "https://override.example.com" },
       })
     }),
@@ -189,8 +185,7 @@ describe("CatalogV2", () => {
       const modelID = ModelV2.ID.make("model")
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, (provider) => {
-          provider.package = "@ai-sdk/openai-compatible"
-          provider.aisdk = true
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { baseURL: "https://provider.example.com" }
         })
         catalog.model.update(providerID, modelID, () => {})
@@ -198,8 +193,7 @@ describe("CatalogV2", () => {
 
       expect(required(yield* catalog.model.get(providerID, modelID))).toMatchObject({
         id: modelID,
-        package: "@ai-sdk/openai-compatible",
-        aisdk: true,
+        package: "aisdk:@ai-sdk/openai-compatible",
         settings: { baseURL: "https://provider.example.com" },
       })
     }),
@@ -212,18 +206,36 @@ describe("CatalogV2", () => {
       const modelID = ModelV2.ID.make("model")
       yield* catalog.transform((catalog) => {
         catalog.provider.update(providerID, (provider) => {
-          provider.headers = { provider: "provider", shared: "provider" }
-          provider.body = { provider: true }
+          provider.headers = { provider: "provider", "X-Shared": "provider" }
+          provider.body = {
+            provider: true,
+            reasoning: { type: "enabled", budget: 8_000 },
+            stop: ["END"],
+            disabled: { type: "enabled" },
+          }
         })
         catalog.model.update(providerID, modelID, (model) => {
-          model.headers = { model: "model", shared: "model" }
-          model.body = { model: true, request: true, shared: "model" }
+          model.headers = { model: "model", "x-shared": "model" }
+          model.body = {
+            model: true,
+            request: true,
+            reasoning: { budget: 32_000 },
+            stop: ["STOP"],
+            disabled: null,
+          }
         })
       })
 
       const model = required(yield* catalog.model.get(providerID, modelID))
-      expect(model.headers).toEqual({ provider: "provider", shared: "model", model: "model" })
-      expect(model.body).toEqual({ provider: true, model: true, request: true, shared: "model" })
+      expect(model.headers).toEqual({ provider: "provider", "x-shared": "model", model: "model" })
+      expect(model.body).toEqual({
+        provider: true,
+        model: true,
+        request: true,
+        reasoning: { type: "enabled", budget: 32_000 },
+        stop: ["STOP"],
+        disabled: null,
+      })
     }),
   )
 

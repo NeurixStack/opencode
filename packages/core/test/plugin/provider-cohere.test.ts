@@ -57,8 +57,7 @@ describe("CoherePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("cohere"), ModelV2.ID.make("command")),
           modelID: ModelV2.ID.make("command"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "cohere" },
@@ -69,8 +68,7 @@ describe("CoherePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("cohere"), ModelV2.ID.make("command")),
           modelID: ModelV2.ID.make("command"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/cohere",
         options: { name: "cohere" },
@@ -88,8 +86,7 @@ describe("CoherePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-cohere"), ModelV2.ID.make("command-r-plus")),
           modelID: ModelV2.ID.make("command-r-plus"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/cohere",
         options: { name: "custom-cohere", apiKey: "test", baseURL: "https://cohere.example" },
@@ -115,8 +112,7 @@ describe("CoherePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("cohere"), ModelV2.ID.make("alias")),
           modelID: ModelV2.ID.make("command-r-plus"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk,
         options: {},

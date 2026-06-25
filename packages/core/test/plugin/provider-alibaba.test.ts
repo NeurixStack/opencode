@@ -29,8 +29,7 @@ describe("AlibabaPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("alibaba"), ModelV2.ID.make("qwen")),
           modelID: ModelV2.ID.make("qwen"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/alibaba",
         options: { name: "alibaba" },
@@ -48,8 +47,7 @@ describe("AlibabaPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("alibaba"), ModelV2.ID.make("qwen")),
           modelID: ModelV2.ID.make("qwen"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "alibaba" },
@@ -67,8 +65,7 @@ describe("AlibabaPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-alibaba"), ModelV2.ID.make("qwen")),
           modelID: ModelV2.ID.make("qwen"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/alibaba",
         options: { name: "custom-alibaba", apiKey: "test" },
@@ -88,8 +85,7 @@ describe("AlibabaPlugin", () => {
       const item = ModelV2.Info.make({
         ...ModelV2.Info.empty(ProviderV2.ID.make("alibaba"), ModelV2.ID.make("alias")),
         modelID: ModelV2.ID.make("qwen-plus"),
-        aisdk: true,
-        package: "test-provider",
+        package: "aisdk:test-provider",
       })
       const result = yield* aisdk.runSDK({ model: item, package: "@ai-sdk/alibaba", options: {} })
       const language = result.sdk?.languageModel(item.modelID ?? item.id)

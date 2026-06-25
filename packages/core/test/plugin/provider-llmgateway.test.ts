@@ -34,8 +34,7 @@ describe("LLMGatewayPlugin", () => {
       })
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("llmgateway"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://api.llmgateway.io/v1" }
           provider.headers = { Existing: "value" }
         })
@@ -62,8 +61,7 @@ describe("LLMGatewayPlugin", () => {
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("llmgateway"), (provider) => {
           provider.disabled = true
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://api.llmgateway.io/v1" }
         })
       })

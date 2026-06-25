@@ -25,8 +25,7 @@ describe("VercelPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("vercel"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/vercel"
+          provider.package = ProviderV2.aisdk("@ai-sdk/vercel")
           provider.headers = { ...provider.headers, Existing: "1" }
         })
       })
@@ -44,8 +43,7 @@ describe("VercelPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) =>
         catalog.provider.update(ProviderV2.ID.make("vercel"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/vercel"
+          provider.package = ProviderV2.aisdk("@ai-sdk/vercel")
         }),
       )
       yield* addPlugin()
@@ -63,8 +61,7 @@ describe("VercelPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-vercel"), ModelV2.ID.make("v0-1.0-md")),
           modelID: ModelV2.ID.make("v0-1.0-md"),
-          aisdk: true,
-          package: "@ai-sdk/vercel",
+          package: "aisdk:@ai-sdk/vercel",
         }),
         package: "@ai-sdk/vercel",
         options: { name: "custom-vercel" },

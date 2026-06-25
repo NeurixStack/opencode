@@ -6,6 +6,7 @@ import { ConfigMCPV1 } from "./mcp"
 import { ConfigPermissionV1 } from "./permission"
 import { ConfigProviderV1 } from "./provider"
 import { ConfigProviderOptionsV1 } from "./provider-options"
+import { ProviderV2 } from "../../provider"
 
 const keys = new Set([
   "logLevel",
@@ -173,8 +174,7 @@ function migrateProvider(info: ConfigProviderV1.Info) {
   return {
     name: info.name,
     env: info.env,
-    package: info.npm,
-    aisdk: info.npm ? (true as const) : undefined,
+    package: info.npm ? ProviderV2.aisdk(info.npm) : undefined,
     settings: info.api ? { ...options.settings, baseURL: info.api } : options.settings,
     headers: info.options && options.headers,
     body: info.options && options.body,
@@ -213,8 +213,7 @@ function migrateModel(info: typeof ConfigProviderV1.Model.Type, packageName?: st
     modelID: info.id,
     family: info.family,
     name: info.name,
-    package: info.provider?.npm,
-    aisdk: info.provider?.npm ? (true as const) : undefined,
+    package: info.provider?.npm ? ProviderV2.aisdk(info.provider.npm) : undefined,
     settings: info.provider?.api ? { ...settings, baseURL: info.provider.api } : settings,
     capabilities,
     headers: info.headers,

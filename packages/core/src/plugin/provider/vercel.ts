@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { define } from "../internal"
+import { ProviderV2 } from "../../provider"
 
 export const VercelPlugin = define({
   id: "vercel",
@@ -7,8 +8,8 @@ export const VercelPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (!item.provider.aisdk) continue
-          if (item.provider.package !== "@ai-sdk/vercel") continue
+          if (!ProviderV2.isAISDK(item.provider.package)) continue
+          if (ProviderV2.packageName(item.provider.package) !== "@ai-sdk/vercel") continue
           evt.provider.update(item.provider.id, (provider) => {
             provider.headers = { ...provider.headers, "http-referer": "https://opencode.ai/", "x-title": "opencode" }
           })

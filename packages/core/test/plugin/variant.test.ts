@@ -23,13 +23,7 @@ const connections = Credential.defaultLayer.pipe(Layer.fresh)
 const integrations = Integration.locationLayer.pipe(Layer.provide(events), Layer.provide(connections))
 const catalog = Catalog.layer.pipe(
   Layer.provide(
-    Layer.mergeAll(
-      events,
-      locationLayer,
-      Policy.layer.pipe(Layer.provide(locationLayer)),
-      connections,
-      integrations,
-    ),
+    Layer.mergeAll(events, locationLayer, Policy.layer.pipe(Layer.provide(locationLayer)), connections, integrations),
   ),
 )
 const it = testEffect(
@@ -42,13 +36,11 @@ describe("VariantPlugin", () => {
       const service = yield* Catalog.Service
       yield* service.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.opencode, (provider) => {
-          provider.package = "@ai-sdk/openai-compatible"
-          provider.aisdk = true
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
         })
         catalog.model.update(ProviderV2.ID.opencode, ModelV2.ID.make("glm-5.2"), (model) => {
           model.modelID = ModelV2.ID.make("glm-5.2")
-          model.package = "@ai-sdk/openai-compatible"
-          model.aisdk = true
+          model.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
         })
       })
       yield* VariantPlugin.Plugin.effect(host({ catalog: catalogHost(service) }))
@@ -66,11 +58,8 @@ describe("VariantPlugin", () => {
       yield* service.transform((catalog) => {
         catalog.model.update(ProviderV2.ID.opencode, ModelV2.ID.make("glm-5.2"), (model) => {
           model.modelID = ModelV2.ID.make("glm-5.2")
-          model.package = "@ai-sdk/openai-compatible"
-          model.aisdk = true
-          model.variants = [
-            { id: ModelV2.VariantID.make("high"), headers: { custom: "true" } },
-          ]
+          model.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
+          model.variants = [{ id: ModelV2.VariantID.make("high"), headers: { custom: "true" } }]
         })
       })
       yield* VariantPlugin.Plugin.effect(host({ catalog: catalogHost(service) }))

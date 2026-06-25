@@ -64,8 +64,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
           const catalog = yield* Catalog.Service
           yield* catalog.transform((catalog) =>
             catalog.provider.update(ProviderV2.ID.make("google-vertex-anthropic"), (provider) => {
-              provider.aisdk = true
-              provider.package = "@ai-sdk/google-vertex/anthropic"
+              provider.package = ProviderV2.aisdk("@ai-sdk/google-vertex/anthropic")
             }),
           )
           yield* addPlugin(GoogleVertexAnthropicPlugin)
@@ -85,8 +84,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
         const catalog = yield* Catalog.Service
         yield* catalog.transform((catalog) =>
           catalog.provider.update(ProviderV2.ID.make("google-vertex-anthropic"), (provider) => {
-            provider.aisdk = true
-            provider.package = "@ai-sdk/google-vertex/anthropic"
+            provider.package = ProviderV2.aisdk("@ai-sdk/google-vertex/anthropic")
             provider.settings = { ...provider.settings, project: "configured-project", location: "configured-location" }
           }),
         )
@@ -123,8 +121,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
                 ModelV2.ID.make("claude-sonnet-4-5"),
               ),
               modelID: ModelV2.ID.make("claude-sonnet-4-5"),
-              aisdk: true,
-              package: "test-provider",
+              package: "aisdk:test-provider",
             }),
             package: "@ai-sdk/google-vertex/anthropic",
             options: { name: "google-vertex-anthropic" },
@@ -151,8 +148,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
                 ModelV2.ID.make("claude-sonnet-4-5"),
               ),
               modelID: ModelV2.ID.make("claude-sonnet-4-5"),
-              aisdk: true,
-              package: "test-provider",
+              package: "aisdk:test-provider",
             }),
             package: "@ai-sdk/google-vertex/anthropic",
             options: { name: "google-vertex-anthropic" },
@@ -173,8 +169,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("claude-sonnet-4-5")),
           modelID: ModelV2.ID.make("claude-sonnet-4-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/google-vertex/anthropic",
         options: { name: "google-vertex", project: "project", location: "eu" },
@@ -194,8 +189,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("claude-sonnet-4-5")),
           modelID: ModelV2.ID.make("claude-sonnet-4-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/google-vertex/anthropic",
         options: { name: "google-vertex", project: "project", location: "eu", baseURL: "https://proxy.example/v1" },
@@ -214,8 +208,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make(" claude-sonnet-4-5 ")),
           modelID: ModelV2.ID.make(" claude-sonnet-4-5 "),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/google-vertex/anthropic",
         options: { name: "google-vertex", project: "project", location: "us" },
@@ -224,8 +217,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make(" claude-sonnet-4-5 ")),
           modelID: ModelV2.ID.make(" claude-sonnet-4-5 "),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: sdkResult.sdk,
         options: {},
@@ -248,8 +240,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex-anthropic"), ModelV2.ID.make(" claude-sonnet-4-5 ")),
           modelID: ModelV2.ID.make(" claude-sonnet-4-5 "),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: { languageModel: selector(calls) },
         options: {},
@@ -268,8 +259,7 @@ describe("GoogleVertexAnthropicPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google-vertex"), ModelV2.ID.make("claude-sonnet-4-5")),
           modelID: ModelV2.ID.make("claude-sonnet-4-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: { languageModel: selector(calls) },
         options: {},

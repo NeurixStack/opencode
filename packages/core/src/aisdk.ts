@@ -198,23 +198,23 @@ export const locationLayer = Layer.effect(
         const key = `${model.providerID}/${model.id}/${model.modelID ?? model.id}/${JSON.stringify(model.settings)}`
         const existing = languages.get(key)
         if (existing) return existing
-        if (!model.aisdk)
+        if (!ProviderV2.isAISDK(model.package))
           return yield* new InitError({
             providerID: model.providerID,
             cause: new Error(`Unsupported package ${model.package}`),
           })
 
-        const options = prepareOptions(model, model.package ?? "")
+        const packageName = ProviderV2.packageName(model.package) ?? ""
+        const options = prepareOptions(model, packageName)
         const sdkKey = JSON.stringify({
           providerID: model.providerID,
-          package: model.package,
+          package: packageName,
           settings: model.settings,
           options,
         })
         const sdk =
           sdks.get(sdkKey) ??
-          (yield* service.runSDK({ model, package: model.package ?? "", options }).pipe(initError(model.providerID)))
-            .sdk
+          (yield* service.runSDK({ model, package: packageName, options }).pipe(initError(model.providerID))).sdk
         if (!sdk)
           return yield* new InitError({
             providerID: model.providerID,

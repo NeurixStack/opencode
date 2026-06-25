@@ -65,8 +65,8 @@ export const AmazonBedrockPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (!item.provider.aisdk) continue
-          if (item.provider.package !== "@ai-sdk/amazon-bedrock") continue
+          if (!ProviderV2.isAISDK(item.provider.package)) continue
+          if (ProviderV2.packageName(item.provider.package) !== "@ai-sdk/amazon-bedrock") continue
           evt.provider.update(item.provider.id, (provider) => {
             if (typeof provider.settings?.endpoint !== "string") return
             // The AI SDK expects a base URL, but users configure Bedrock private/VPC
@@ -113,7 +113,10 @@ export const AmazonBedrockPlugin = define({
     yield* ctx.aisdk.language(
       Effect.fn(function* (evt) {
         if (evt.model.providerID !== ProviderV2.ID.amazonBedrock) return
-        if (evt.model.aisdk && evt.model.package === "@ai-sdk/amazon-bedrock/mantle") {
+        if (
+          ProviderV2.isAISDK(evt.model.package) &&
+          ProviderV2.packageName(evt.model.package) === "@ai-sdk/amazon-bedrock/mantle"
+        ) {
           evt.language = selectMantleModel(evt.sdk, evt.model.modelID ?? evt.model.id)
           return
         }

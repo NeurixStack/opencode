@@ -71,8 +71,7 @@ describe("GitLabPlugin", () => {
             model: ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.make("gitlab"), ModelV2.ID.make("claude")),
               modelID: ModelV2.ID.make("claude"),
-              aisdk: true,
-              package: "test-provider",
+              package: "aisdk:test-provider",
             }),
             package: "gitlab-ai-provider",
             options: { name: "gitlab" },
@@ -110,8 +109,7 @@ describe("GitLabPlugin", () => {
             model: ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.make("gitlab"), ModelV2.ID.make("claude")),
               modelID: ModelV2.ID.make("claude"),
-              aisdk: true,
-              package: "test-provider",
+              package: "aisdk:test-provider",
             }),
             package: "gitlab-ai-provider",
             options: { name: "gitlab" },
@@ -137,8 +135,7 @@ describe("GitLabPlugin", () => {
             model: ModelV2.Info.make({
               ...ModelV2.Info.empty(ProviderV2.ID.make("gitlab"), ModelV2.ID.make("claude")),
               modelID: ModelV2.ID.make("claude"),
-              aisdk: true,
-              package: "test-provider",
+              package: "aisdk:test-provider",
             }),
             package: "gitlab-ai-provider",
             options: {
@@ -180,8 +177,7 @@ describe("GitLabPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("gitlab"), ModelV2.ID.make("claude")),
           modelID: ModelV2.ID.make("claude"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai",
         options: { name: "gitlab" },
@@ -201,8 +197,7 @@ describe("GitLabPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("gitlab"), ModelV2.ID.make("duo-workflow-custom")),
           modelID: ModelV2.ID.make("duo-workflow-custom"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
           headers: {},
           settings: { workflowRef: "ref", workflowDefinition: "definition" },
         }),
@@ -236,8 +231,7 @@ describe("GitLabPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("gitlab"), ModelV2.ID.make("duo-workflow-exact")),
           modelID: ModelV2.ID.make("duo-workflow-exact"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: {
           workflowChat: (id: string, options: unknown) => {
@@ -265,8 +259,7 @@ describe("GitLabPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("gitlab"), ModelV2.ID.make("duo-workflow-custom")),
           modelID: ModelV2.ID.make("duo-workflow-custom"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
           headers: {},
           settings: { featureFlags: { request_flag: true } },
         }),
@@ -293,8 +286,7 @@ describe("GitLabPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("gitlab"), ModelV2.ID.make("claude")),
           modelID: ModelV2.ID.make("claude"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
           headers: { h: "v" },
           settings: {},
         }),

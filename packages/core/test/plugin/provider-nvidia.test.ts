@@ -27,8 +27,7 @@ describe("NvidiaPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("nvidia"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://integrate.api.nvidia.com/v1" }
           provider.headers = { Existing: "value" }
         })
@@ -50,8 +49,7 @@ describe("NvidiaPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("nvidia"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://integrate.api.nvidia.com/v1" }
         })
       })
@@ -70,8 +68,7 @@ describe("NvidiaPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("nvidia"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://integrate.api.nvidia.com/v1" }
           provider.headers = { "X-BILLING-INVOKE-ORIGIN": "CustomOrigin" }
         })

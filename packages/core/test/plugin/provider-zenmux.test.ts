@@ -32,8 +32,7 @@ describe("ZenmuxPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("zenmux"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://zenmux.ai/api/v1" }
         })
       })
@@ -49,8 +48,7 @@ describe("ZenmuxPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("zenmux"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://zenmux.ai/api/v1" }
           provider.headers = { ...provider.headers, Existing: "value" }
         })
@@ -70,8 +68,7 @@ describe("ZenmuxPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.make("zenmux"), (provider) => {
-          provider.aisdk = true
-          provider.package = "@ai-sdk/openai-compatible"
+          provider.package = ProviderV2.aisdk("@ai-sdk/openai-compatible")
           provider.settings = { ...provider.settings, baseURL: "https://zenmux.ai/api/v1" }
           provider.headers = { "HTTP-Referer": "https://example.com/", "X-Title": "custom-title" }
         })

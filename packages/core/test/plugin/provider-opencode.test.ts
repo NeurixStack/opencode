@@ -133,8 +133,7 @@ describe("OpencodePlugin", () => {
           expect(provider).toMatchObject({
             name: "Remote",
             integrationID: "opencode",
-            aisdk: true,
-            package: "@ai-sdk/openai-compatible",
+            package: "aisdk:@ai-sdk/openai-compatible",
             settings: { baseURL: `${server.url.origin}/v1` },
           })
           expect(provider.headers).toEqual({ "x-org-id": "org" })
@@ -178,14 +177,12 @@ describe("OpencodePlugin", () => {
         yield* catalog.transform((catalog) => {
           const provider = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.opencode),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           })
           const model = ModelV2.Info.make({
             ...ModelV2.Info.empty(provider.id, ModelV2.ID.make("paid")),
             modelID: ModelV2.ID.make("paid"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
             cost: cost(1),
           })
           catalog.provider.update(provider.id, () => {})
@@ -207,14 +204,12 @@ describe("OpencodePlugin", () => {
         yield* catalog.transform((catalog) => {
           const provider = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.opencode),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           })
           const model = ModelV2.Info.make({
             ...ModelV2.Info.empty(provider.id, ModelV2.ID.make("free")),
             modelID: ModelV2.ID.make("free"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
             cost: cost(0),
           })
           catalog.provider.update(provider.id, () => {})
@@ -236,14 +231,12 @@ describe("OpencodePlugin", () => {
         yield* catalog.transform((catalog) => {
           const provider = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.opencode),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           })
           const model = ModelV2.Info.make({
             ...ModelV2.Info.empty(provider.id, ModelV2.ID.make("output-only")),
             modelID: ModelV2.ID.make("output-only"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
             cost: cost(0, 1),
           })
           catalog.provider.update(provider.id, () => {})
@@ -267,14 +260,12 @@ describe("OpencodePlugin", () => {
         yield* catalog.transform((catalog) => {
           const provider = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.opencode),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           })
           const model = ModelV2.Info.make({
             ...ModelV2.Info.empty(provider.id, ModelV2.ID.make("paid")),
             modelID: ModelV2.ID.make("paid"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
             cost: cost(1),
           })
           catalog.provider.update(provider.id, () => {})
@@ -303,14 +294,12 @@ describe("OpencodePlugin", () => {
         yield* catalog.transform((catalog) => {
           const provider = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.opencode),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           })
           const model = ModelV2.Info.make({
             ...ModelV2.Info.empty(provider.id, ModelV2.ID.make("paid")),
             modelID: ModelV2.ID.make("paid"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
             cost: cost(1),
           })
           catalog.provider.update(provider.id, () => {})
@@ -332,16 +321,14 @@ describe("OpencodePlugin", () => {
         yield* catalog.transform((catalog) => {
           const provider = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.opencode),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
             headers: {},
             settings: { apiKey: "configured" },
           })
           const model = ModelV2.Info.make({
             ...ModelV2.Info.empty(provider.id, ModelV2.ID.make("paid")),
             modelID: ModelV2.ID.make("paid"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
             cost: cost(1),
           })
           catalog.provider.update(provider.id, (draft) => {
@@ -366,14 +353,12 @@ describe("OpencodePlugin", () => {
         yield* catalog.transform((catalog) => {
           const provider = ProviderV2.Info.make({
             ...ProviderV2.Info.empty(ProviderV2.ID.openai),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           })
           const model = ModelV2.Info.make({
             ...ModelV2.Info.empty(provider.id, ModelV2.ID.make("paid")),
             modelID: ModelV2.ID.make("paid"),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
             cost: cost(1),
           })
           catalog.provider.update(provider.id, () => {})

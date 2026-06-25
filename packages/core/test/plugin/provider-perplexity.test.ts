@@ -42,8 +42,7 @@ describe("PerplexityPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("perplexity"), ModelV2.ID.make("sonar")),
           modelID: ModelV2.ID.make("sonar"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/perplexity",
         options: { name: "perplexity" },
@@ -61,8 +60,7 @@ describe("PerplexityPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("perplexity"), ModelV2.ID.make("sonar")),
           modelID: ModelV2.ID.make("sonar"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/perplexity-compatible",
         options: { name: "perplexity" },
@@ -80,8 +78,7 @@ describe("PerplexityPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("perplexity"), ModelV2.ID.make("sonar")),
           modelID: ModelV2.ID.make("sonar"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/perplexity",
         options: { name: "perplexity" },
@@ -99,8 +96,7 @@ describe("PerplexityPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-perplexity"), ModelV2.ID.make("sonar")),
           modelID: ModelV2.ID.make("sonar"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/perplexity",
         options: { name: "custom-perplexity" },
@@ -119,8 +115,7 @@ describe("PerplexityPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("perplexity"), ModelV2.ID.make("alias")),
           modelID: ModelV2.ID.make("sonar"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk: fakeSelectorSdk(calls),
         options: {},

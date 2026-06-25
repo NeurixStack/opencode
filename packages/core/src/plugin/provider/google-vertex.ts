@@ -60,12 +60,12 @@ export const GoogleVertexPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (!item.provider.aisdk) continue
+          if (!ProviderV2.isAISDK(item.provider.package)) continue
           if (
-            item.provider.package !== "@ai-sdk/google-vertex" &&
+            ProviderV2.packageName(item.provider.package) !== "@ai-sdk/google-vertex" &&
             !(
               item.provider.id === ProviderV2.ID.googleVertex &&
-              item.provider.package.includes("@ai-sdk/openai-compatible")
+              ProviderV2.packageName(item.provider.package)?.includes("@ai-sdk/openai-compatible")
             )
           )
             continue
@@ -79,7 +79,7 @@ export const GoogleVertexPlugin = define({
               ...(typeof provider.settings?.baseURL === "string"
                 ? { baseURL: replaceVertexVars(provider.settings.baseURL, project, location) }
                 : {}),
-              ...(provider.package.includes("@ai-sdk/openai-compatible")
+              ...(ProviderV2.packageName(provider.package)?.includes("@ai-sdk/openai-compatible")
                 ? { fetch: authFetch(provider.settings?.fetch) }
                 : {}),
             }
@@ -121,8 +121,8 @@ export const GoogleVertexAnthropicPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (!item.provider.aisdk) continue
-          if (item.provider.package !== "@ai-sdk/google-vertex/anthropic") continue
+          if (!ProviderV2.isAISDK(item.provider.package)) continue
+          if (ProviderV2.packageName(item.provider.package) !== "@ai-sdk/google-vertex/anthropic") continue
           const project =
             item.provider.settings?.project ??
             process.env.GOOGLE_CLOUD_PROJECT ??

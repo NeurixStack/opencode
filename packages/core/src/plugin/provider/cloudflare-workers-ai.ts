@@ -14,7 +14,7 @@ export const CloudflareWorkersAIPlugin = define({
         const item = evt.provider.get(providerID)
         if (!item) return
         evt.provider.update(item.provider.id, (provider) => {
-          if (!provider.aisdk) return
+          if (!ProviderV2.isAISDK(provider.package)) return
           if (typeof provider.settings?.baseURL === "string") return
           const accountId = resolveAccountId(provider.settings ?? {})
           if (accountId) provider.settings = { ...provider.settings, baseURL: workersEndpoint(accountId) }
@@ -54,8 +54,11 @@ function workersEndpoint(accountId: string) {
   return `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1`
 }
 
-function hasWorkersEndpoint(model: { readonly aisdk?: true; readonly settings?: Readonly<Record<string, unknown>> }) {
-  return model.aisdk && typeof model.settings?.baseURL === "string"
+function hasWorkersEndpoint(model: {
+  readonly package?: string
+  readonly settings?: Readonly<Record<string, unknown>>
+}) {
+  return ProviderV2.isAISDK(model.package) && typeof model.settings?.baseURL === "string"
 }
 
 function sdkOptions(options: Record<string, any>) {

@@ -3991,7 +3991,6 @@ export type ModelV2Info = {
   family?: string
   name: string
   package?: string
-  aisdk?: true
   settings?: {
     [key: string]: unknown
   }
@@ -4048,7 +4047,6 @@ export type ProviderV2Info = {
   name: string
   disabled?: boolean
   package: string
-  aisdk?: true
   settings?: {
     [key: string]: unknown
   }

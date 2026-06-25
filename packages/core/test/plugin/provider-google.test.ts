@@ -28,8 +28,7 @@ describe("GooglePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-google"), ModelV2.ID.make("gemini")),
           modelID: ModelV2.ID.make("gemini"),
-          aisdk: true,
-          package: "@ai-sdk/google",
+          package: "aisdk:@ai-sdk/google",
         }),
         package: "@ai-sdk/google",
         options: { name: "custom-google", apiKey: "test" },
@@ -48,8 +47,7 @@ describe("GooglePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("google"), ModelV2.ID.make("gemini")),
           modelID: ModelV2.ID.make("gemini"),
-          aisdk: true,
-          package: "@ai-sdk/google",
+          package: "aisdk:@ai-sdk/google",
         }),
         package: "@ai-sdk/google-vertex",
         options: { name: "google" },
@@ -67,8 +65,7 @@ describe("GooglePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-google"), ModelV2.ID.make("alias")),
           modelID: ModelV2.ID.make("gemini-api"),
-          aisdk: true,
-          package: "@ai-sdk/google",
+          package: "aisdk:@ai-sdk/google",
         }),
         package: "@ai-sdk/google",
         options: { name: "custom-google", apiKey: "test" },

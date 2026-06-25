@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { define } from "../internal"
+import { ProviderV2 } from "../../provider"
 
 export const ZenmuxPlugin = define({
   id: "zenmux",
@@ -7,8 +8,8 @@ export const ZenmuxPlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (!item.provider.aisdk) continue
-          if (item.provider.package !== "@ai-sdk/openai-compatible") continue
+          if (!ProviderV2.isAISDK(item.provider.package)) continue
+          if (ProviderV2.packageName(item.provider.package) !== "@ai-sdk/openai-compatible") continue
           if (item.provider.settings?.baseURL !== "https://zenmux.ai/api/v1") continue
           evt.provider.update(item.provider.id, (provider) => {
             provider.headers = {

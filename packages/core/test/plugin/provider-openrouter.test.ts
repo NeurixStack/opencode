@@ -30,8 +30,7 @@ describe("OpenRouterPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.openrouter, (provider) => {
-          provider.aisdk = true
-          provider.package = "@openrouter/ai-sdk-provider"
+          provider.package = ProviderV2.aisdk("@openrouter/ai-sdk-provider")
           provider.headers = { Existing: "value" }
           provider.settings = {}
         })
@@ -58,8 +57,7 @@ describe("OpenRouterPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.openrouter, ModelV2.ID.make("openai/gpt-5")),
           modelID: ModelV2.ID.make("openai/gpt-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "openrouter" },
@@ -70,8 +68,7 @@ describe("OpenRouterPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("openai/gpt-5")),
           modelID: ModelV2.ID.make("openai/gpt-5"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@openrouter/ai-sdk-provider",
         options: { name: "custom" },
@@ -85,8 +82,7 @@ describe("OpenRouterPlugin", () => {
       const catalog = yield* Catalog.Service
       yield* catalog.transform((catalog) => {
         catalog.provider.update(ProviderV2.ID.openrouter, (provider) => {
-          provider.aisdk = true
-          provider.package = "@openrouter/ai-sdk-provider"
+          provider.package = ProviderV2.aisdk("@openrouter/ai-sdk-provider")
         })
         catalog.provider.update(ProviderV2.ID.openai, () => {})
         catalog.model.update(ProviderV2.ID.openrouter, ModelV2.ID.make("openai/gpt-5-chat"), () => {})

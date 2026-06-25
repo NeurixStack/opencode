@@ -40,7 +40,6 @@ class Model extends Schema.Class<Model>("ConfigV2.Model")({
   family: ModelV2.Family.pipe(Schema.optional),
   name: Schema.String.pipe(Schema.optional),
   package: Schema.String.pipe(Schema.optional),
-  aisdk: Schema.Literal(true).pipe(Schema.optional),
   ...Overlays,
   capabilities: ModelV2.Capabilities.pipe(Schema.optional),
   variants: Schema.Struct({
@@ -56,7 +55,6 @@ export class Info extends Schema.Class<Info>("ConfigV2.Provider")({
   name: Schema.String.pipe(Schema.optional),
   env: Schema.String.pipe(Schema.Array, Schema.optional),
   package: Schema.String.pipe(Schema.optional),
-  aisdk: Schema.Literal(true).pipe(Schema.optional),
   ...Overlays,
   models: Schema.Record(Schema.String, Model).pipe(Schema.optional),
 }) {}

@@ -54,8 +54,7 @@ describe("DynamicProviderPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("test-model")),
           modelID: ModelV2.ID.make("test-model"),
-          aisdk: true,
-          package: fixtureProvider,
+          package: ProviderV2.aisdk(fixtureProvider),
         }),
         package: fixtureProvider,
         options: { name: "custom", marker: "dynamic" },
@@ -74,8 +73,7 @@ describe("DynamicProviderPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("test-model")),
           modelID: ModelV2.ID.make("test-model"),
-          aisdk: true,
-          package: fixtureProvider,
+          package: ProviderV2.aisdk(fixtureProvider),
         }),
         package: fixtureProvider,
         options: { name: "custom", marker: "dynamic" },
@@ -93,8 +91,7 @@ describe("DynamicProviderPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-provider"), ModelV2.ID.make("test-model")),
           modelID: ModelV2.ID.make("test-model"),
-          aisdk: true,
-          package: fixtureProvider,
+          package: ProviderV2.aisdk(fixtureProvider),
         }),
         package: fixtureProvider,
         options: { name: "custom-provider", marker: "dynamic" },
@@ -111,8 +108,7 @@ describe("DynamicProviderPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("npm-provider"), ModelV2.ID.make("test-model")),
           modelID: ModelV2.ID.make("test-model"),
-          aisdk: true,
-          package: "fixture-provider",
+          package: "aisdk:fixture-provider",
         }),
         package: "fixture-provider",
         options: { name: "npm-provider", marker: "npm" },
@@ -130,8 +126,7 @@ describe("DynamicProviderPlugin", () => {
           ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("missing-entrypoint"), ModelV2.ID.make("alias")),
             modelID: ModelV2.ID.make("alias"),
-            aisdk: true,
-            package: "fixture-provider",
+            package: "aisdk:fixture-provider",
           }),
         )
         .pipe(Effect.exit)
@@ -149,8 +144,7 @@ describe("DynamicProviderPlugin", () => {
           ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("bad-import"), ModelV2.ID.make("alias")),
             modelID: ModelV2.ID.make("alias"),
-            aisdk: true,
-            package: "file:///missing/provider-factory.js",
+            package: "aisdk:file:///missing/provider-factory.js",
           }),
         )
         .pipe(Effect.exit)
@@ -170,8 +164,7 @@ describe("DynamicProviderPlugin", () => {
           ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("missing-factory"), ModelV2.ID.make("alias")),
             modelID: ModelV2.ID.make("alias"),
-            aisdk: true,
-            package: "fixture-provider",
+            package: "aisdk:fixture-provider",
           }),
         )
         .pipe(Effect.exit)
@@ -189,8 +182,7 @@ describe("DynamicProviderPlugin", () => {
         ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("alias")),
           modelID: ModelV2.ID.make("test-model-api"),
-          aisdk: true,
-          package: fixtureProvider,
+          package: ProviderV2.aisdk(fixtureProvider),
         }),
       )
       expect(language).toMatchObject({ modelID: "test-model-api", options: { name: "custom" } })

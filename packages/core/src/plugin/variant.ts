@@ -2,6 +2,7 @@ export * as VariantPlugin from "./variant"
 
 import { Effect } from "effect"
 import { ModelV2 } from "../model"
+import { ProviderV2 } from "../provider"
 import { define } from "./internal"
 
 export const Plugin = define({
@@ -29,9 +30,10 @@ export const Plugin = define({
 
 export function generate(
   model: ModelV2.Info,
-  provider?: { readonly package: string; readonly aisdk?: true },
+  provider?: { readonly package: string },
 ): NonNullable<ModelV2.Info["variants"]> {
-  if (!(model.aisdk ?? provider?.aisdk) || (model.package ?? provider?.package) !== "@ai-sdk/openai-compatible") return []
+  const packageName = model.package ?? provider?.package
+  if (!ProviderV2.isAISDK(packageName) || ProviderV2.packageName(packageName) !== "@ai-sdk/openai-compatible") return []
   const ids = `${model.id} ${model.modelID ?? ""}`.toLowerCase()
   if (!["glm-5.2", "glm-5-2", "glm-5p2"].some((name) => ids.includes(name))) return []
   return ["high", "max"].map((id) => ({

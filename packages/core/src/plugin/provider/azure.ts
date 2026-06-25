@@ -16,8 +16,8 @@ export const AzurePlugin = define({
     yield* ctx.catalog.transform(
       Effect.fn(function* (evt) {
         for (const item of evt.provider.list()) {
-          if (!item.provider.aisdk) continue
-          if (item.provider.package !== "@ai-sdk/azure") continue
+          if (!ProviderV2.isAISDK(item.provider.package)) continue
+          if (ProviderV2.packageName(item.provider.package) !== "@ai-sdk/azure") continue
           const configured = item.provider.settings?.resourceName
           const resourceName =
             typeof configured === "string" && configured.trim() !== "" ? configured : process.env.AZURE_RESOURCE_NAME
@@ -35,7 +35,7 @@ export const AzurePlugin = define({
           if (
             !evt.options.resourceName &&
             !evt.options.baseURL &&
-            (!evt.model.aisdk || typeof evt.model.settings?.baseURL !== "string")
+            (!ProviderV2.isAISDK(evt.model.package) || typeof evt.model.settings?.baseURL !== "string")
           ) {
             throw new Error(
               "AZURE_RESOURCE_NAME is missing, set it using env var or reconnecting the azure provider and setting it",
@@ -67,8 +67,8 @@ export const AzureCognitiveServicesPlugin = define({
         const resourceName = process.env.AZURE_COGNITIVE_SERVICES_RESOURCE_NAME
         if (!resourceName) return
         for (const item of evt.provider.list()) {
-          if (!item.provider.aisdk) continue
-          if (item.provider.package !== "@ai-sdk/openai-compatible") continue
+          if (!ProviderV2.isAISDK(item.provider.package)) continue
+          if (ProviderV2.packageName(item.provider.package) !== "@ai-sdk/openai-compatible") continue
           if (!item.provider.id.includes("azure-cognitive-services")) continue
           evt.provider.update(item.provider.id, (provider) => {
             provider.settings = {

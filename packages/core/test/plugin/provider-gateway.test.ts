@@ -46,8 +46,7 @@ describe("GatewayPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("gateway"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/gateway",
         options: { name: "gateway" },
@@ -68,8 +67,7 @@ describe("GatewayPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("vercel"), ModelV2.ID.make("anthropic/claude-sonnet-4")),
           modelID: ModelV2.ID.make("anthropic/claude-sonnet-4"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/gateway",
         options: { name: "vercel", apiKey: "test-key" },
@@ -92,8 +90,7 @@ describe("GatewayPlugin", () => {
           model: ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("vercel"), ModelV2.ID.make(modelID)),
             modelID: ModelV2.ID.make(modelID),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           }),
           package: "@ai-sdk/vercel",
           options: { name: "vercel" },
@@ -104,8 +101,7 @@ describe("GatewayPlugin", () => {
           model: ModelV2.Info.make({
             ...ModelV2.Info.empty(ProviderV2.ID.make("vercel"), ModelV2.ID.make(modelID)),
             modelID: ModelV2.ID.make(modelID),
-            aisdk: true,
-            package: "test-provider",
+            package: "aisdk:test-provider",
           }),
           package: "@ai-sdk/gateway",
           options: { name: "vercel" },

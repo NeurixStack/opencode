@@ -29,8 +29,7 @@ describe("MistralPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
           modelID: ModelV2.ID.make("mistral-large"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/mistral",
         options: { name: "mistral" },
@@ -48,8 +47,7 @@ describe("MistralPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
           modelID: ModelV2.ID.make("mistral-large"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "mistral" },
@@ -73,8 +71,7 @@ describe("MistralPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("mistral-large")),
           modelID: ModelV2.ID.make("mistral-large"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/mistral",
         options: { name: "mistral" },
@@ -99,8 +96,7 @@ describe("MistralPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-mistral"), ModelV2.ID.make("mistral-large")),
           modelID: ModelV2.ID.make("mistral-large"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/mistral",
         options: { name: "custom-mistral" },
@@ -125,8 +121,7 @@ describe("MistralPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("mistral"), ModelV2.ID.make("alias")),
           modelID: ModelV2.ID.make("mistral-large"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         sdk,
         options: {},

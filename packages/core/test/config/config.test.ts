@@ -101,8 +101,7 @@ describe("Config", () => {
       })
 
       expect(migrated.providers?.bedrock).toMatchObject({
-        package: "@ai-sdk/amazon-bedrock",
-        aisdk: true,
+        package: "aisdk:@ai-sdk/amazon-bedrock",
         settings: { baseURL: "https://bedrock.example.com", region: "us-east-1", profile: "dev" },
         headers: { "x-test": "1" },
         body: { trace: true },
@@ -588,8 +587,7 @@ describe("Config", () => {
               },
             })
             expect(documents[0]?.info.providers?.openai).toMatchObject({
-              package: "@ai-sdk/openai",
-              aisdk: true,
+              package: "aisdk:@ai-sdk/openai",
               settings: { apiKey: "secret", organization: "org" },
               models: {
                 model: {

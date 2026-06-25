@@ -29,8 +29,7 @@ describe("GroqPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("groq"), ModelV2.ID.make("llama")),
           modelID: ModelV2.ID.make("llama"),
-          aisdk: true,
-          package: "@ai-sdk/groq",
+          package: "aisdk:@ai-sdk/groq",
         }),
         package: "@ai-sdk/groq",
         options: { name: "groq" },
@@ -48,8 +47,7 @@ describe("GroqPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("groq"), ModelV2.ID.make("llama")),
           modelID: ModelV2.ID.make("llama"),
-          aisdk: true,
-          package: "@ai-sdk/groq",
+          package: "aisdk:@ai-sdk/groq",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "groq" },
@@ -67,8 +65,7 @@ describe("GroqPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("groq"), ModelV2.ID.make("llama")),
           modelID: ModelV2.ID.make("llama"),
-          aisdk: true,
-          package: "@ai-sdk/groq",
+          package: "aisdk:@ai-sdk/groq",
         }),
         package: "@ai-sdk/groq/compat",
         options: { name: "groq" },
@@ -86,8 +83,7 @@ describe("GroqPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-groq"), ModelV2.ID.make("llama")),
           modelID: ModelV2.ID.make("llama"),
-          aisdk: true,
-          package: "@ai-sdk/groq",
+          package: "aisdk:@ai-sdk/groq",
         }),
         package: "@ai-sdk/groq",
         options: { name: "custom-groq", apiKey: "test" },
@@ -113,8 +109,7 @@ describe("GroqPlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("groq"), ModelV2.ID.make("alias")),
           modelID: ModelV2.ID.make("llama-api"),
-          aisdk: true,
-          package: "@ai-sdk/groq",
+          package: "aisdk:@ai-sdk/groq",
         }),
         sdk,
         options: { name: "groq", apiKey: "test" },

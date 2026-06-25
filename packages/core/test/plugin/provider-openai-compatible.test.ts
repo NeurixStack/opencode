@@ -28,8 +28,7 @@ describe("OpenAICompatiblePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "custom" },
@@ -38,8 +37,7 @@ describe("OpenAICompatiblePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "custom", includeUsage: false },
@@ -58,8 +56,7 @@ describe("OpenAICompatiblePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "file:///tmp/@ai-sdk/openai-compatible-provider.js",
         options: { name: "custom" },
@@ -83,8 +80,7 @@ describe("OpenAICompatiblePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("custom-provider"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "custom-provider", baseURL: "https://example.com/v1" },
@@ -105,8 +101,7 @@ describe("OpenAICompatiblePlugin", () => {
         model: ModelV2.Info.make({
           ...ModelV2.Info.empty(ProviderV2.ID.make("cloudflare-workers-ai"), ModelV2.ID.make("model")),
           modelID: ModelV2.ID.make("model"),
-          aisdk: true,
-          package: "test-provider",
+          package: "aisdk:test-provider",
         }),
         package: "@ai-sdk/openai-compatible",
         options: { name: "cloudflare-workers-ai" },
