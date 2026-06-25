@@ -1,13 +1,13 @@
 export * as EventV2 from "./event"
 
-import { Cause, Context, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
+import { Cause, Context, Effect, Layer, Option, Predicate, PubSub, Schema, Stream } from "effect"
 import { Event } from "@opencode-ai/schema/event"
 import type {
   Data,
   Definition,
   DurableDefinition,
+  LivePublishedPayload,
   Payload,
-  PublishedPayload,
   UncommittedPayload,
 } from "@opencode-ai/schema/event"
 import { and, asc, eq, gt } from "drizzle-orm"
@@ -24,8 +24,8 @@ export type {
   Data,
   Definition,
   DurableDefinition,
+  LivePublishedPayload,
   Payload,
-  PublishedPayload,
   UncommittedPayload,
 } from "@opencode-ai/schema/event"
 
@@ -154,7 +154,7 @@ export const layerWith = (options?: LayerOptions) =>
         return Effect.gen(function* () {
           const durable = definition.durable
           if (durable) {
-            const aggregateID = (event.data as Record<string, unknown>)[durable.aggregate]
+            const aggregateID = Predicate.isReadonlyObject(event.data) ? event.data[durable.aggregate] : undefined
             if (typeof aggregateID !== "string") {
               yield* Effect.die(
                 new InvalidDurableEventError({
@@ -185,10 +185,14 @@ export const layerWith = (options?: LayerOptions) =>
                             .get()
                             .pipe(Effect.orDie)
                           const latest = row?.seq ?? -1
-                          const encoded = Schema.encodeUnknownSync(definition.data)(event.data) as Record<
-                            string,
-                            unknown
-                          >
+                          const encoded = Schema.encodeUnknownSync(definition.data)(event.data)
+                          if (!Predicate.isReadonlyObject(encoded))
+                            return yield* Effect.die(
+                              new InvalidDurableEventError({
+                                type: event.type,
+                                message: "Expected durable event data to encode as an object",
+                              }),
+                            )
                           if (input?.strictOwner && row?.ownerID && row.ownerID !== input.ownerID) {
                             yield* Effect.die(
                               new InvalidDurableEventError({
@@ -304,39 +308,6 @@ export const layerWith = (options?: LayerOptions) =>
         })
       }
 
-      function publishEvent<D extends Definition>(
-        definition: D,
-        event: UncommittedPayload<D>,
-        commit?: PublishOptions["commit"],
-      ): Effect.Effect<PublishedPayload<D>> {
-        return Effect.gen(function* () {
-          if (!definition?.durable && commit)
-            return yield* Effect.die(
-              new InvalidDurableEventError({
-                type: event.type,
-                message: "Local commit hooks require a durable event",
-              }),
-            )
-          if (definition?.durable) {
-            const committed = yield* commitDurableEvent(
-              definition,
-              event as UncommittedPayload<DurableDefinition>,
-              undefined,
-              commit,
-            )
-            if (!committed)
-              return yield* Effect.die(
-                new InvalidDurableEventError({ type: event.type, message: "New durable event was not committed" }),
-              )
-            yield* notify(committed, true)
-            return committed as PublishedPayload<D>
-          }
-          const published = event as PublishedPayload<D>
-          yield* notify(published, false)
-          return published
-        })
-      }
-
       const observe = (event: Payload, observer: (event: Payload) => Effect.Effect<void>) =>
         Effect.suspend(() => observer(event)).pipe(
           Effect.catchCauseIf(
@@ -358,7 +329,17 @@ export const layerWith = (options?: LayerOptions) =>
         })
       }
 
-      function publish<D extends Definition>(definition: D, data: Data<D>, options?: PublishOptions) {
+      const isPayload =
+        <D extends Definition>(definition: D) =>
+        (event: Payload): event is Payload<D> =>
+          Schema.is(definition)(event)
+
+      function publish<D extends Definition>(
+        definition: D,
+        data: Data<D>,
+        options?: PublishOptions,
+      ): Effect.Effect<Payload<D>>
+      function publish(definition: Definition, data: unknown, options?: PublishOptions): Effect.Effect<Payload> {
         return Effect.gen(function* () {
           const serviceLocation = Option.getOrUndefined(yield* Effect.serviceOption(Location.Service))
           const location =
@@ -366,17 +347,38 @@ export const layerWith = (options?: LayerOptions) =>
             (serviceLocation
               ? { directory: serviceLocation.directory, workspaceID: serviceLocation.workspaceID }
               : undefined)
-          return yield* publishEvent(
-            definition,
-            {
+          if (definition.durable) {
+            const event: UncommittedPayload<DurableDefinition> = {
               id: options?.id ?? ID.create(),
               ...(options?.metadata ? { metadata: options.metadata } : {}),
               type: definition.type,
               ...(location ? { location } : {}),
               data,
-            } as UncommittedPayload<D>,
-            options?.commit,
-          )
+            }
+            const committed = yield* commitDurableEvent(definition, event, undefined, options?.commit)
+            if (!committed)
+              return yield* Effect.die(
+                new InvalidDurableEventError({ type: event.type, message: "New durable event was not committed" }),
+              )
+            yield* notify(committed, true)
+            return committed
+          }
+          if (options?.commit)
+            return yield* Effect.die(
+              new InvalidDurableEventError({
+                type: definition.type,
+                message: "Local commit hooks require a durable event",
+              }),
+            )
+          const event: LivePublishedPayload = {
+            id: options?.id ?? ID.create(),
+            ...(options?.metadata ? { metadata: options.metadata } : {}),
+            type: definition.type,
+            ...(location ? { location } : {}),
+            data,
+          }
+          yield* notify(event, false)
+          return event
         })
       }
 
@@ -465,7 +467,7 @@ export const layerWith = (options?: LayerOptions) =>
 
       const subscribe = <D extends Definition>(definition: D): Stream.Stream<Payload<D>> =>
         Stream.unwrap(getOrCreate(definition).pipe(Effect.map((pubsub) => Stream.fromPubSub(pubsub)))).pipe(
-          Stream.map((event) => event as Payload<D>),
+          Stream.filter(isPayload(definition)),
         )
 
       const streamAll = (): Stream.Stream<Payload> => Stream.fromPubSub(pubsub.all)
@@ -563,7 +565,11 @@ export const layerWith = (options?: LayerOptions) =>
       const project = <D extends DurableDefinition>(definition: D, projector: Subscriber<D>): Effect.Effect<void> =>
         Effect.sync(() => {
           const list = projectors.get(definition.type) ?? []
-          list.push((event) => projector(event as Payload<D>))
+          list.push((event) =>
+            isPayload(definition)(event)
+              ? projector(event)
+              : Effect.die(`Published event ${event.type} does not match its definition`),
+          )
           projectors.set(definition.type, list)
         })
 

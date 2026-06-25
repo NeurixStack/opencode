@@ -48,14 +48,6 @@ export type DurableDefinition<
 
 export type Definition = LiveDefinition | DurableDefinition
 
-type Defined<
-  Type extends string,
-  DataSchema extends Schema.Codec<unknown, unknown>,
-  Durability extends DurableOptions | undefined,
-> = Durability extends DurableOptions
-  ? DurableDefinition<Type, DataSchema, Durability>
-  : LiveDefinition<Type, DataSchema>
-
 export type Data<D extends Definition> = Schema.Schema.Type<D["data"]>
 
 export type UncommittedPayload<D extends Definition = Definition> = D extends Definition
@@ -68,47 +60,73 @@ export type UncommittedPayload<D extends Definition = Definition> = D extends De
     }
   : never
 
-export type PublishedPayload<D extends Definition = Definition> = D extends Definition
-  ? UncommittedPayload<D> &
-      (D extends { readonly durable: infer Durability extends DurableOptions }
-        ? { readonly durable: DurableEnvelope<Durability["version"]> }
-        : { readonly durable?: never })
-  : never
+export type DurablePublishedPayload<D extends DurableDefinition = DurableDefinition> = UncommittedPayload<D> & {
+  readonly durable: DurableEnvelope<D["durable"]["version"]>
+}
+
+export type LivePublishedPayload<D extends LiveDefinition = LiveDefinition> = UncommittedPayload<D> & {
+  readonly durable?: never
+}
+
+export type PublishedPayload<D extends Definition = Definition> = D extends DurableDefinition
+  ? DurablePublishedPayload<D>
+  : D extends LiveDefinition
+    ? LivePublishedPayload<D>
+    : never
 
 export type Payload<D extends Definition = Definition> = PublishedPayload<D>
 
-type EventSchema<
+type LiveEventSchema<
   Type extends string,
   Fields extends Readonly<Record<PropertyKey, Schema.Codec<unknown, unknown>>>,
-  Durability extends DurableOptions | undefined,
-> = Schema.Schema<PublishedPayload<Defined<Type, Schema.Struct<Fields>, Durability>>> &
-  Defined<Type, Schema.Struct<Fields>, Durability>
+> = Schema.Schema<PublishedPayload<LiveDefinition<Type, Schema.Struct<Fields>>>> &
+  LiveDefinition<Type, Schema.Struct<Fields>>
+
+type DurableEventSchema<
+  Type extends string,
+  Fields extends Readonly<Record<PropertyKey, Schema.Codec<unknown, unknown>>>,
+  Durability extends DurableOptions,
+> = Schema.Schema<PublishedPayload<DurableDefinition<Type, Schema.Struct<Fields>, Durability>>> &
+  DurableDefinition<Type, Schema.Struct<Fields>, Durability>
 
 export function define<
   const Type extends string,
   Fields extends Readonly<Record<PropertyKey, Schema.Codec<unknown, unknown>>>,
-  const Durability extends DurableOptions | undefined = undefined,
+>(input: { readonly type: Type; readonly durable?: never; readonly schema: Fields }): LiveEventSchema<Type, Fields>
+export function define<
+  const Type extends string,
+  Fields extends Readonly<Record<PropertyKey, Schema.Codec<unknown, unknown>>>,
+  const Durability extends DurableOptions,
 >(input: {
   readonly type: Type
-  readonly durable?: Durability
+  readonly durable: Durability
   readonly schema: Fields
-}): EventSchema<Type, Fields, Durability> {
+}): DurableEventSchema<Type, Fields, Durability>
+export function define(input: {
+  readonly type: string
+  readonly durable?: DurableOptions
+  readonly schema: Readonly<Record<PropertyKey, Schema.Codec<unknown, unknown>>>
+}): Schema.Top {
   const data = Schema.Struct(input.schema)
-  return Object.assign(
-    Schema.Struct({
-      id: ID,
-      metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
-      type: Schema.Literal(input.type),
-      durable: input.durable === undefined ? NoDurableEnvelope : durableEnvelope(input.durable.version),
-      location: Schema.optional(Location.Ref),
-      data,
-    }).annotate({ identifier: input.type }),
-    {
-      type: input.type,
-      ...(input.durable === undefined ? {} : { durable: input.durable }),
-      data,
-    },
-  ) as unknown as EventSchema<Type, Fields, Durability>
+  const fields = {
+    id: ID,
+    metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+    type: Schema.Literal(input.type),
+    location: Schema.optional(Location.Ref),
+    data,
+  }
+  if (input.durable) {
+    return Object.assign(
+      Schema.Struct({ ...fields, durable: durableEnvelope(input.durable.version) }).annotate({
+        identifier: input.type,
+      }),
+      { type: input.type, durable: input.durable, data },
+    )
+  }
+  return Object.assign(Schema.Struct({ ...fields, durable: NoDurableEnvelope }).annotate({ identifier: input.type }), {
+    type: input.type,
+    data,
+  })
 }
 
 export function inventory<const Definitions extends ReadonlyArray<Definition>>(...definitions: Definitions) {
