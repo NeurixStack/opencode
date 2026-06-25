@@ -50,6 +50,10 @@ const stepSettlementOptions = {
 
 export const UnknownError = SessionMessage.UnknownError
 export type UnknownError = SessionMessage.UnknownError
+export const ProviderError = SessionMessage.ProviderError
+export type ProviderError = SessionMessage.ProviderError
+export const Error = SessionMessage.Error
+export type Error = SessionMessage.Error
 
 export const AgentSwitched = Event.define({
   type: "session.next.agent.switched",
@@ -188,7 +192,7 @@ export namespace Step {
     schema: {
       ...Base,
       assistantMessageID: SessionMessageID.ID,
-      error: UnknownError,
+      error: Error,
     },
   })
   export type Failed = typeof Failed.Type

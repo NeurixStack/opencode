@@ -4,6 +4,11 @@ import {
   LLMError,
   LLMEvent,
   Model,
+  HttpContext,
+  HttpRateLimitDetails,
+  HttpRequestDetails,
+  HttpResponseDetails,
+  RateLimitReason,
   TransportReason,
   InvalidRequestReason,
   type LLMClientShape,
@@ -519,7 +524,7 @@ const verifyPartialFlushOnFailure = (kind: FragmentKind) =>
       {
         type: "assistant",
         finish: "error",
-        error: { type: "unknown", message: "Provider unavailable" },
+        error: { type: "provider", category: "transport", message: "Provider connection failed", retryable: false },
         content: [fixture.expectedContent],
       },
     ])
@@ -2984,8 +2989,103 @@ describe("SessionRunnerLLM", () => {
       yield* replaySessionProjection(sessionID)
       expect(yield* session.context(sessionID)).toMatchObject([
         { type: "user", text: "Fail raw stream durably" },
-        { type: "assistant", finish: "error", error: { type: "unknown", message: "Provider unavailable" } },
+        {
+          type: "assistant",
+          finish: "error",
+          error: { type: "provider", category: "transport", message: "Provider connection failed", retryable: false },
+        },
       ])
+    }),
+  )
+
+  it.effect("preserves sanitized HTTP rate-limit details in the durable event and projection", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const db = yield* Database.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail with rate limit" }), resume: false })
+      const failure = new LLMError({
+        module: "RequestExecutor",
+        method: "execute",
+        reason: new RateLimitReason({
+          message: "secret provider response message",
+          retryAfterMs: 12_000,
+          rateLimit: new HttpRateLimitDetails({ retryAfterMs: 12_000, limit: { requests: "secret-limit" } }),
+          http: new HttpContext({
+            request: new HttpRequestDetails({
+              method: "POST",
+              url: "https://secret.example/v1/responses?api_key=credential",
+              headers: { authorization: "Bearer credential" },
+            }),
+            response: new HttpResponseDetails({ status: 429, headers: { "x-secret": "secret-header" } }),
+            body: '{"secret":"provider body"}',
+            requestId: "secret-request-id",
+          }),
+        }),
+      })
+      responseStream = Stream.fail(failure)
+
+      expect(yield* session.resume(sessionID).pipe(Effect.flip)).toBe(failure)
+
+      const event = yield* db.db
+        .select({ data: EventTable.data })
+        .from(EventTable)
+        .where(eq(EventTable.type, EventV2.versionedType(SessionEvent.Step.Failed.type, 2)))
+        .get()
+        .pipe(Effect.orDie)
+      const expected = {
+        type: "provider",
+        category: "rate-limit",
+        message: "Provider rate limit exceeded",
+        status: 429,
+        retryable: true,
+        retryAfterMs: 12_000,
+      }
+      expect(event?.data.error).toEqual(expected)
+      expect(yield* session.context(sessionID)).toMatchObject([
+        { type: "user", text: "Fail with rate limit" },
+        { type: "assistant", finish: "error", error: expected },
+      ])
+      expect(JSON.stringify(event)).not.toMatch(
+        /secret provider|secret\.example|credential|secret-header|provider body|secret-request-id|secret-limit/,
+      )
+      expect(JSON.stringify(yield* session.context(sessionID))).not.toMatch(
+        /secret provider|secret\.example|credential|secret-header|provider body|secret-request-id|secret-limit/,
+      )
+    }),
+  )
+
+  it.effect("projects in-band rate limits without fabricating an HTTP status", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Fail in band" }), resume: false })
+      response = [
+        LLMEvent.providerError({
+          message: "rate_limit_exceeded: secret provider message",
+          category: "rate-limit",
+          retryable: true,
+        }),
+      ]
+
+      yield* session.resume(sessionID)
+
+      expect(yield* session.context(sessionID)).toMatchObject([
+        { type: "user", text: "Fail in band" },
+        {
+          type: "assistant",
+          finish: "error",
+          error: {
+            type: "provider",
+            category: "rate-limit",
+            message: "Provider rate limit exceeded",
+            retryable: true,
+          },
+        },
+      ])
+      const assistant = (yield* session.context(sessionID))[1]
+      expect(assistant?.type === "assistant" ? assistant.error : undefined).not.toHaveProperty("status")
+      expect(JSON.stringify(assistant)).not.toContain("secret provider message")
     }),
   )
 
@@ -3100,7 +3200,12 @@ describe("SessionRunnerLLM", () => {
         {
           type: "assistant",
           finish: "error",
-          error: { type: "unknown", message: "Provider unavailable" },
+          error: {
+            type: "provider",
+            category: "transport",
+            message: "Provider connection failed",
+            retryable: false,
+          },
           content: [{ type: "tool", id: "call-hosted-raw-failure", state: { status: "error" } }],
         },
       ])

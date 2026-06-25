@@ -122,6 +122,8 @@ test("Core reuses the canonical shared schemas", async () => {
     [coreSessionInput.Admitted, SessionInput.Admitted],
     [coreSessionMessage.ID, SessionMessage.ID],
     [coreSessionMessage.UnknownError, SessionMessage.UnknownError],
+    [coreSessionMessage.ProviderError, SessionMessage.ProviderError],
+    [coreSessionMessage.Error, SessionMessage.Error],
     [coreSessionMessage.AgentSwitched, SessionMessage.AgentSwitched],
     [coreSessionMessage.ModelSwitched, SessionMessage.ModelSwitched],
     [coreSessionMessage.User, SessionMessage.User],
@@ -177,4 +179,18 @@ test("shared record schemas construct and decode plain objects", () => {
   expect(Prompt.equivalence(Prompt.make({ text: "hello" }), decoded)).toBe(true)
   expect(Prompt.fromUserMessage({ text: "hello" })).toEqual(made)
   expect(Workspace.ID.ascending("")).toStartWith("wrk_")
+})
+
+test("assistant errors retain legacy unknown decode compatibility", () => {
+  const assistant = Schema.decodeUnknownSync(SessionMessage.Assistant)({
+    id: "msg_legacy_error",
+    type: "assistant",
+    agent: "build",
+    model: { id: "model", providerID: "provider" },
+    content: [],
+    error: { type: "unknown", message: "Legacy failure" },
+    time: { created: 0 },
+  })
+
+  expect(assistant.error).toEqual({ type: "unknown", message: "Legacy failure" })
 })

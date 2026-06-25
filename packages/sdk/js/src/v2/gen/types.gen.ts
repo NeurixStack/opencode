@@ -960,7 +960,7 @@ export type GlobalEvent = {
           timestamp: number
           sessionID: string
           assistantMessageID: string
-          error: SessionErrorUnknown
+          error: SessionErrorUnknown | SessionErrorProvider
         }
       }
     | {
@@ -3005,6 +3005,25 @@ export type SessionErrorUnknown = {
   message: string
 }
 
+export type SessionErrorProvider = {
+  type: "provider"
+  category:
+    | "invalid-request"
+    | "no-route"
+    | "authentication"
+    | "rate-limit"
+    | "quota-exceeded"
+    | "content-policy"
+    | "provider-internal"
+    | "transport"
+    | "invalid-provider-output"
+    | "unknown"
+  message: string
+  status?: number
+  retryable: boolean
+  retryAfterMs?: number
+}
+
 export type ToolTextContent = {
   type: "text"
   text: string
@@ -3420,7 +3439,7 @@ export type SyncEventSessionNextStepFailed = {
       timestamp: number
       sessionID: string
       assistantMessageID: string
-      error: SessionErrorUnknown
+      error: SessionErrorUnknown | SessionErrorProvider
     }
   }
 }
@@ -4076,7 +4095,7 @@ export type SessionMessageAssistant = {
       write: number
     }
   }
-  error?: SessionErrorUnknown
+  error?: SessionErrorUnknown | SessionErrorProvider
 }
 
 export type SessionMessageCompaction = {
@@ -4780,7 +4799,7 @@ export type V2EventSessionNextStepFailed = {
     timestamp: number
     sessionID: string
     assistantMessageID: string
-    error: SessionErrorUnknown
+    error: SessionErrorUnknown | SessionErrorProvider
   }
 }
 
@@ -6412,7 +6431,7 @@ export type EventSessionNextStepFailed = {
     timestamp: number
     sessionID: string
     assistantMessageID: string
-    error: SessionErrorUnknown
+    error: SessionErrorUnknown | SessionErrorProvider
   }
 }
 

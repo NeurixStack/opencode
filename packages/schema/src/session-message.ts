@@ -17,6 +17,33 @@ export const UnknownError = Schema.Struct({
   message: Schema.String,
 }).annotate({ identifier: "Session.Error.Unknown" })
 
+export const ProviderErrorCategory = Schema.Literals([
+  "invalid-request",
+  "no-route",
+  "authentication",
+  "rate-limit",
+  "quota-exceeded",
+  "content-policy",
+  "provider-internal",
+  "transport",
+  "invalid-provider-output",
+  "unknown",
+])
+export type ProviderErrorCategory = typeof ProviderErrorCategory.Type
+
+export interface ProviderError extends Schema.Schema.Type<typeof ProviderError> {}
+export const ProviderError = Schema.Struct({
+  type: Schema.Literal("provider"),
+  category: ProviderErrorCategory,
+  message: Schema.String,
+  status: Schema.Finite.pipe(Schema.optional),
+  retryable: Schema.Boolean,
+  retryAfterMs: Schema.Finite.pipe(Schema.optional),
+}).annotate({ identifier: "Session.Error.Provider" })
+
+export const Error = Schema.Union([UnknownError, ProviderError]).pipe(Schema.toTaggedUnion("type"))
+export type Error = UnknownError | ProviderError
+
 const Base = {
   id: ID,
   metadata: Schema.Record(Schema.String, Schema.Unknown).pipe(Schema.optional),
@@ -173,7 +200,7 @@ export const Assistant = Schema.Struct({
     reasoning: Schema.Finite,
     cache: Schema.Struct({ read: Schema.Finite, write: Schema.Finite }),
   }).pipe(Schema.optional),
-  error: UnknownError.pipe(Schema.optional),
+  error: Error.pipe(Schema.optional),
   time: Schema.Struct({
     created: DateTimeUtcFromMillis,
     completed: DateTimeUtcFromMillis.pipe(Schema.optional),

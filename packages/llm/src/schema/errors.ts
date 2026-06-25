@@ -4,6 +4,20 @@ import { ModelID, ProviderID, ProviderMetadata, RouteID } from "./ids"
 export const ProviderFailureClassification = Schema.Literal("context-overflow")
 export type ProviderFailureClassification = typeof ProviderFailureClassification.Type
 
+export const ProviderFailureCategory = Schema.Literals([
+  "invalid-request",
+  "no-route",
+  "authentication",
+  "rate-limit",
+  "quota-exceeded",
+  "content-policy",
+  "provider-internal",
+  "transport",
+  "invalid-provider-output",
+  "unknown",
+])
+export type ProviderFailureCategory = typeof ProviderFailureCategory.Type
+
 export class HttpRequestDetails extends Schema.Class<HttpRequestDetails>("LLM.HttpRequestDetails")({
   method: Schema.String,
   url: Schema.String,

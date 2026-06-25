@@ -6,6 +6,7 @@ import {
   Message,
   SystemPart,
   isContextOverflowFailure,
+  type LLMErrorReason,
   type ProviderErrorEvent,
 } from "@opencode-ai/llm"
 import { Cause, DateTime, Effect, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
@@ -32,7 +33,7 @@ import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
 import { SessionRunnerModel } from "./model"
-import { createLLMEventPublisher } from "./publish-llm-event"
+import { createLLMEventPublisher, providerError } from "./publish-llm-event"
 import { toLLMMessages } from "./to-llm-message"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { Snapshot } from "../../snapshot"
@@ -86,6 +87,29 @@ import { Snapshot } from "../../snapshot"
  * provider turn. Registry definitions are advertised, local tool calls are settled durably, and an
  * explicit loop starts the next provider turn after local settlement. Configured agent step limits bound the loop.
  */
+
+const providerCategories = {
+  InvalidRequest: "invalid-request",
+  NoRoute: "no-route",
+  Authentication: "authentication",
+  RateLimit: "rate-limit",
+  QuotaExceeded: "quota-exceeded",
+  ContentPolicy: "content-policy",
+  ProviderInternal: "provider-internal",
+  Transport: "transport",
+  InvalidProviderOutput: "invalid-provider-output",
+  UnknownProvider: "unknown",
+} as const satisfies Record<LLMErrorReason["_tag"], Parameters<typeof providerError>[0]["category"]>
+
+const toSessionProviderError = (reason: LLMErrorReason) =>
+  providerError({
+    category: providerCategories[reason._tag],
+    status:
+      ("http" in reason ? reason.http?.response?.status : undefined) ??
+      ("status" in reason ? reason.status : undefined),
+    retryable: reason.retryable,
+    retryAfterMs: "retryAfterMs" in reason ? reason.retryAfterMs : undefined,
+  })
 
 export const layer = Layer.effect(
   Service,
@@ -283,7 +307,7 @@ export const layer = Layer.effect(
           const llmFailure = failure instanceof LLMError ? failure : undefined
           if (llmFailure && !publisher.hasProviderError()) {
             yield* withPublication(publisher.failUnsettledTools("Provider did not return a tool result", true))
-            yield* withPublication(publisher.failAssistant(llmFailure.reason.message))
+            yield* withPublication(publisher.failAssistant(toSessionProviderError(llmFailure.reason)))
           }
           if (stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)) yield* FiberSet.clear(toolFibers)
           const settled = yield* restore(awaitToolFibers(toolFibers)).pipe(Effect.exit)
@@ -299,7 +323,7 @@ export const layer = Layer.effect(
             yield* FiberSet.clear(toolFibers)
             yield* withPublication(publisher.failUnsettledTools("Tool execution interrupted"))
             if (publisher.hasActiveAssistant())
-              yield* withPublication(publisher.failAssistant("Provider turn interrupted"))
+              yield* withPublication(publisher.failAssistant({ type: "unknown", message: "Provider turn interrupted" }))
           }
           if (settled._tag === "Failure" && !Cause.hasInterrupts(settled.cause)) {
             const failure = Cause.squash(settled.cause)

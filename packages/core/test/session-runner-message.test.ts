@@ -327,6 +327,83 @@ Recent work
     ])
   })
 
+  test("drops same-model provider metadata from errored turns without dropping useful output", () => {
+    const messages = toLLMMessages(
+      [
+        SessionMessage.Assistant.make({
+          id: id("assistant-error"),
+          type: "assistant",
+          agent: "build",
+          model: { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") },
+          finish: "error",
+          error: { type: "unknown", message: "Interrupted" },
+          content: [
+            SessionMessage.AssistantText.make({ type: "text", id: "text-error", text: "Partial answer" }),
+            SessionMessage.AssistantReasoning.make({
+              type: "reasoning",
+              id: "reasoning-error",
+              text: "Visible thought",
+              providerMetadata: { openai: { reasoningEncryptedContent: "stale-secret" } },
+            }),
+            SessionMessage.AssistantTool.make({
+              type: "tool",
+              id: "tool-error",
+              name: "read",
+              provider: {
+                executed: false,
+                metadata: { openai: { itemId: "stale-call" } },
+                resultMetadata: { openai: { itemId: "stale-result" } },
+              },
+              state: SessionMessage.ToolStateError.make({
+                status: "error",
+                input: { path: "README.md" },
+                content: [{ type: "text", text: "Permission denied" }],
+                structured: {},
+                error: { type: "unknown", message: "Permission denied" },
+              }),
+              time: { created, completed: created },
+            }),
+          ],
+          time: { created, completed: created },
+        }),
+      ],
+      model,
+    )
+
+    expect(messages).toHaveLength(2)
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "Partial answer" },
+      { type: "text", text: "Visible thought" },
+      {
+        type: "tool-call",
+        id: "tool-error",
+        name: "read",
+        input: { path: "README.md" },
+        providerExecuted: false,
+        providerMetadata: undefined,
+      },
+    ])
+    expect(messages[1]?.content).toEqual([
+      {
+        type: "tool-result",
+        id: "tool-error",
+        name: "read",
+        result: {
+          type: "error",
+          value: {
+            error: { type: "unknown", message: "Permission denied" },
+            content: [{ type: "text", text: "Permission denied" }],
+            structured: {},
+          },
+        },
+        providerExecuted: false,
+        cache: undefined,
+        metadata: undefined,
+        providerMetadata: undefined,
+      },
+    ])
+  })
+
   test("drops provider-native continuation metadata after a model switch", () => {
     const messages = toLLMMessages(
       [

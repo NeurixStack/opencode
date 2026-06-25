@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { ContentBlockID, FinishReason, ProtocolID, ProviderMetadata, RouteID, ToolCallID } from "./ids"
 import { ModelSchema } from "./options"
 import { ToolOutput, ToolResultValue } from "./messages"
-import { ProviderFailureClassification } from "./errors"
+import { ProviderFailureCategory, ProviderFailureClassification } from "./errors"
 
 /**
  * Token usage reported by an LLM provider.
@@ -201,6 +201,8 @@ export const ProviderErrorEvent = Schema.Struct({
   type: Schema.tag("provider-error"),
   message: Schema.String,
   classification: Schema.optional(ProviderFailureClassification),
+  category: Schema.optional(ProviderFailureCategory),
+  status: Schema.optional(Schema.Number),
   retryable: Schema.optional(Schema.Boolean),
   providerMetadata: Schema.optional(ProviderMetadata),
 }).annotate({ identifier: "LLM.Event.ProviderError" })
