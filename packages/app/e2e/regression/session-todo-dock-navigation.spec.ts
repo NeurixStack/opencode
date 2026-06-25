@@ -21,7 +21,7 @@ type EventPayload = {
   payload: Record<string, unknown>
 }
 
-test.use({ video: "on", viewport: { width: 1440, height: 900 }, reducedMotion: "no-preference" })
+test.use({ viewport: { width: 1440, height: 900 }, reducedMotion: "no-preference" })
 
 test("animates todo lifecycle without replaying it across session tabs", async ({ page }) => {
   test.setTimeout(90_000)
@@ -78,11 +78,9 @@ test("animates todo lifecycle without replaying it across session tabs", async (
   await expect(dock).toBeVisible()
   await expect(dock.locator('[data-state="in_progress"]')).toHaveCount(1)
   expect((await opening).some((sample) => sample.opacity > 0.05 && sample.opacity < 0.95)).toBe(true)
-  await page.waitForTimeout(900)
 
   await switchSession(page, otherID, otherTitle)
   await expect(dock).toHaveCount(0)
-  await page.waitForTimeout(700)
 
   const returningOpen = sampleDock(page, 700)
   await switchSession(page, sourceID, sourceTitle)
@@ -91,7 +89,6 @@ test("animates todo lifecycle without replaying it across session tabs", async (
   expect(openSamples[0]!.opacity).toBeGreaterThan(0.98)
   expect(openSamples[0]!.height).toBeGreaterThan(70)
   await expect(dock.locator('[data-state="in_progress"]')).toHaveCount(1)
-  await page.waitForTimeout(900)
 
   const completedTodos = activeTodos.map((todo) => ({ ...todo, status: "completed" }))
   const closing = sampleDock(page, 1_000)
@@ -101,15 +98,12 @@ test("animates todo lifecycle without replaying it across session tabs", async (
   expect((await closing).some((sample) => sample.opacity > 0.05 && sample.opacity < 0.95)).toBe(true)
   todos[sourceID] = []
   events.push(todoEvent(sourceID, []))
-  await page.waitForTimeout(900)
 
   await switchSession(page, otherID, otherTitle)
-  await page.waitForTimeout(700)
   const returningEmpty = sampleDock(page, 700)
   await switchSession(page, sourceID, sourceTitle)
   await expect(dock).toHaveCount(0)
   expect((await returningEmpty).every((sample) => !sample.present)).toBe(true)
-  await page.waitForTimeout(900)
 })
 
 function session(id: string, title: string, created: number) {
