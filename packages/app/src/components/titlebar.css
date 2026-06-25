@@ -20,10 +20,23 @@
    remaining scroll distance > 1px. Hidden defaults make an inactive timeline
    (no overflow) a no-op. Unsupported browsers also degrade to no fades. */
 [data-slot="titlebar-tabs"] {
+  container-type: inline-size;
   timeline-scope: --titlebar-tabs-scroll;
 
   [data-slot^="titlebar-tabs-fade-"] {
     visibility: hidden;
+  }
+}
+
+@container (max-width: 64px) {
+  [data-slot="titlebar-tab-link"] {
+    justify-content: center;
+    gap: 0;
+    padding-inline: 0;
+  }
+
+  [data-slot="titlebar-tab-title"] {
+    display: none;
   }
 }
 

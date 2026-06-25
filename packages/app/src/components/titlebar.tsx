@@ -3,7 +3,6 @@ import {
   createMemo,
   createResource,
   createRoot,
-  createSignal,
   For,
   Match,
   onMount,
@@ -33,7 +32,6 @@ import { applyPath, backPath, forwardPath } from "./titlebar-history"
 import { projectForSession } from "@/pages/layout/helpers"
 import { SessionTabAvatar } from "@/pages/layout/session-tab-avatar"
 import { makeEventListener } from "@solid-primitives/event-listener"
-import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { createMediaQuery } from "@solid-primitives/media"
 import { readSessionTabsRemovedDetail, SESSION_TABS_REMOVED_EVENT } from "@/components/titlebar-session-events"
 import { useGlobal } from "@/context/global"
@@ -421,13 +419,6 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
               ].filter((v) => v !== undefined)
             })
 
-            const [tabsAreOverflowing, setTabsAreOverflowing] = createSignal(false)
-            let tabScrollRef!: HTMLDivElement
-
-            function refreshTabsAreOverflowing() {
-              setTabsAreOverflowing(tabScrollRef.scrollWidth > tabScrollRef.clientWidth)
-            }
-
             return (
               <div
                 class="h-full flex-1 overflow-hidden flex flex-row items-center gap-1.5 px-2 md:pr-3"
@@ -465,19 +456,11 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                   />
                 </TooltipV2>
 
-                <div data-slot="titlebar-tabs" class="relative min-w-0">
+                <div data-slot="titlebar-tabs" class="relative min-w-0 flex-1">
                   <div
-                    data-slot="titlebar-tabs-scroll"
-                    class="flex min-w-0 flex-row items-center gap-1.5 overflow-x-auto no-scrollbar [app-region:no-drag]"
-                    ref={(el) => {
-                      tabScrollRef = el
-                      createResizeObserver(el, refreshTabsAreOverflowing)
-                    }}
+                    class="flex min-w-0 flex-row items-center overflow-hidden [app-region:no-drag]"
                   >
-                    <div
-                      class="flex min-w-0 flex-row items-center gap-1.5"
-                      ref={(el) => createResizeObserver(el, refreshTabsAreOverflowing)}
-                    >
+                    <div class="flex w-full min-w-0 flex-row items-center gap-[min(6px,1cqw)]">
                       <For each={tabsStore}>
                         {(tab, i) => {
                           let ref!: HTMLDivElement
@@ -574,7 +557,6 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                                     onClose={() => tabsStoreActions.removeTab(i())}
                                     active={currentTab() === tab}
                                     activeServer={tab.server === server.key}
-                                    forceTruncate={tabsAreOverflowing()}
                                   />
                                 )}
                               </Show>
@@ -631,7 +613,6 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                     aria-label={language.t("command.session.new")}
                   />
                 </Show>
-                <div class="flex-1" />
                 <TitlebarV2Right state={v2RightState()} />
                 <Show when={windows() && !electronWindows()}>
                   <div data-tauri-decorum-tb class="flex flex-row" />
@@ -882,7 +863,6 @@ function TabNavItem(props: {
   onNavigate: () => void
   active?: boolean
   activeServer: boolean
-  forceTruncate?: boolean
   session: Session
 }) {
   const closeTab = (event: MouseEvent) => {
@@ -900,7 +880,8 @@ function TabNavItem(props: {
   return (
     <div
       ref={props.ref}
-      class="group relative flex h-7 w-56 shrink-0 flex-row items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-[6px] bg-[var(--tab-bg)] px-1.5 [--tab-bg:var(--v2-background-bg-deep)] hover:[--tab-bg:var(--v2-background-bg-layer-02)] data-[active='true']:[--tab-bg:var(--v2-background-bg-layer-02)]"
+      data-slot="titlebar-tab"
+      class="group relative flex h-7 min-w-0 max-w-56 flex-1 basis-0 flex-row items-center overflow-hidden whitespace-nowrap rounded-[6px] bg-[var(--tab-bg)] [container-type:inline-size] [--tab-bg:var(--v2-background-bg-deep)] hover:[--tab-bg:var(--v2-background-bg-layer-02)] data-[active='true']:[--tab-bg:var(--v2-background-bg-layer-02)]"
       data-active={props.active}
       onMouseDown={(event) => {
         if (event.button !== 1) return
@@ -918,7 +899,8 @@ function TabNavItem(props: {
                 event.preventDefault()
                 props.onNavigate()
               }}
-              class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 text-[13px] font-medium text-v2-text-text-faint group-data-[active='true']:text-v2-text-text-base"
+              data-slot="titlebar-tab-link"
+              class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 px-1.5 text-[13px] font-medium text-v2-text-text-faint group-data-[active='true']:text-v2-text-text-base"
             >
               <span data-slot="project-avatar-slot">
                 <SessionTabAvatar
@@ -928,15 +910,16 @@ function TabNavItem(props: {
                   activeServer={props.activeServer}
                 />
               </span>
-              <span class="min-w-0 flex-1">{session().title}</span>
+              <span data-slot="titlebar-tab-title" class="min-w-0 flex-1">
+                {session().title}
+              </span>
             </a>
           )
         }}
       </Show>
 
       <div
-        class="absolute not-group-hover:not-group-data-[active=true]:not-data-[truncate=true]:left-52 group-hover:right-0 group-data-[active=true]:right-0 data-[truncate=true]:right-0 inset-y-0 flex flex-row items-center pr-1 py-1 w-8 pl-2"
-        data-truncate={props.forceTruncate}
+        class="absolute not-group-hover:not-group-data-[active=true]:left-52 group-hover:right-0 group-data-[active=true]:right-0 inset-y-0 flex flex-row items-center pr-1 py-1 w-8 pl-2"
       >
         <div
           class="absolute inset-0 rounded-r-[6px] bg-(image:--inactive-bg) group-hover:bg-(image:--active-bg) group-data-[active=true]:bg-(image:--active-bg)"
@@ -974,7 +957,8 @@ function DraftTabItem(props: {
     <div
       ref={props.ref}
       data-active={props.active}
-      class="group relative flex h-7 w-56 shrink-0 flex-row items-center gap-1.5 overflow-hidden rounded-[6px] bg-[var(--tab-bg)] pl-1.5 pr-8 whitespace-nowrap [--tab-bg:var(--v2-background-bg-deep)] hover:[--tab-bg:var(--v2-background-bg-layer-02)] data-[active='true']:[--tab-bg:var(--v2-overlay-simple-overlay-pressed)] focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--v2-border-border-focus)]"
+      data-slot="titlebar-tab"
+      class="group relative flex h-7 min-w-0 max-w-56 flex-1 basis-0 flex-row items-center overflow-hidden rounded-[6px] bg-[var(--tab-bg)] [container-type:inline-size] whitespace-nowrap [--tab-bg:var(--v2-background-bg-deep)] hover:[--tab-bg:var(--v2-background-bg-layer-02)] data-[active='true']:[--tab-bg:var(--v2-overlay-simple-overlay-pressed)] focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--v2-border-border-focus)]"
       onMouseDown={(event) => {
         if (event.button !== 1) return
         closeTab(event)
@@ -986,12 +970,15 @@ function DraftTabItem(props: {
           event.preventDefault()
           props.onNavigate()
         }}
-        class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 overflow-hidden text-[13px] font-medium leading-5 text-v2-text-text-faint group-data-[active='true']:text-[var(--v2-text-text-base)]"
+        data-slot="titlebar-tab-link"
+        class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 overflow-hidden pl-1.5 pr-8 text-[13px] font-medium leading-5 text-v2-text-text-faint group-data-[active='true']:text-[var(--v2-text-text-base)]"
       >
         <span class="flex size-4 shrink-0 rotate-90 items-center justify-center">
           <IconV2 name="edit" />
         </span>
-        <span class="truncate leading-5">{props.title}</span>
+        <span data-slot="titlebar-tab-title" class="truncate leading-5">
+          {props.title}
+        </span>
       </a>
       <div class="absolute right-0 inset-y-0 flex w-7 items-center justify-center">
         <IconButtonV2
@@ -1019,7 +1006,8 @@ function NewSessionTabItem(props: { ref?: HTMLDivElement; href: string; title: s
   return (
     <div
       ref={props.ref}
-      class="group relative flex h-7 w-56 shrink-0 flex-row items-center gap-1.5 overflow-hidden rounded-[6px] bg-[var(--v2-overlay-simple-overlay-pressed)] pl-1.5 pr-8 whitespace-nowrap focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--v2-border-border-focus)]"
+      data-slot="titlebar-tab"
+      class="group relative flex h-7 min-w-0 max-w-56 flex-1 basis-0 flex-row items-center overflow-hidden rounded-[6px] bg-[var(--v2-overlay-simple-overlay-pressed)] [container-type:inline-size] whitespace-nowrap focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--v2-border-border-focus)]"
       onMouseDown={(event) => {
         if (event.button !== 1) return
         closeTab(event)
@@ -1028,12 +1016,15 @@ function NewSessionTabItem(props: { ref?: HTMLDivElement; href: string; title: s
       <a
         href={props.href}
         aria-current="page"
-        class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 overflow-hidden text-[13px] font-medium leading-5 text-[var(--v2-text-text-base)]"
+        data-slot="titlebar-tab-link"
+        class="flex h-full min-w-0 flex-1 flex-row items-center gap-1.5 overflow-hidden pl-1.5 pr-8 text-[13px] font-medium leading-5 text-[var(--v2-text-text-base)]"
       >
         <span class="flex size-4 shrink-0 rotate-90 items-center justify-center">
           <IconV2 name="edit" />
         </span>
-        <span class="truncate leading-5">{props.title}</span>
+        <span data-slot="titlebar-tab-title" class="truncate leading-5">
+          {props.title}
+        </span>
       </a>
       <div class="absolute right-0 inset-y-0 flex w-7 items-center justify-center">
         <IconButtonV2
