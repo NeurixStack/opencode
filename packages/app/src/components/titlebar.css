@@ -6,6 +6,42 @@
   outline: none;
 }
 
+.titlebar-tab-color-menu {
+  min-width: 152px;
+  border-radius: 6px;
+  background: var(--v2-background-bg-layer-01);
+  box-shadow: var(--v2-elevation-floating);
+
+  [data-slot="context-menu-group-label"] {
+    color: var(--v2-text-text-faint);
+  }
+
+  [data-slot="context-menu-item"] {
+    color: var(--v2-text-text-base);
+
+    &:hover,
+    &[data-highlighted] {
+      background: var(--v2-overlay-simple-overlay-hover);
+    }
+  }
+
+  [data-tab-color] {
+    width: 20px;
+    height: 20px;
+    padding: 3px;
+    border: 1px solid transparent;
+
+    &:is(:hover, :focus-visible, [data-checked]) {
+      border-color: var(--v2-border-border-strong);
+      background: transparent;
+    }
+  }
+
+  [data-slot="context-menu-separator"] {
+    border-color: var(--v2-border-border-muted);
+  }
+}
+
 [data-slot="titlebar-v2"]
   [data-component="icon-button-v2"][data-variant="ghost-muted"]:is(:focus-visible, [data-state="focus"]):not(
     :disabled

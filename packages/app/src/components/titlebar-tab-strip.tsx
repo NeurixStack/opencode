@@ -16,6 +16,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { tabHref, tabKey, type SessionTab, type Tab } from "@/context/tabs"
 import { ServerConnection } from "@/context/server"
 import { DraftTabItem, TabNavItem } from "@/components/titlebar-tab-nav"
+import { TabColorMenu } from "@/components/titlebar-tab-color"
 import { useGlobal, type ServerCtx } from "@/context/global"
 import { useLanguage } from "@/context/language"
 import { useCommand } from "@/context/command"
@@ -56,6 +57,7 @@ function SessionTabSlot(props: {
   onPointerDown: (event: PointerEvent) => void
   onNavigate: (element: HTMLDivElement) => void
   onClose: () => void
+  onColorChange: (color: string | undefined) => void
 }) {
   const tabs = useTabs()
   let ref!: HTMLDivElement
@@ -110,30 +112,33 @@ function SessionTabSlot(props: {
       }}
       onPointerDown={props.onPointerDown}
     >
-      <TabNavItem
-        ref={ref}
-        href={tabHref(props.tab)}
-        server={props.tab.server}
-        session={session}
-        onTitleChange={(title) => {
-          const value = session()
-          const ctx = props.serverCtx()
-          if (value && ctx) ctx.sync.session.remember({ ...value, title })
-        }}
-        onTitleChangeFailed={(title) => {
-          const value = session()
-          const ctx = props.serverCtx()
-          if (value && ctx) ctx.sync.session.remember({ ...value, title })
-        }}
-        onNavigate={() => props.onNavigate(ref)}
-        onClose={props.onClose}
-        active={props.active()}
-        activeServer={props.tab.server === props.activeServerKey}
-        forceTruncate={props.forceTruncate}
-        suppressNavigation={props.suppressNavigation}
-        pressed={props.pressed()}
-        hidden={props.dragged()}
-      />
+      <TabColorMenu color={props.tab.color} onColorChange={props.onColorChange}>
+        <TabNavItem
+          ref={ref}
+          href={tabHref(props.tab)}
+          server={props.tab.server}
+          session={session}
+          onTitleChange={(title) => {
+            const value = session()
+            const ctx = props.serverCtx()
+            if (value && ctx) ctx.sync.session.remember({ ...value, title })
+          }}
+          onTitleChangeFailed={(title) => {
+            const value = session()
+            const ctx = props.serverCtx()
+            if (value && ctx) ctx.sync.session.remember({ ...value, title })
+          }}
+          onNavigate={() => props.onNavigate(ref)}
+          onClose={props.onClose}
+          active={props.active()}
+          activeServer={props.tab.server === props.activeServerKey}
+          forceTruncate={props.forceTruncate}
+          color={props.tab.color}
+          suppressNavigation={props.suppressNavigation}
+          pressed={props.pressed()}
+          hidden={props.dragged()}
+        />
+      </TabColorMenu>
     </div>
   )
 }
@@ -145,6 +150,7 @@ export function TitlebarTabStrip(props: {
   forceTruncate: boolean
   onNavigate: (tab: Tab, el?: HTMLDivElement) => void
   onClose: (tab: Tab) => void
+  onColorChange: (tab: Tab, color: string | undefined) => void
   onReorder: (keys: string[]) => void
   onOverflowChange: (overflowing: boolean) => void
 }) {
@@ -498,6 +504,7 @@ export function TitlebarTabStrip(props: {
                       }}
                       onNavigate={(element) => props.onNavigate(tab, element)}
                       onClose={() => props.onClose(tab)}
+                      onColorChange={(color) => props.onColorChange(tab, color)}
                     />
                   )
                 }
@@ -515,17 +522,20 @@ export function TitlebarTabStrip(props: {
                       onPointerDown(id, event)
                     }}
                   >
-                    <DraftTabItem
-                      ref={ref}
-                      href={tabHref(tab)}
-                      title={language.t("command.session.new")}
-                      onNavigate={() => props.onNavigate(tab, ref)}
-                      onClose={() => props.onClose(tab)}
-                      suppressNavigation={() => suppressNavigation()}
-                      active={props.currentTab() === tab}
-                      pressed={pressedId() === id}
-                      hidden={dragged()}
-                    />
+                    <TabColorMenu color={tab.color} onColorChange={(color) => props.onColorChange(tab, color)}>
+                      <DraftTabItem
+                        ref={ref}
+                        href={tabHref(tab)}
+                        title={language.t("command.session.new")}
+                        onNavigate={() => props.onNavigate(tab, ref)}
+                        onClose={() => props.onClose(tab)}
+                        color={tab.color}
+                        suppressNavigation={() => suppressNavigation()}
+                        active={props.currentTab() === tab}
+                        pressed={pressedId() === id}
+                        hidden={dragged()}
+                      />
+                    </TabColorMenu>
                   </div>
                 )
               }}

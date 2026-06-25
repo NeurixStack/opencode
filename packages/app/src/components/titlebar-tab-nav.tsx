@@ -11,6 +11,7 @@ import { SessionTabAvatar } from "@/pages/layout/session-tab-avatar"
 import { showToast } from "@/utils/toast"
 import type { Session } from "@opencode-ai/sdk/v2"
 import { canOpenTabRename, forwardTabRef } from "./titlebar-tab-gesture"
+import { TabColorPill } from "./titlebar-tab-color"
 import "./titlebar-tab-nav.css"
 
 export function TabNavItem(props: {
@@ -29,6 +30,7 @@ export function TabNavItem(props: {
   dragging?: boolean
   pressed?: boolean
   hidden?: boolean
+  color?: string
 }) {
   const language = useLanguage()
   const [editing, setEditing] = createSignal(false)
@@ -270,6 +272,7 @@ export function TabNavItem(props: {
           icon={<IconV2 name="xmark-small" />}
         />
       </div>
+      <TabColorPill color={props.color} />
     </div>
   )
 }
@@ -285,6 +288,7 @@ export function DraftTabItem(props: {
   dragging?: boolean
   pressed?: boolean
   hidden?: boolean
+  color?: string
 }) {
   const closeTab = (event: MouseEvent) => {
     event.preventDefault()
@@ -346,6 +350,7 @@ export function DraftTabItem(props: {
           aria-label="Close tab"
         />
       </div>
+      <TabColorPill color={props.color} />
     </div>
   )
 }

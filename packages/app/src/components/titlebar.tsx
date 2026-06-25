@@ -458,6 +458,7 @@ export function Titlebar(props: { update?: TitlebarUpdate }) {
                     const index = tabsStore.findIndex((item) => tabKey(item) === tabKey(tab))
                     if (index !== -1) tabsStoreActions.removeTab(index)
                   }}
+                  onColorChange={(tab, color) => tabsStoreActions.setColor(tab, color)}
                   onReorder={(keys) => tabsStoreActions.reorder(keys)}
                 />
                 <Show when={!(creating() && params.dir)}>

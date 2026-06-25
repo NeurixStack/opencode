@@ -1,6 +1,21 @@
 import { describe, expect, test } from "bun:test"
 import { createRoot, getOwner, onCleanup } from "solid-js"
 import { createTabMemory } from "./tab-memory"
+import { normalizeTabColor } from "./tab-color"
+
+describe("tab color", () => {
+  test("normalizes valid hex colors", () => {
+    expect(normalizeTabColor("#4C8DFF")).toBe("#4c8dff")
+    expect(normalizeTabColor("#123abc")).toBe("#123abc")
+  })
+
+  test("rejects invalid color values", () => {
+    expect(normalizeTabColor(undefined)).toBeUndefined()
+    expect(normalizeTabColor("red")).toBeUndefined()
+    expect(normalizeTabColor("#fff")).toBeUndefined()
+    expect(normalizeTabColor("#12345678")).toBeUndefined()
+  })
+})
 
 describe("tab memory", () => {
   test("keeps state until its tab is removed", () => {

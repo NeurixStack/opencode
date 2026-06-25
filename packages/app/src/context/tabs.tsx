@@ -10,11 +10,13 @@ import { uuid } from "@/utils/uuid"
 import { SessionTabsRemovedDetail } from "@/components/titlebar-session-events"
 import { sessionHref } from "@/utils/session-route"
 import { createTabMemory } from "./tab-memory"
+import { normalizeTabColor } from "./tab-color"
 
 export type SessionTab = {
   type: "session"
   server: ServerConnection.Key
   sessionId: string
+  color?: string
 }
 
 export type DraftTab = {
@@ -23,6 +25,7 @@ export type DraftTab = {
   server: ServerConnection.Key
   directory: string
   worktree?: string
+  color?: string
 }
 
 export type Tab = SessionTab | DraftTab
@@ -156,6 +159,21 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
           }),
         )
       },
+      setColor(tab: Tab, color: string | undefined) {
+        const key = tabKey(tab)
+        const next = normalizeTabColor(color)
+        setStore(
+          produce((tabs) => {
+            const current = tabs.find((item) => tabKey(item) === key)
+            if (!current) return
+            if (next) {
+              current.color = next
+              return
+            }
+            delete current.color
+          }),
+        )
+      },
       draft(draftID: string) {
         const tab = store.find((item) => item.type === "draft" && item.draftID === draftID)
         if (!tab || tab.type !== "draft") throw new Error(`Draft not found: ${draftID}`)
@@ -182,7 +200,8 @@ export const { use: useTabs, provider: TabsProvider } = createSimpleContext({
         // and fall back home. Navigate to the new session first so we leave /new-session
         // before the draft is removed from the store.
         const active = location.pathname === "/new-session" && location.query.draftId === draftID
-        const next = { type: "session" as const, ...session }
+        const color = store.find((tab) => tab.type === "draft" && tab.draftID === draftID)?.color
+        const next = { type: "session" as const, ...session, color }
         startTransition(() => {
           setStore(
             produce((tabs) => {
