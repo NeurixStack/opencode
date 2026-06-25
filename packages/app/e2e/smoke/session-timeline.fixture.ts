@@ -222,7 +222,10 @@ function turn(index: number): Message[] {
   return [user, assistantMessage(targetID, index, user.info.id, parts)]
 }
 
-const targetMessages = Array.from({ length: 72 }, (_, index) => turn(index)).flat()
+export const timelineMessages = (count: number, start = 0) =>
+  Array.from({ length: count }, (_, index) => turn(start + index)).flat()
+
+const targetMessages = timelineMessages(72)
 const sourceMessages = Array.from({ length: 12 }, (_, index) => [
   userMessage(sourceID, index + 1000, 120),
   assistantMessage(sourceID, index + 1000, id("msg_user", index + 1000), [textPart(index + 1000, 0, 240)]),
@@ -301,6 +304,10 @@ export const fixture = {
 
 export function pageMessages(sessionID: string, limit: number, before?: string) {
   const messages = fixture.messages[sessionID as keyof typeof fixture.messages] ?? []
+  return pageMessageList(messages, limit, before)
+}
+
+export function pageMessageList(messages: Message[], limit: number, before?: string) {
   const end = before
     ? Math.max(
         0,

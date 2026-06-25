@@ -61,4 +61,34 @@ describe("createScrollPersistence", () => {
     expect(scroll.scroll("session", "review")).toEqual({ x: 12, y: 34 })
     scroll.dispose()
   })
+
+  test("persists semantic scroll anchors", () => {
+    vi.useFakeTimers()
+    try {
+      let snapshot: Record<string, { x: number; y: number; anchor?: { id: string; offset: number } }> = {}
+      const scroll = createScrollPersistence({
+        debounceMs: 10,
+        getSnapshot: () => snapshot,
+        onFlush: (_sessionKey, next) => {
+          snapshot = next
+        },
+      })
+
+      scroll.setScroll("session", "timeline", {
+        x: 1_000,
+        y: 400,
+        anchor: { id: "message-1", offset: 24 },
+      })
+      vi.advanceTimersByTime(10)
+
+      expect(snapshot.timeline).toEqual({
+        x: 1_000,
+        y: 400,
+        anchor: { id: "message-1", offset: 24 },
+      })
+      scroll.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

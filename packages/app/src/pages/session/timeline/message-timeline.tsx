@@ -235,7 +235,7 @@ export function MessageTimeline(props: {
   onResumeScroll: () => void
   setScrollRef: (el: HTMLDivElement | undefined) => void
   onScheduleScrollState: (el: HTMLDivElement) => void
-  onPersistScroll: (el: HTMLDivElement) => void
+  onCancelScrollRestore: () => void
   onAutoScrollHandleScroll: () => void
   onMarkScrollGesture: (target?: EventTarget | null) => void
   hasScrollGesture: () => boolean
@@ -554,6 +554,7 @@ export function MessageTimeline(props: {
   }
 
   const handleListWheel = (event: WheelEvent & { currentTarget: HTMLDivElement }) => {
+    props.onCancelScrollRestore()
     if (!prependLoading) clearPrependAnchor()
     const root = event.currentTarget
     const delta = normalizeWheelDelta({
@@ -566,6 +567,7 @@ export function MessageTimeline(props: {
   }
 
   const handleListTouchStart = (event: TouchEvent) => {
+    props.onCancelScrollRestore()
     if (!prependLoading) clearPrependAnchor()
     touchGesture = event.touches[0]?.clientY
   }
@@ -592,15 +594,20 @@ export function MessageTimeline(props: {
   }
 
   const handleListPointerDown = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    props.onCancelScrollRestore()
     if (!prependLoading) clearPrependAnchor()
     if (event.target !== event.currentTarget) return
     props.onMarkScrollGesture(event.currentTarget)
   }
 
+  const handleListKeyDown = (event: KeyboardEvent) => {
+    if (!["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) return
+    props.onCancelScrollRestore()
+  }
+
   const handleListScroll = (event: Event & { currentTarget: HTMLDivElement }) => {
     if (prependLoading) updatePrependAnchor()
     props.onScheduleScrollState(event.currentTarget)
-    props.onPersistScroll(event.currentTarget)
     props.onHistoryScroll()
     if (!props.hasScrollGesture()) return
     props.onUserScroll()
@@ -1280,6 +1287,7 @@ export function MessageTimeline(props: {
         onTouchEnd={handleListTouchEnd}
         onTouchCancel={handleListTouchEnd}
         onPointerDown={handleListPointerDown}
+        onKeyDown={handleListKeyDown}
         onScroll={handleListScroll}
         onClick={props.onAutoScrollInteraction}
         class="relative min-w-0 w-full h-full"

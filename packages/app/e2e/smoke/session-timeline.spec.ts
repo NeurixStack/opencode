@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 import { base64Encode } from "@opencode-ai/core/util/encode"
-import { fixture, pageMessages } from "./session-timeline.fixture"
+import { fixture, pageMessageList, pageMessages, timelineMessages } from "./session-timeline.fixture"
 import { trackPageErrors, expectNoSmokeErrors } from "../utils/errors"
 import { mockOpenCodeServer } from "../utils/mock-server"
 import { APP_READY_TIMEOUT, expectAppVisible, expectSessionTitle } from "../utils/waits"
@@ -116,12 +116,14 @@ test.describe("smoke: session timeline", () => {
   })
 
   test("restores the persisted timeline position after reload", async ({ page }) => {
+    let messages = timelineMessages(140)
     await mockOpenCodeServer(page, {
       sessions: fixture.sessions,
       provider: fixture.provider,
       directory: fixture.directory,
       project: fixture.project,
-      pageMessages,
+      pageMessages: (sessionID, limit, before) =>
+        sessionID === fixture.targetID ? pageMessageList(messages, limit, before) : pageMessages(sessionID, limit, before),
     })
     await configureSmokePage(page, fixture.directory)
 
@@ -143,6 +145,9 @@ test.describe("smoke: session timeline", () => {
         (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
       ),
     ).toBeGreaterThan(100)
+    const anchor = await firstVisibleMessage(page)
+    expect(anchor).toBeTruthy()
+    messages = [...messages, ...timelineMessages(120, 140)]
     await page.reload()
     await waitForTimelineStable(page)
     await expect.poll(() => timelineScroller(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(100)
@@ -153,6 +158,7 @@ test.describe("smoke: session timeline", () => {
         ),
       )
       .toBeGreaterThan(100)
+    await expect.poll(() => firstVisibleMessage(page)).toBe(anchor)
   })
 
   test("paints cached session tabs at the latest message", async ({ page }) => {
@@ -595,6 +601,16 @@ async function timelineState(page: Page) {
 
 function timelineScroller(page: Page) {
   return page.locator(".scroll-view__viewport", { has: page.locator("[data-timeline-row]") })
+}
+
+function firstVisibleMessage(page: Page) {
+  return timelineScroller(page).evaluate((element) => {
+    const box = element.getBoundingClientRect()
+    return [...element.querySelectorAll<HTMLElement>("[data-message-id]")]
+      .map((message) => ({ id: message.dataset.messageId, rect: message.getBoundingClientRect() }))
+      .filter((message) => message.rect.bottom > box.top && message.rect.top < box.bottom)
+      .sort((a, b) => a.rect.top - b.rect.top)[0]?.id
+  })
 }
 
 async function pointAtTimeline(page: Page) {
