@@ -192,6 +192,16 @@ export namespace Step {
     },
   })
   export type Failed = typeof Failed.Type
+
+  export const Interrupted = Event.define({
+    type: "session.next.step.interrupted",
+    ...options,
+    schema: {
+      ...Base,
+      assistantMessageID: SessionMessage.ID,
+    },
+  })
+  export type Interrupted = typeof Interrupted.Type
 }
 
 export namespace Text {
@@ -458,6 +468,7 @@ export const DurableDefinitions = Event.inventory(
   Step.Started,
   Step.Ended,
   Step.Failed,
+  Step.Interrupted,
   Text.Started,
   Text.Ended,
   Tool.Input.Started,
@@ -489,6 +500,7 @@ export const Definitions = Event.inventory(
   Step.Started,
   Step.Ended,
   Step.Failed,
+  Step.Interrupted,
   Text.Started,
   Text.Delta,
   Text.Ended,

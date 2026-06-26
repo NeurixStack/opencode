@@ -28,6 +28,7 @@ export type Event =
   | EventSessionNextStepStarted
   | EventSessionNextStepEnded
   | EventSessionNextStepFailed
+  | EventSessionNextStepInterrupted
   | EventSessionNextTextStarted
   | EventSessionNextTextDelta
   | EventSessionNextTextEnded
@@ -957,6 +958,15 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "session.next.step.interrupted"
+        properties: {
+          timestamp: number
+          sessionID: string
+          assistantMessageID: string
+        }
+      }
+    | {
+        id: string
         type: "session.next.text.started"
         properties: {
           timestamp: number
@@ -1620,6 +1630,7 @@ export type GlobalEvent = {
     | SyncEventSessionNextStepStarted
     | SyncEventSessionNextStepEnded
     | SyncEventSessionNextStepFailed
+    | SyncEventSessionNextStepInterrupted
     | SyncEventSessionNextTextStarted
     | SyncEventSessionNextTextEnded
     | SyncEventSessionNextReasoningStarted
@@ -2759,6 +2770,7 @@ export type V2Event =
   | V2EventSessionNextStepStarted
   | V2EventSessionNextStepEnded
   | V2EventSessionNextStepFailed
+  | V2EventSessionNextStepInterrupted
   | V2EventSessionNextTextStarted
   | V2EventSessionNextTextDelta
   | V2EventSessionNextTextEnded
@@ -3396,6 +3408,22 @@ export type SyncEventSessionNextStepFailed = {
       sessionID: string
       assistantMessageID: string
       error: SessionErrorUnknown
+    }
+  }
+}
+
+export type SyncEventSessionNextStepInterrupted = {
+  type: "sync"
+  id: string
+  syncEvent: {
+    type: "session.next.step.interrupted.1"
+    id: string
+    seq: number
+    aggregateID: string
+    data: {
+      timestamp: number
+      sessionID: string
+      assistantMessageID: string
     }
   }
 }
@@ -4286,6 +4314,25 @@ export type SessionNextStepFailed = {
     sessionID: string
     assistantMessageID: string
     error: SessionErrorUnknown
+  }
+}
+
+export type SessionNextStepInterrupted = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.step.interrupted"
+  durable?: {
+    aggregateID: string
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    version: number | "NaN" | "Infinity" | "-Infinity"
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
   }
 }
 
@@ -5341,6 +5388,25 @@ export type V2EventSessionNextStepFailed = {
     sessionID: string
     assistantMessageID: string
     error: SessionErrorUnknown
+  }
+}
+
+export type V2EventSessionNextStepInterrupted = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  type: "session.next.step.interrupted"
+  data: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
   }
 }
 
@@ -6928,6 +6994,16 @@ export type EventSessionNextStepFailed = {
     sessionID: string
     assistantMessageID: string
     error: SessionErrorUnknown
+  }
+}
+
+export type EventSessionNextStepInterrupted = {
+  id: string
+  type: "session.next.step.interrupted"
+  properties: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
   }
 }
 

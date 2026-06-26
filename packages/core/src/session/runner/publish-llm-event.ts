@@ -67,7 +67,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   const timestamp = DateTime.now
   let assistantMessageID: SessionMessage.ID | undefined
   let assistantActive = false
-  let assistantFailed = false
+  let assistantSettled = false
   let providerFailed = false
   let stepSettlement: { readonly finish: string; readonly tokens: ReturnType<typeof tokens> } | undefined
 
@@ -197,16 +197,29 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
   })
 
   const failAssistant = Effect.fnUntraced(function* (message: string) {
-    if (assistantFailed) return
+    if (assistantSettled) return
     yield* flush()
     const assistantMessageID = yield* startAssistant()
     assistantActive = false
-    assistantFailed = true
+    assistantSettled = true
     yield* events.publish(SessionEvent.Step.Failed, {
       sessionID: input.sessionID,
       timestamp: yield* timestamp,
       assistantMessageID,
       error: { type: "unknown", message },
+    })
+  })
+
+  const interruptAssistant = Effect.fnUntraced(function* () {
+    if (assistantSettled) return
+    yield* flush()
+    const assistantMessageID = yield* startAssistant()
+    assistantActive = false
+    assistantSettled = true
+    yield* events.publish(SessionEvent.Step.Interrupted, {
+      sessionID: input.sessionID,
+      timestamp: yield* timestamp,
+      assistantMessageID,
     })
   })
 
@@ -412,6 +425,7 @@ export const createLLMEventPublisher = (events: EventV2.Interface, input: Input)
     publish,
     flush,
     failAssistant,
+    interruptAssistant,
     failUnsettledTools,
     hasActiveAssistant: () => assistantActive,
     hasAssistantStarted: () => assistantMessageID !== undefined,

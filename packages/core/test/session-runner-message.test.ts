@@ -327,7 +327,7 @@ Recent work
     ])
   })
 
-  test("drops provider-native continuation metadata from failed assistant turns", () => {
+  test("drops provider-native continuation metadata from interrupted assistant turns", () => {
     const messages = toLLMMessages(
       [
         SessionMessage.Assistant.make({
@@ -361,8 +361,7 @@ Recent work
               time: { created, completed: created },
             }),
           ],
-          finish: "error",
-          error: { type: "unknown", message: "Provider turn interrupted" },
+          finish: "interrupted",
           time: { created, completed: created },
         }),
       ],

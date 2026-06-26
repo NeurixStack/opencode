@@ -542,12 +542,19 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
     const fiber = yield* runner.run({ sessionID, force: true }).pipe(Effect.forkChild)
     yield* Deferred.await(streamed)
     yield* Fiber.interrupt(fiber)
+    const { db } = yield* Database.Service
+    const interrupted = yield* db
+      .select({ type: EventTable.type })
+      .from(EventTable)
+      .where(eq(EventTable.type, EventV2.versionedType(SessionEvent.Step.Interrupted.type, 1)))
+      .all()
+      .pipe(Effect.orDie)
+    expect(interrupted).toHaveLength(1)
     expect(yield* session.context(sessionID)).toMatchObject([
       { type: "user", text: prompt },
       {
         type: "assistant",
-        finish: "error",
-        error: { type: "unknown", message: "Provider turn interrupted" },
+        finish: "interrupted",
         content: [
           kind === "tool input"
             ? { type: "tool", id: fragmentID(kind, "interrupted"), state: { status: "error" } }
