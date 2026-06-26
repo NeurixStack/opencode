@@ -22,7 +22,7 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
       return Effect.succeed(
         HttpClientResponse.fromWeb(
           request,
-          new Response(`data: ${JSON.stringify(modelSwitchedEvent)}\n\n`, {
+          new Response(`data: ${JSON.stringify(modelSwitchedEvent)}\n\ndata: ${JSON.stringify(activityEvent)}\n\n`, {
             headers: { "content-type": "text/event-stream" },
           }),
         ),
@@ -93,6 +93,8 @@ test("session methods retain decoded Effect inputs and outputs", async () => {
   expect(DateTime.toEpochMillis(result.admitted.timeCreated)).toBe(1_717_171_717_000)
   expect(result.context).toEqual([])
   expect(DateTime.toEpochMillis(result.events[0].data.timestamp)).toBe(1_717_171_717_000)
+  expect(result.events[1]).toEqual(activityEvent)
+  expect(result.events[1]).not.toHaveProperty("durable")
   expect(result.message).toEqual(expect.objectContaining({ id: "msg_model", type: "model-switched" }))
 })
 
@@ -144,4 +146,10 @@ const modelSwitchedEvent = {
     messageID: "msg_model",
     model: { id: "claude", providerID: "anthropic" },
   },
+}
+
+const activityEvent = {
+  id: "evt_activity",
+  type: "session.activity" as const,
+  data: { sessionID: "ses_test", active: false },
 }

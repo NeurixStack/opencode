@@ -106,6 +106,7 @@ export type MessageNotFoundError = SessionRevert.MessageNotFoundError
 export type Error = NotFoundError | MessageDecodeError | OperationUnavailableError | PromptConflictError
 
 export interface Interface {
+  readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   readonly list: (input?: ListInput) => Effect.Effect<SessionSchema.Info[]>
   readonly create: (input: CreateInput) => Effect.Effect<SessionSchema.Info>
   readonly get: (sessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.Info, NotFoundError>
@@ -128,7 +129,7 @@ export interface Interface {
   readonly events: (input: {
     sessionID: SessionSchema.ID
     after?: number
-  }) => Stream.Stream<SessionEvent.DurableEvent, NotFoundError>
+  }) => Stream.Stream<SessionEvent.StreamEvent, NotFoundError>
   readonly switchAgent: (input: { sessionID: SessionSchema.ID; agent: string }) => Effect.Effect<void, NotFoundError>
   readonly switchModel: (input: {
     sessionID: SessionSchema.ID
@@ -186,6 +187,7 @@ export const layer = Layer.unwrap(
           const locations = yield* LocationServiceMap
           const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Message)
           const isDurableSessionEvent = Schema.is(SessionEvent.Durable)
+          const sessionEventTypes = new Set<string>(SessionEvent.Definitions.map((definition) => definition.type))
           const decode = (row: typeof SessionMessageTable.$inferSelect) =>
             decodeMessage({ ...row.data, id: row.id, type: row.type }).pipe(
               Effect.mapError(
@@ -198,6 +200,7 @@ export const layer = Layer.unwrap(
             )
 
           const result = Service.of({
+            active: execution.active,
             create: Effect.fn("V2Session.create")(function* (input) {
               const sessionID = input.id ?? SessionSchema.ID.create()
               const recorded = yield* store.get(sessionID)
@@ -341,10 +344,46 @@ export const layer = Layer.unwrap(
             }),
             events: (input) =>
               Stream.unwrap(
-                result
-                  .get(input.sessionID)
-                  .pipe(Effect.as(events.durable({ aggregateID: input.sessionID, after: input.after }))),
-              ).pipe(Stream.filter((event): event is SessionEvent.DurableEvent => isDurableSessionEvent(event))),
+                Effect.gen(function* () {
+                  yield* result.get(input.sessionID)
+                  const activity = yield* execution.activity(input.sessionID)
+                  const observed = yield* events.observeAggregate({
+                    aggregateID: input.sessionID,
+                    after: input.after,
+                    live: (event) =>
+                      event.durable === undefined &&
+                      sessionEventTypes.has(event.type) &&
+                      typeof event.data === "object" &&
+                      event.data !== null &&
+                      "sessionID" in event.data &&
+                      event.data.sessionID === input.sessionID,
+                  })
+                  const initialActivity: SessionEvent.Activity = {
+                    id: EventV2.ID.create(),
+                    type: SessionEvent.Activity.type,
+                    data: { sessionID: input.sessionID, active: yield* activity.snapshot },
+                  }
+                  const replay = observed.replay.filter((event): event is SessionEvent.DurableEvent =>
+                    isDurableSessionEvent(event),
+                  )
+                  const updates = observed.updates.pipe(
+                    Stream.filter((event): event is SessionEvent.Event => Schema.is(SessionEvent.All)(event)),
+                  )
+                  const activityChanges = activity.changes.pipe(
+                    Stream.map(
+                      (active): SessionEvent.Activity => ({
+                        id: EventV2.ID.create(),
+                        type: SessionEvent.Activity.type,
+                        data: { sessionID: input.sessionID, active },
+                      }),
+                    ),
+                  )
+                  return Stream.fromIterable(replay).pipe(
+                    Stream.concat(Stream.make(initialActivity)),
+                    Stream.concat(Stream.merge(updates, activityChanges)),
+                  )
+                }),
+              ),
             prompt: Effect.fn("V2Session.prompt")((input) =>
               Effect.uninterruptible(
                 Effect.gen(function* () {

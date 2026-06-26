@@ -5713,7 +5713,7 @@ export class Session3 extends HeyApiClient {
   /**
    * Subscribe to session events
    *
-   * Replay durable events after an aggregate sequence, then continue with new durable events.
+   * Replay durable events after an aggregate sequence, emit current process-local activity, then continue with durable and live-only Session events.
    */
   public events<ThrowOnError extends boolean = false>(
     parameters: {

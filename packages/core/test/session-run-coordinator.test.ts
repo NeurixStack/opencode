@@ -99,6 +99,27 @@ describe("SessionRunCoordinator", () => {
     ),
   )
 
+  it.effect("reflects activity races in the snapshot or subsequent transitions", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>()
+        const gate = yield* Deferred.make<void>()
+        const coordinator = yield* SessionRunCoordinator.make({
+          drain: () => Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(gate))),
+        })
+        const activity = yield* coordinator.activity("session")
+
+        const run = yield* coordinator.run("session").pipe(Effect.forkChild)
+        yield* Deferred.await(started)
+        const transitions = new Array<boolean>()
+        expect(yield* activity.attach((active) => transitions.push(active))).toBeTrue()
+        yield* Deferred.succeed(gate, undefined)
+        yield* Fiber.join(run)
+        expect(transitions).toEqual([false])
+      }),
+    ),
+  )
+
   it.effect("cleans active executions after failure and defect", () =>
     Effect.scoped(
       Effect.gen(function* () {

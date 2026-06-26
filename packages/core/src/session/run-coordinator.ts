@@ -1,11 +1,19 @@
 export * as SessionRunCoordinator from "./run-coordinator"
 
-import { Deferred, Effect, Exit, Fiber, FiberSet, Scope } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, FiberSet, Queue, Scope, Stream } from "effect"
+
+export interface Activity {
+  /** Discards earlier transitions and snapshots current ownership. */
+  readonly snapshot: Effect.Effect<boolean>
+  readonly changes: Stream.Stream<boolean>
+}
 
 /** Serializes execution for each key while allowing different keys to run concurrently. */
 export interface Coordinator<Key, E> {
   /** Snapshots keys with an execution owned by this coordinator. */
   readonly active: Effect.Effect<ReadonlySet<Key>>
+  /** Registers transition observation before taking its authoritative snapshot. */
+  readonly activity: (key: Key) => Effect.Effect<Activity, never, Scope.Scope>
   /** Starts execution while idle or joins the active execution. */
   readonly run: (key: Key) => Effect.Effect<void, E>
   /** Registers one coalesced follow-up after newly recorded work. */
@@ -26,6 +34,7 @@ export const make = <Key, E>(options: {
 }): Effect.Effect<Coordinator<Key, E>, never, Scope.Scope> =>
   Effect.gen(function* () {
     const active = new Map<Key, Entry<E>>()
+    const activityObservers = new Map<Key, Set<(active: boolean) => void>>()
     const fork = yield* FiberSet.makeRuntime<never, void, never>()
 
     const makeEntry = (): Entry<E> => ({
@@ -33,6 +42,10 @@ export const make = <Key, E>(options: {
       pendingWake: false,
       stopping: false,
     })
+
+    const notifyActivity = (key: Key, value: boolean) => {
+      for (const observer of activityObservers.get(key) ?? []) observer(value)
+    }
 
     const start = (key: Key, entry: Entry<E>, force: boolean, successor = false) => {
       const ready = Deferred.makeUnsafe<void>()
@@ -56,8 +69,10 @@ export const make = <Key, E>(options: {
       }
 
       const successor = entry.pendingWake ? makeEntry() : undefined
-      if (successor === undefined) active.delete(key)
-      else {
+      if (successor === undefined) {
+        active.delete(key)
+        notifyActivity(key, false)
+      } else {
         active.set(key, successor)
         start(key, successor, false, true)
       }
@@ -74,6 +89,7 @@ export const make = <Key, E>(options: {
 
         const next = makeEntry()
         active.set(key, next)
+        notifyActivity(key, true)
         start(key, next, true)
         return restore(Deferred.await(next.done))
       })
@@ -88,6 +104,7 @@ export const make = <Key, E>(options: {
 
         const next = makeEntry()
         active.set(key, next)
+        notifyActivity(key, true)
         start(key, next, false)
       })
 
@@ -100,5 +117,30 @@ export const make = <Key, E>(options: {
         return Fiber.interrupt(entry.owner)
       })
 
-    return { active: Effect.sync(() => new Set(active.keys())), run, wake, interrupt }
+    const activity = (key: Key) =>
+      Effect.gen(function* () {
+        const queue = yield* Queue.dropping<boolean, Cause.Done>(256)
+        const observer = (value: boolean) => {
+          if (!Queue.offerUnsafe(queue, value)) Queue.endUnsafe(queue)
+        }
+        yield* Effect.acquireRelease(
+          Effect.sync(() => {
+            const observers = activityObservers.get(key) ?? new Set()
+            observers.add(observer)
+            activityObservers.set(key, observers)
+          }),
+          () =>
+            Effect.sync(() => {
+              const observers = activityObservers.get(key)
+              observers?.delete(observer)
+              if (observers?.size === 0) activityObservers.delete(key)
+            }).pipe(Effect.andThen(Queue.shutdown(queue))),
+        )
+        return {
+          snapshot: Queue.clear(queue).pipe(Effect.andThen(Effect.sync(() => active.has(key)))),
+          changes: Stream.fromQueue(queue),
+        }
+      })
+
+    return { active: Effect.sync(() => new Set(active.keys())), activity, run, wake, interrupt }
   })
