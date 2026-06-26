@@ -34,6 +34,8 @@ type OpenApiSchema = {
   additionalProperties?: OpenApiSchema | boolean
   allOf?: OpenApiSchema[]
   anyOf?: OpenApiSchema[]
+  contentMediaType?: string
+  contentSchema?: OpenApiSchema
   description?: string
   enum?: Array<string | boolean>
   items?: OpenApiSchema
@@ -88,6 +90,7 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
   // payload and inside an annotated union arm. Resolve these by inlining the
   // actual schema from any parent union that references them.
   fixSelfReferencingComponents(spec)
+  collapseJsonSseComponents(spec)
 
   // Effect's Schema.optional emits `anyOf: [T, {type:"null"}]` in OpenAPI,
   // but the legacy SDK expected plain `T` for optional fields. Strip null
@@ -226,6 +229,26 @@ function collapseDuplicateComponents(spec: OpenApiSpec) {
     if (stableSchema(schemas[name], schemas) !== stableSchema(schemas[base], schemas)) continue
     rewriteRefs(spec, name, base)
     delete schemas[name]
+  }
+}
+
+function collapseJsonSseComponents(spec: OpenApiSpec) {
+  const schemas = spec.components?.schemas
+  if (!schemas) return
+  for (const [name, schema] of Object.entries(schemas)) {
+    const ref = schema.contentMediaType === "application/json" ? schema.contentSchema?.$ref : undefined
+    const target = ref?.replace("#/components/schemas/", "")
+    if (schema.type !== "string" || !target || !schemas[target]) continue
+    // Effect represents JSON SSE payloads as encoded string schemas, but the
+    // generated SDK's SSE client already decodes them. Keep the payload union
+    // under its stable, unsuffixed component name instead of exposing `string`.
+    const canonical = name.replace(/\d+$/, "")
+    if (target.replace(/\d+$/, "") !== canonical) continue
+    schemas[canonical] = schemas[target]
+    rewriteRefs(spec, name, canonical)
+    rewriteRefs(spec, target, canonical)
+    if (name !== canonical) delete schemas[name]
+    if (target !== canonical) delete schemas[target]
   }
 }
 

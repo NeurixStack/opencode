@@ -11260,7 +11260,7 @@
                       "type": "string"
                     },
                     "data": {
-                      "$ref": "#/components/schemas/SessionDurableEvent1"
+                      "$ref": "#/components/schemas/SessionDurableEvent"
                     }
                   },
                   "required": ["id", "event", "data"],
@@ -23732,13 +23732,6 @@
         "required": ["data", "hasMore"],
         "additionalProperties": false
       },
-      "SessionDurableEvent1": {
-        "type": "string",
-        "contentSchema": {
-          "$ref": "#/components/schemas/SessionDurableEvent"
-        },
-        "contentMediaType": "application/json"
-      },
       "SessionMessagesResponse": {
         "type": "object",
         "properties": {
@@ -23975,7 +23968,7 @@
         "required": ["id", "type", "data"],
         "additionalProperties": false
       },
-      "V2Event1": {
+      "V2Event": {
         "anyOf": [
           {
             "$ref": "#/components/schemas/Models-devRefreshed"
@@ -24242,13 +24235,6 @@
             "$ref": "#/components/schemas/GlobalDisposed"
           }
         ]
-      },
-      "V2Event": {
-        "type": "string",
-        "contentSchema": {
-          "$ref": "#/components/schemas/V2Event1"
-        },
-        "contentMediaType": "application/json"
       },
       "ForbiddenError": {
         "type": "object",

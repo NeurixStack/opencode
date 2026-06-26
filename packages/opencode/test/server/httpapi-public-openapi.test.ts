@@ -99,6 +99,22 @@ describe("PublicApi OpenAPI v2 errors", () => {
     })
   })
 
+  test("exposes decoded SSE payload schemas", () => {
+    const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
+
+    expect(spec.paths["/api/event"]?.get?.responses?.["200"]?.content?.["text/event-stream"]?.schema?.$ref).toBe(
+      "#/components/schemas/V2Event",
+    )
+    expect(spec.components.schemas.V2Event?.anyOf?.length).toBeGreaterThan(0)
+    expect(spec.components.schemas.V2Event1).toBeUndefined()
+
+    expect(
+      spec.paths["/api/session/{sessionID}/event"]?.get?.responses?.["200"]?.content?.["text/event-stream"]?.schema
+        ?.properties?.data?.$ref,
+    ).toBe("#/components/schemas/SessionDurableEvent")
+    expect(spec.components.schemas.SessionDurableEvent1).toBeUndefined()
+  })
+
   test("preserves /api auth responses", () => {
     const spec = OpenApi.fromApi(PublicApi) as OpenApiSpec
 
