@@ -543,13 +543,22 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
     yield* Deferred.await(streamed)
     yield* Fiber.interrupt(fiber)
     const { db } = yield* Database.Service
-    const interrupted = yield* db
+    const interruptedVersion = SessionEvent.Step.Interrupted.durable?.version
+    expect(interruptedVersion).toBe(2)
+    if (interruptedVersion === undefined) return yield* Effect.die("Step.Interrupted must be durable")
+    const settlements = yield* db
       .select({ type: EventTable.type })
       .from(EventTable)
-      .where(eq(EventTable.type, EventV2.versionedType(SessionEvent.Step.Interrupted.type, 1)))
+      .where(eq(EventTable.aggregate_id, sessionID))
       .all()
       .pipe(Effect.orDie)
-    expect(interrupted).toHaveLength(1)
+    expect(
+      settlements.filter(({ type }) =>
+        [SessionEvent.Step.Ended.type, SessionEvent.Step.Failed.type, SessionEvent.Step.Interrupted.type].some((settled) =>
+          type.startsWith(settled),
+        ),
+      ),
+    ).toEqual([{ type: EventV2.versionedType(SessionEvent.Step.Interrupted.type, interruptedVersion) }])
     expect(yield* session.context(sessionID)).toMatchObject([
       { type: "user", text: prompt },
       {
@@ -2660,6 +2669,7 @@ describe("SessionRunnerLLM", () => {
               state: { status: "error", error: { type: "unknown", message: "Tool execution interrupted" } },
             },
           ],
+          finish: "interrupted",
         },
       ])
     }),
@@ -2804,6 +2814,7 @@ describe("SessionRunnerLLM", () => {
               state: { status: "error", error: { type: "unknown", message: "Tool execution interrupted" } },
             },
           ],
+          finish: "interrupted",
         },
       ])
     }),

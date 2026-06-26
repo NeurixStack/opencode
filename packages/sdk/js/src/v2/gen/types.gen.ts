@@ -931,7 +931,7 @@ export type GlobalEvent = {
           timestamp: number
           sessionID: string
           assistantMessageID: string
-          finish: string
+          finish: "stop" | "length" | "tool-calls" | "content-filter" | "error" | "unknown" | "interrupted"
           cost: number
           tokens: {
             input: number
@@ -3378,7 +3378,7 @@ export type SyncEventSessionNextStepEnded = {
       timestamp: number
       sessionID: string
       assistantMessageID: string
-      finish: string
+      finish: "stop" | "length" | "tool-calls" | "content-filter" | "error" | "unknown" | "interrupted"
       cost: number
       tokens: {
         input: number
@@ -3416,7 +3416,7 @@ export type SyncEventSessionNextStepInterrupted = {
   type: "sync"
   id: string
   syncEvent: {
-    type: "session.next.step.interrupted.1"
+    type: "session.next.step.interrupted.2"
     id: string
     seq: number
     aggregateID: string
@@ -4022,7 +4022,7 @@ export type SessionMessageAssistant = {
     end?: string
     files?: Array<string>
   }
-  finish?: string
+  finish?: "stop" | "length" | "tool-calls" | "content-filter" | "error" | "unknown" | "interrupted"
   cost?: number
   tokens?: {
     input: number
@@ -4281,7 +4281,7 @@ export type SessionNextStepEnded = {
     timestamp: number
     sessionID: string
     assistantMessageID: string
-    finish: string
+    finish: "stop" | "length" | "tool-calls" | "content-filter" | "error" | "unknown" | "interrupted"
     cost: number
     tokens: {
       input: number
@@ -5355,7 +5355,7 @@ export type V2EventSessionNextStepEnded = {
     timestamp: number
     sessionID: string
     assistantMessageID: string
-    finish: string
+    finish: "stop" | "length" | "tool-calls" | "content-filter" | "error" | "unknown" | "interrupted"
     cost: number
     tokens: {
       input: number
@@ -6970,7 +6970,7 @@ export type EventSessionNextStepEnded = {
     timestamp: number
     sessionID: string
     assistantMessageID: string
-    finish: string
+    finish: "stop" | "length" | "tool-calls" | "content-filter" | "error" | "unknown" | "interrupted"
     cost: number
     tokens: {
       input: number

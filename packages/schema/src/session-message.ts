@@ -21,6 +21,17 @@ export const UnknownError = Schema.Struct({
   message: Schema.String,
 }).annotate({ identifier: "Session.Error.Unknown" })
 
+export const Finish = Schema.Literals([
+  "stop",
+  "length",
+  "tool-calls",
+  "content-filter",
+  "error",
+  "unknown",
+  "interrupted",
+])
+export type Finish = typeof Finish.Type
+
 const Base = {
   id: ID,
   metadata: Schema.Record(Schema.String, Schema.Unknown).pipe(optional),
@@ -169,7 +180,7 @@ export const Assistant = Schema.Struct({
     end: Schema.String.pipe(optional),
     files: Schema.Array(RelativePath).pipe(optional),
   }).pipe(optional),
-  finish: Schema.String.pipe(optional),
+  finish: Finish.pipe(optional),
   cost: Schema.Finite.pipe(optional),
   tokens: Schema.Struct({
     input: Schema.Finite,

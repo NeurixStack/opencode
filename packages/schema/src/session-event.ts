@@ -165,7 +165,7 @@ export namespace Step {
     schema: {
       ...Base,
       assistantMessageID: SessionMessage.ID,
-      finish: Schema.String,
+      finish: SessionMessage.Finish,
       cost: Schema.Finite,
       tokens: Schema.Struct({
         input: Schema.Finite,
@@ -195,7 +195,7 @@ export namespace Step {
 
   export const Interrupted = Event.define({
     type: "session.next.step.interrupted",
-    ...options,
+    ...stepSettlementOptions,
     schema: {
       ...Base,
       assistantMessageID: SessionMessage.ID,

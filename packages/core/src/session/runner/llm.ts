@@ -307,7 +307,7 @@ export const layer = Layer.effect(
             yield* withPublication(publisher.failUnsettledTools(`Tool execution failed: ${message}`))
           }
           const stepSettlement = publisher.stepSettlement()
-          if (stepSettlement && !publisher.hasProviderError()) {
+          if (stepSettlement && !publisher.hasProviderError() && !publisher.hasAssistantSettled()) {
             const endSnapshot = yield* snapshots.capture()
             const files =
               startSnapshot && endSnapshot

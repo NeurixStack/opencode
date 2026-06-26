@@ -42,11 +42,14 @@ describe("public event manifest", () => {
     expect(Reference.Event.Definitions).toEqual([Reference.Event.Updated])
     expect(EventManifest.Latest.has("ide.installed")).toBe(false)
     expect(IdeEvent.Definitions).toEqual([IdeEvent.Installed])
-    expect(EventManifest.Definitions.slice(44, 47)).toEqual([
+    const partDelta = EventManifest.Definitions.indexOf(SessionV1.Event.PartDelta)
+    expect(partDelta).toBeGreaterThanOrEqual(0)
+    expect(EventManifest.Definitions.slice(partDelta, partDelta + 3)).toEqual([
       SessionV1.Event.PartDelta,
       SessionV1.Event.Diff,
       SessionV1.Event.Error,
     ])
+    expect(EventManifest.Latest.get("session.next.step.interrupted")).toBe(SessionEvent.Step.Interrupted)
     expect(EventManifest.Durable.has("session.next.step.ended.1")).toBe(false)
     expect(EventManifest.Durable.get("session.next.step.ended.2")).toBe(SessionEvent.Step.Ended)
   })
