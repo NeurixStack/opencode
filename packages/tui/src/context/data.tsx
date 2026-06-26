@@ -1,6 +1,7 @@
 import type {
   AgentV2Info,
   CommandV2Info,
+  Event,
   IntegrationInfo,
   LocationRef,
   ModelV2Info,
@@ -16,7 +17,6 @@ import type {
   SessionMessageAssistantTool,
   SessionV2Info,
   SkillV2Info,
-  V2Event,
 } from "@opencode-ai/sdk/v2"
 import { createStore, produce } from "solid-js/store"
 import { createSimpleContext } from "./helper"
@@ -46,6 +46,10 @@ type Data = {
   }
   location: Record<string, LocationData>
 }
+
+type DataEvent = {
+  [Item in Event as Item["type"]]: Item & { data: Item["properties"]; location: LocationRef }
+}[Event["type"]]
 
 function locationKey(location: LocationRef) {
   return JSON.stringify([location.directory, location.workspaceID])
@@ -121,7 +125,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       },
     }
 
-    function handleEvent(event: V2Event) {
+    function handleEvent(event: DataEvent) {
       switch (event.type) {
         case "catalog.updated":
           void Promise.all([
@@ -408,7 +412,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           ...event,
           data: event.properties,
           location: { directory: metadata.directory, workspaceID: metadata.workspace },
-        } as V2Event)
+        } as DataEvent)
       })
       onCleanup(unsub)
     })
