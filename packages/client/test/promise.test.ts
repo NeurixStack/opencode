@@ -25,9 +25,12 @@ test("session methods use the public HTTP contract", async () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       requests.push({ url, init })
       if (url.includes("/event")) {
-        return new Response(`data: ${JSON.stringify(modelSwitchedEvent)}\n\n`, {
-          headers: { "content-type": "text/event-stream" },
-        })
+        return new Response(
+          `data: ${JSON.stringify(modelSwitchedEvent)}\n\ndata: ${JSON.stringify(activityEvent)}\n\n`,
+          {
+            headers: { "content-type": "text/event-stream" },
+          },
+        )
       }
       if (url.includes("/prompt")) return Response.json(admission)
       if (url.includes("/context")) return Response.json({ data: [] })
@@ -65,7 +68,8 @@ test("session methods use the public HTTP contract", async () => {
   expect(created.id).toBe("ses_test")
   expect(admitted.id).toBe("msg_test")
   expect(context).toEqual([])
-  expect(events).toEqual([modelSwitchedEvent])
+  expect(events).toEqual([modelSwitchedEvent, activityEvent])
+  expect(events[1]).not.toHaveProperty("durable")
   expect(message).toEqual(modelSwitchedMessage)
   expect(requests.map((request) => [request.init?.method, request.url])).toEqual([
     ["GET", "http://localhost:3000/api/session?limit=10&order=desc"],
@@ -152,4 +156,10 @@ const modelSwitchedEvent = {
     messageID: "msg_model",
     model: { id: "claude", providerID: "anthropic" },
   },
+}
+
+const activityEvent = {
+  id: "evt_activity",
+  type: "session.activity",
+  data: { sessionID: "ses_test", active: false },
 }

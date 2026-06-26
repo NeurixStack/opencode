@@ -296,7 +296,7 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         query: {
           after: Schema.NumberFromString.pipe(Schema.decodeTo(NonNegativeInt), Schema.optional),
         },
-        success: HttpApiSchema.StreamSse({ data: SessionEvent.Durable }),
+        success: HttpApiSchema.StreamSse({ data: SessionEvent.Stream }),
         error: SessionNotFoundError,
       })
         .middleware(sessionLocationMiddleware)
@@ -304,7 +304,8 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
           OpenApi.annotations({
             identifier: "v2.session.events",
             summary: "Subscribe to session events",
-            description: "Replay durable events after an aggregate sequence, then continue with new durable events.",
+            description:
+              "Replay durable events after an aggregate sequence, emit current process-local activity, then continue with durable and live-only Session events.",
           }),
         ),
     )

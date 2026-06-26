@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Stream } from "effect"
 import { SessionRunCoordinator } from "@opencode-ai/core/session/run-coordinator"
 import { testEffect } from "./lib/effect"
 
@@ -95,6 +95,28 @@ describe("SessionRunCoordinator", () => {
         yield* Deferred.succeed(secondGate, undefined)
         yield* Fiber.join(second)
         expect(Array.from(yield* coordinator.active)).toEqual([])
+      }),
+    ),
+  )
+
+  it.effect("reflects activity races in the snapshot or subsequent transitions", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<void>()
+        const gate = yield* Deferred.make<void>()
+        const coordinator = yield* SessionRunCoordinator.make({
+          drain: () => Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(gate))),
+        })
+        const activity = yield* coordinator.activity("session")
+
+        const run = yield* coordinator.run("session").pipe(Effect.forkChild)
+        yield* Deferred.await(started)
+        expect(yield* activity.snapshot).toBeTrue()
+
+        const inactive = yield* activity.changes.pipe(Stream.take(1), Stream.runCollect, Effect.forkChild)
+        yield* Deferred.succeed(gate, undefined)
+        yield* Fiber.join(run)
+        expect(Array.from(yield* Fiber.join(inactive))).toEqual([false])
       }),
     ),
   )

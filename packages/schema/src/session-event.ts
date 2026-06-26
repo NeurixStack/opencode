@@ -51,6 +51,15 @@ const stepSettlementOptions = {
 export const UnknownError = SessionMessage.UnknownError
 export type UnknownError = SessionMessage.UnknownError
 
+export const Activity = Event.define({
+  type: "session.activity",
+  schema: {
+    sessionID: SessionID,
+    active: Schema.Boolean,
+  },
+})
+export type Activity = typeof Activity.Type
+
 export const AgentSwitched = Event.define({
   type: "session.next.agent.switched",
   ...options,
@@ -517,3 +526,6 @@ export type DurableEvent = typeof Durable.Type
 export const All = Schema.Union(Definitions, { mode: "oneOf" }).pipe(Schema.toTaggedUnion("type"))
 export type Event = typeof All.Type
 export type Type = Event["type"]
+
+export const Stream = Schema.Union([Activity, All], { mode: "oneOf" }).pipe(Schema.toTaggedUnion("type"))
+export type StreamEvent = typeof Stream.Type

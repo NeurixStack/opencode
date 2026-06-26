@@ -418,6 +418,76 @@ describe("EventV2", () => {
     }),
   )
 
+  it.effect("observes a fixed replay cutoff and delivers commits during replay as updates", () =>
+    Effect.gen(function* () {
+      const readStarted = yield* Deferred.make<void>()
+      const continueRead = yield* Deferred.make<void>()
+      let pause = true
+      const eventLayer = EventV2.layerWith({
+        beforeAggregateRead: () =>
+          pause
+            ? Deferred.succeed(readStarted, undefined).pipe(Effect.andThen(Deferred.await(continueRead)))
+            : Effect.void,
+      }).pipe(Layer.provide(Database.defaultLayer))
+
+      yield* Effect.gen(function* () {
+        const events = yield* EventV2.Service
+        const aggregateID = Session.ID.create()
+        const observer = yield* events.observeAggregate({ aggregateID, live: () => false }).pipe(Effect.forkScoped)
+        yield* Deferred.await(readStarted)
+
+        pause = false
+        yield* events.publish(DurableMessage, durableData(aggregateID, "after cutoff"))
+        yield* Deferred.succeed(continueRead, undefined)
+        const observed = yield* Fiber.join(observer)
+        const update = yield* observed.updates.pipe(Stream.take(1), Stream.runCollect)
+
+        expect(observed.replay).toEqual([])
+        expect(Array.from(update).map((event) => [event.durable?.seq, event.data])).toEqual([
+          [0, durableData(aggregateID, "after cutoff")],
+        ])
+      }).pipe(Effect.provide(Layer.mergeAll(Database.defaultLayer, eventLayer)))
+    }),
+  )
+
+  it.effect("drains causally preceding durable rows before a live payload", () =>
+    Effect.gen(function* () {
+      const events = yield* EventV2.Service
+      const aggregateID = Session.ID.create()
+      const observed = yield* events.observeAggregate({
+        aggregateID,
+        live: (event) => event.type === Message.type,
+      })
+      const updates = yield* observed.updates.pipe(Stream.take(2), Stream.runCollect, Effect.forkScoped)
+
+      yield* events.publish(DurableMessage, durableData(aggregateID, "start"))
+      const live = yield* events.publish(Message, { text: "delta" })
+
+      expect(Array.from(yield* Fiber.join(updates))).toEqual([
+        expect.objectContaining({ durable: expect.objectContaining({ seq: 0 }) }),
+        live,
+      ])
+    }),
+  )
+
+  it.effect("coalesces saturated observer signals without losing durable rows", () =>
+    Effect.gen(function* () {
+      const events = yield* EventV2.Service
+      const aggregateID = Session.ID.create()
+      const count = 300
+      const observed = yield* events.observeAggregate({ aggregateID, live: () => false })
+
+      for (let index = 0; index < count; index++) {
+        yield* events.publish(DurableMessage, durableData(aggregateID, String(index)))
+      }
+      const updates = yield* observed.updates.pipe(Stream.take(count), Stream.runCollect)
+
+      expect(Array.from(updates, (event) => event.durable?.seq)).toEqual(
+        Array.from({ length: count }, (_, index) => index),
+      )
+    }),
+  )
+
   it.effect("coalesces durable aggregate wakes while draining every committed event", () =>
     Effect.gen(function* () {
       const events = yield* EventV2.Service

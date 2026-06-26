@@ -1,9 +1,9 @@
 export * as EventV2 from "./event"
 
-import { Cause, Context, Effect, Layer, Option, PubSub, Schema, Stream } from "effect"
+import { Cause, Context, Effect, Layer, Option, PubSub, Queue, Schema, Scope, Stream } from "effect"
 import { Event } from "@opencode-ai/schema/event"
 import type { Data, Definition, Payload } from "@opencode-ai/schema/event"
-import { and, asc, eq, gt } from "drizzle-orm"
+import { and, asc, eq, gt, lte } from "drizzle-orm"
 import { Database } from "./database/database"
 import { EventSequenceTable, EventTable } from "./event/sql"
 import { Location } from "./location"
@@ -67,6 +67,15 @@ export interface Interface {
   readonly subscribe: <D extends Definition>(definition: D) => Stream.Stream<Payload<D>>
   readonly all: () => Stream.Stream<Payload>
   readonly durable: (input: { readonly aggregateID: string; readonly after?: number }) => Stream.Stream<Payload>
+  readonly observeAggregate: (input: {
+    readonly aggregateID: string
+    readonly after?: number
+    readonly live: (event: Payload) => boolean
+  }) => Effect.Effect<
+    { readonly replay: ReadonlyArray<Payload>; readonly updates: Stream.Stream<Payload> },
+    never,
+    Scope.Scope
+  >
   /** @deprecated Use `all()` and consume the returned stream. */
   readonly listen: (listener: Subscriber) => Effect.Effect<Unsubscribe>
   readonly project: <D extends Definition>(definition: D, projector: Subscriber<D>) => Effect.Effect<void>
@@ -472,13 +481,19 @@ export const layerWith = (options?: LayerOptions) =>
         }
       }
 
-      const readAfter = (aggregateID: string, after: number) =>
+      const readAfter = (aggregateID: string, after: number, through?: number) =>
         (options?.beforeAggregateRead?.(aggregateID) ?? Effect.void).pipe(
           Effect.andThen(
             db
               .select()
               .from(EventTable)
-              .where(and(eq(EventTable.aggregate_id, aggregateID), gt(EventTable.seq, after)))
+              .where(
+                and(
+                  eq(EventTable.aggregate_id, aggregateID),
+                  gt(EventTable.seq, after),
+                  through === undefined ? undefined : lte(EventTable.seq, through),
+                ),
+              )
               .orderBy(asc(EventTable.seq))
               .all(),
           ),
@@ -537,6 +552,42 @@ export const layerWith = (options?: LayerOptions) =>
           }),
         )
 
+      const observeAggregate: Interface["observeAggregate"] = (input) =>
+        Effect.gen(function* () {
+          type Signal = { readonly _tag: "durable" } | { readonly _tag: "live"; readonly event: Payload }
+          const signals = yield* Queue.dropping<Signal, Cause.Done>(256)
+          const unsubscribe = yield* listen((event) =>
+            Effect.sync(() => {
+              if (event.durable?.aggregateID === input.aggregateID) {
+                // Durable payloads are only wakeups; a full queue already contains work that will drain the database.
+                Queue.offerUnsafe(signals, { _tag: "durable" })
+                return
+              }
+              if (!input.live(event)) return
+              if (!Queue.offerUnsafe(signals, { _tag: "live", event })) Queue.endUnsafe(signals)
+            }),
+          )
+          yield* Effect.addFinalizer(() => unsubscribe.pipe(Effect.andThen(Queue.shutdown(signals))))
+
+          const cutoff = yield* latestSequence(db, input.aggregateID)
+          const replay = yield* readAfter(input.aggregateID, input.after ?? -1, cutoff)
+          let sequence = cutoff
+          const drain = Effect.suspend(() => readAfter(input.aggregateID, sequence)).pipe(
+            Effect.tap((events) =>
+              Effect.sync(() => {
+                sequence = events.at(-1)?.durable?.seq ?? sequence
+              }),
+            ),
+          )
+          const updates = Stream.fromQueue(signals).pipe(
+            Stream.mapEffect((signal) =>
+              drain.pipe(Effect.map((events) => (signal._tag === "live" ? [...events, signal.event] : events))),
+            ),
+            Stream.flattenIterable,
+          )
+          return { replay, updates }
+        })
+
       const listen = (listener: Subscriber): Effect.Effect<Unsubscribe> =>
         Effect.sync(() => {
           listeners.push(listener)
@@ -558,6 +609,7 @@ export const layerWith = (options?: LayerOptions) =>
         subscribe,
         all: streamAll,
         durable,
+        observeAggregate,
         listen,
         project,
         replay,

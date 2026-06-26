@@ -2690,6 +2690,10 @@ export type InvalidCursorError = {
   message: string
 }
 
+export type SessionActive = {
+  type: "running"
+}
+
 export type SessionNotFoundError = {
   _tag: "SessionNotFoundError"
   sessionID: string
@@ -4032,6 +4036,24 @@ export type SessionMessage =
   | SessionMessageAssistant
   | SessionMessageCompaction
 
+export type SessionActivity = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.activity"
+  durable?: {
+    aggregateID: string
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    version: number | "NaN" | "Infinity" | "-Infinity"
+  }
+  location?: LocationRef
+  data: {
+    sessionID: string
+    active: boolean
+  }
+}
+
 export type SessionNextAgentSwitched = {
   id: string
   metadata?: {
@@ -4309,6 +4331,27 @@ export type SessionNextTextStarted = {
   }
 }
 
+export type SessionNextTextDelta = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.text.delta"
+  durable?: {
+    aggregateID: string
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    version: number | "NaN" | "Infinity" | "-Infinity"
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
+    textID: string
+    delta: string
+  }
+}
+
 export type SessionNextTextEnded = {
   id: string
   metadata?: {
@@ -4330,6 +4373,70 @@ export type SessionNextTextEnded = {
   }
 }
 
+export type SessionNextReasoningStarted = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.reasoning.started"
+  durable?: {
+    aggregateID: string
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    version: number | "NaN" | "Infinity" | "-Infinity"
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
+    reasoningID: string
+    providerMetadata?: LlmProviderMetadata
+  }
+}
+
+export type SessionNextReasoningDelta = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.reasoning.delta"
+  durable?: {
+    aggregateID: string
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    version: number | "NaN" | "Infinity" | "-Infinity"
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
+    reasoningID: string
+    delta: string
+  }
+}
+
+export type SessionNextReasoningEnded = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.reasoning.ended"
+  durable?: {
+    aggregateID: string
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    version: number | "NaN" | "Infinity" | "-Infinity"
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
+    reasoningID: string
+    text: string
+    providerMetadata?: LlmProviderMetadata
+  }
+}
+
 export type SessionNextToolInputStarted = {
   id: string
   metadata?: {
@@ -4348,6 +4455,27 @@ export type SessionNextToolInputStarted = {
     assistantMessageID: string
     callID: string
     name: string
+  }
+}
+
+export type SessionNextToolInputDelta = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.tool.input.delta"
+  durable?: {
+    aggregateID: string
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    version: number | "NaN" | "Infinity" | "-Infinity"
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    assistantMessageID: string
+    callID: string
+    delta: string
   }
 }
 
@@ -4480,49 +4608,6 @@ export type SessionNextToolFailed = {
   }
 }
 
-export type SessionNextReasoningStarted = {
-  id: string
-  metadata?: {
-    [key: string]: unknown
-  }
-  type: "session.next.reasoning.started"
-  durable?: {
-    aggregateID: string
-    seq: number | "NaN" | "Infinity" | "-Infinity"
-    version: number | "NaN" | "Infinity" | "-Infinity"
-  }
-  location?: LocationRef
-  data: {
-    timestamp: number
-    sessionID: string
-    assistantMessageID: string
-    reasoningID: string
-    providerMetadata?: LlmProviderMetadata
-  }
-}
-
-export type SessionNextReasoningEnded = {
-  id: string
-  metadata?: {
-    [key: string]: unknown
-  }
-  type: "session.next.reasoning.ended"
-  durable?: {
-    aggregateID: string
-    seq: number | "NaN" | "Infinity" | "-Infinity"
-    version: number | "NaN" | "Infinity" | "-Infinity"
-  }
-  location?: LocationRef
-  data: {
-    timestamp: number
-    sessionID: string
-    assistantMessageID: string
-    reasoningID: string
-    text: string
-    providerMetadata?: LlmProviderMetadata
-  }
-}
-
 export type SessionNextRetried = {
   id: string
   metadata?: {
@@ -4560,6 +4645,26 @@ export type SessionNextCompactionStarted = {
     sessionID: string
     messageID: string
     reason: "auto" | "manual"
+  }
+}
+
+export type SessionNextCompactionDelta = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.compaction.delta"
+  durable?: {
+    aggregateID: string
+    seq: number | "NaN" | "Infinity" | "-Infinity"
+    version: number | "NaN" | "Infinity" | "-Infinity"
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    messageID: string
+    text: string
   }
 }
 
@@ -11939,6 +12044,39 @@ export type V2SessionCreateResponses = {
 }
 
 export type V2SessionCreateResponse = V2SessionCreateResponses[keyof V2SessionCreateResponses]
+
+export type V2SessionActiveData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/session/active"
+}
+
+export type V2SessionActiveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2SessionActiveError = V2SessionActiveErrors[keyof V2SessionActiveErrors]
+
+export type V2SessionActiveResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: {
+      [key: string]: unknown | SessionActive
+    }
+  }
+}
+
+export type V2SessionActiveResponse = V2SessionActiveResponses[keyof V2SessionActiveResponses]
 
 export type V2SessionGetData = {
   body?: never

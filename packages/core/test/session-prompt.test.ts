@@ -26,6 +26,7 @@ const execution = Layer.succeed(
   SessionExecution.Service,
   SessionExecution.Service.of({
     active: Effect.succeed(new Set()),
+    activity: () => Effect.succeed({ snapshot: Effect.succeed(false), changes: Stream.never }),
     resume: (sessionID) =>
       Effect.sync(() => {
         executionCalls.push(sessionID)
@@ -171,7 +172,7 @@ describe("SessionV2.prompt", () => {
       const session = yield* SessionV2.Service
       const events = yield* EventV2.Service
       const { db } = yield* Database.Service
-      const fiber = yield* session.events({ sessionID }).pipe(Stream.take(4), Stream.runCollect, Effect.forkScoped)
+      const fiber = yield* session.events({ sessionID }).pipe(Stream.take(5), Stream.runCollect, Effect.forkScoped)
       yield* Effect.yieldNow
 
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "First" }), resume: false })
@@ -180,6 +181,7 @@ describe("SessionV2.prompt", () => {
       const streamed = Array.from(yield* Fiber.join(fiber))
 
       expect(streamed.map((event) => [event.durable?.seq, event.type])).toEqual([
+        [undefined, "session.activity"],
         [0, "session.next.prompt.admitted"],
         [1, "session.next.prompt.admitted"],
         [2, "session.next.prompted"],
@@ -188,10 +190,44 @@ describe("SessionV2.prompt", () => {
       expect(
         Array.from(
           yield* session
-            .events({ sessionID, after: streamed[0]!.durable?.seq })
-            .pipe(Stream.take(1), Stream.runCollect),
+            .events({ sessionID, after: streamed[2]?.durable?.seq })
+            .pipe(Stream.take(3), Stream.runCollect),
         ).map((event) => [event.durable?.seq, event.type]),
-      ).toEqual([[1, "session.next.prompt.admitted"]])
+      ).toEqual([
+        [2, "session.next.prompted"],
+        [3, "session.next.prompted"],
+        [undefined, "session.activity"],
+      ])
+    }),
+  )
+
+  it.effect("replays history, emits activity, then fences live deltas behind durable starts", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const assistantMessageID = SessionMessage.ID.create()
+      yield* events.publish(SessionEvent.Text.Started, {
+        sessionID,
+        assistantMessageID,
+        textID: "text-1",
+        timestamp: yield* DateTime.now,
+      })
+      const streamed = yield* session.events({ sessionID }).pipe(Stream.take(3), Stream.runCollect, Effect.forkScoped)
+      yield* Effect.yieldNow
+      yield* events.publish(SessionEvent.Text.Delta, {
+        sessionID,
+        assistantMessageID,
+        textID: "text-1",
+        delta: "hello",
+        timestamp: yield* DateTime.now,
+      })
+
+      expect(Array.from(yield* Fiber.join(streamed)).map((event) => event.type)).toEqual([
+        "session.next.text.started",
+        "session.activity",
+        "session.next.text.delta",
+      ])
     }),
   )
 
