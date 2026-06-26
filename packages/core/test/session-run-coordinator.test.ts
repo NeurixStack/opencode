@@ -66,6 +66,39 @@ describe("SessionRunCoordinator", () => {
     ),
   )
 
+  it.effect("snapshots only active executions", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstStarted = yield* Deferred.make<void>()
+        const secondStarted = yield* Deferred.make<void>()
+        const firstGate = yield* Deferred.make<void>()
+        const secondGate = yield* Deferred.make<void>()
+        const coordinator = yield* SessionRunCoordinator.make({
+          drain: (key: string) =>
+            Deferred.succeed(key === "first" ? firstStarted : secondStarted, undefined).pipe(
+              Effect.andThen(Deferred.await(key === "first" ? firstGate : secondGate)),
+            ),
+        })
+
+        expect(Array.from(yield* coordinator.active)).toEqual([])
+        const first = yield* coordinator.run("first").pipe(Effect.forkChild)
+        yield* Deferred.await(firstStarted)
+        expect(Array.from(yield* coordinator.active)).toEqual(["first"])
+
+        const second = yield* coordinator.run("second").pipe(Effect.forkChild)
+        yield* Deferred.await(secondStarted)
+        expect(Array.from(yield* coordinator.active)).toEqual(["first", "second"])
+
+        yield* Deferred.succeed(firstGate, undefined)
+        yield* Fiber.join(first)
+        expect(Array.from(yield* coordinator.active)).toEqual(["second"])
+        yield* Deferred.succeed(secondGate, undefined)
+        yield* Fiber.join(second)
+        expect(Array.from(yield* coordinator.active)).toEqual([])
+      }),
+    ),
+  )
+
   it.effect("coalesces wakes received during active execution", () =>
     Effect.scoped(
       Effect.gen(function* () {

@@ -25,6 +25,7 @@ const wakeCalls: SessionV2.ID[] = []
 const execution = Layer.succeed(
   SessionExecution.Service,
   SessionExecution.Service.of({
+    active: Effect.succeed(new Set()),
     resume: (sessionID) =>
       Effect.sync(() => {
         executionCalls.push(sessionID)
