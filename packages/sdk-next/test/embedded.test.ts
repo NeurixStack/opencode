@@ -103,11 +103,12 @@ test("embedded client uses the real router and handlers", async () => {
   }
 })
 
-test("embedded session events live-tail location-owned durable rows through provider failure", async () => {
+test("embedded session events live-tail stateless tool continuation through provider failure", async () => {
   const directory = await mkdtemp(join(tmpdir(), "opencode-embedded-live-tail-"))
   const database = Flag.OPENCODE_DB
   Flag.OPENCODE_DB = join(directory, "opencode.sqlite")
   let requests = 0
+  const requestBodies: unknown[] = []
   const server = Bun.serve({
     port: 0,
     async fetch(request) {
@@ -115,26 +116,29 @@ test("embedded session events live-tail location-owned durable rows through prov
       if (JSON.stringify(body).includes("Generate a title for this conversation")) {
         return new Response(
           [
-            'data: {"choices":[{"delta":{"role":"assistant"}}]}',
-            'data: {"choices":[{"delta":{"content":"Live tail"}}]}',
-            'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
-            "data: [DONE]",
+            'data: {"type":"response.output_text.delta","item_id":"title","delta":"Live tail"}',
+            'data: {"type":"response.completed","response":{}}',
             "",
           ].join("\n\n"),
           { headers: { "content-type": "text/event-stream" } },
         )
       }
       requests++
+      requestBodies.push(body)
       if (requests > 1) {
         return Response.json({ error: { message: "Provider failed on turn B", type: "server_error" } }, { status: 500 })
       }
       return new Response(
         [
-          'data: {"choices":[{"delta":{"role":"assistant"}}]}',
-          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_live_tail","type":"function","function":{"name":"live_tail_tool","arguments":""}}]}}]}',
-          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"value\\":\\"A\\"}"}}]}}]}',
-          'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
-          "data: [DONE]",
+          'data: {"type":"response.output_item.added","item":{"type":"reasoning","id":"rs_live_tail","encrypted_content":null}}',
+          'data: {"type":"response.reasoning_summary_part.added","item_id":"rs_live_tail","summary_index":0}',
+          'data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_live_tail","summary_index":0,"delta":"Run the tool."}',
+          'data: {"type":"response.reasoning_summary_part.done","item_id":"rs_live_tail","summary_index":0}',
+          'data: {"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_live_tail","encrypted_content":"encrypted-live-tail"}}',
+          'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_live_tail","call_id":"call_live_tail","name":"live_tail_tool","arguments":""}}',
+          'data: {"type":"response.function_call_arguments.delta","item_id":"item_live_tail","delta":"{\\"value\\":\\"A\\"}"}',
+          'data: {"type":"response.output_item.done","item":{"type":"function_call","id":"item_live_tail","call_id":"call_live_tail","name":"live_tail_tool","arguments":"{\\"value\\":\\"A\\"}"}}',
+          'data: {"type":"response.completed","response":{}}',
           "",
         ].join("\n\n"),
         { headers: { "content-type": "text/event-stream" } },
@@ -155,11 +159,13 @@ test("embedded session events live-tail location-owned durable rows through prov
             name: "Test",
             api: {
               type: "aisdk",
-              package: "@ai-sdk/openai-compatible",
+              package: "@ai-sdk/openai",
               url: `http://127.0.0.1:${server.port}/v1`,
               settings: {},
             },
-            request: { body: { apiKey: "test-key" } },
+            request: {
+              body: { apiKey: "test-key", store: false, include: ["reasoning.encrypted_content"] },
+            },
             models: {
               "test-model": {
                 name: "Test Model",
@@ -219,6 +225,21 @@ test("embedded session events live-tail location-owned durable rows through prov
 
           expect(executions).toEqual(["A"])
           expect(requests).toBeGreaterThanOrEqual(2)
+          expect(requestBodies.slice(0, 2)).toMatchObject([
+            { store: false },
+            {
+              store: false,
+              input: expect.arrayContaining([
+                {
+                  type: "reasoning",
+                  id: "rs_live_tail",
+                  summary: [{ type: "summary_text", text: "Run the tool." }],
+                  encrypted_content: "encrypted-live-tail",
+                },
+                { type: "function_call_output", call_id: "call_live_tail", output: '{"value":"A"}' },
+              ]),
+            },
+          ])
           expect(durable.at(-1)?.type).toBe("session.next.step.failed")
           expect(durable.map((event) => event.durable!.seq)).toEqual(
             Array.from({ length: durable.length }, (_, index) => durable[0]!.durable!.seq + index),
