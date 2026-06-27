@@ -32,6 +32,26 @@ import { Heap } from "./cli/heap"
 
 const args = hideBin(process.argv)
 
+if (args[0] === "completion" && args[1] === "fish") {
+  process.stdout.write(`###-begin-opencode-completions-###
+function __opencode_yargs_completions
+    set -l tokens (commandline -opc)
+    set -l command $tokens[1]
+
+    if test -z "$command"
+        set command opencode
+    end
+
+    command $command --get-yargs-completions $tokens 2>/dev/null
+end
+
+complete -c opencode -f -a "(__opencode_yargs_completions)"
+complete -c oc -f -a "(__opencode_yargs_completions)"
+###-end-opencode-completions-###
+`)
+  process.exit(0)
+}
+
 function show(out: string) {
   const text = out.trimStart()
   if (!text.startsWith("opencode ")) {
