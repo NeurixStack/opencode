@@ -251,7 +251,6 @@
       "name": "@opencode-ai/console-support",
       "version": "1.17.11",
       "dependencies": {
-        "@cloudflare/vite-plugin": "1.15.2",
         "@opencode-ai/console-core": "workspace:*",
         "@solidjs/meta": "catalog:",
         "@solidjs/router": "catalog:",
