@@ -208,7 +208,7 @@ The first V2 `apply_patch` leaf supports add, update, and delete hunks. It parse
 ### Current Runner Follow-Ups
 
 - Keep eager structured local-tool settlement: durably record each complete call, start its child execution immediately, await all started settlements after provider-turn consumption, persist every result, and reload history once before continuation.
-- Buffer or coalesce streamed deltas before rewriting growing assistant projections.
+- Buffer or coalesce streamed deltas before rewriting growing assistant projections; see [Stream Delta Coalescing PRD](./stream-delta-coalescing.md).
 - Revisit additional covering indexes as larger-history query shapes become concrete.
 - Design any global multi-Session event stream separately; the finite history API deliberately reads one authorized Session aggregate and does not change global Event publication.
 - Decide whether UI-facing Session subscriptions should optionally interleave ephemeral deltas while connected without advancing the durable cursor.
