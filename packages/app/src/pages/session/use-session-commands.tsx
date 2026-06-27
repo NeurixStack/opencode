@@ -27,6 +27,9 @@ export type SessionCommandContext = {
   setActiveMessage: (message: UserMessage | undefined) => void
   focusInput: () => void
   review?: () => boolean
+  childSessions: () => number
+  childSessionsBlocked: () => boolean
+  toggleChildSessions: () => void
 }
 
 const withCategory = (category: string) => {
@@ -418,6 +421,14 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
         }
         navigate(`/${params.dir}/session`)
       },
+    }),
+    sessionCommand({
+      id: "session.child.first",
+      title: language.t("command.session.child"),
+      description: language.t("command.session.child.description"),
+      keybind: "mod+shift+arrowdown",
+      disabled: actions.childSessions() === 0 || actions.childSessionsBlocked(),
+      onSelect: actions.toggleChildSessions,
     }),
     sessionCommand({
       id: "session.undo",

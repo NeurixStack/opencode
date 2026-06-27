@@ -787,6 +787,20 @@ export default function Page() {
     inputRef?.focus()
   }
 
+  const closeChildSessions = () => {
+    composer.closeChildSessions()
+    if (isChildSession()) return
+    requestAnimationFrame(() => inputRef?.focus())
+  }
+
+  const toggleChildSessions = () => {
+    if (composer.childSessionPicker()) {
+      closeChildSessions()
+      return
+    }
+    composer.openChildSessions()
+  }
+
   useComposerCommands()
   useSettingsCommand()
   useSessionCommands({
@@ -794,6 +808,9 @@ export default function Page() {
     setActiveMessage,
     focusInput,
     review: reviewTab,
+    childSessions: () => composer.childSessions().length,
+    childSessionsBlocked: composer.blocked,
+    toggleChildSessions,
   })
 
   const openReviewFile = createOpenReviewFile({
@@ -1619,6 +1636,15 @@ export default function Page() {
             : legacySessionHref(sdk().directory, id),
         )
       },
+      onChildSessionSelect: (id) => {
+        composer.closeChildSessions()
+        navigate(
+          params.serverKey
+            ? sessionHref(requireServerKey(params.serverKey), id)
+            : legacySessionHref(sdk().directory, id),
+        )
+      },
+      onChildSessionsClose: closeChildSessions,
       setPromptRef: (el) => {
         inputRef = el
       },

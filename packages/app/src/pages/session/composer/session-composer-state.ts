@@ -9,6 +9,7 @@ import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
+import { listChildSessions } from "./session-child-sessions"
 
 export const todoState = (input: {
   count: number
@@ -60,10 +61,18 @@ export function createSessionComposerController(options?: { closeMs?: number | (
   )
 
   const live = createMemo(() => sync().data.session_working(params.id ?? "") || blocked())
+  const childSessions = createMemo(() =>
+    listChildSessions({
+      sessions: sync().data.session,
+      currentID: params.id,
+      working: sync().data.session_working.bind(sync().data),
+    }),
+  )
 
   const [store, setStore] = createStore({
     sessionID: params.id,
     responding: undefined as string | undefined,
+    childSessionPicker: false,
     dock: todos().length > 0 && !done() && live(),
     closing: false,
     opening: false,
@@ -73,6 +82,11 @@ export function createSessionComposerController(options?: { closeMs?: number | (
     const perm = permissionRequest()
     if (!perm) return false
     return store.responding === perm.id
+  })
+
+  createEffect(() => {
+    if (!blocked()) return
+    setStore("childSessionPicker", false)
   })
 
   const decide = (response: "once" | "always" | "reject") => {
@@ -133,7 +147,13 @@ export function createSessionComposerController(options?: { closeMs?: number | (
         if (!previous || previous[0] !== id) {
           if (timer) window.clearTimeout(timer)
           timer = undefined
-          setStore({ sessionID: id, dock: todoDockAtBoundary(next), closing: false, opening: false })
+          setStore({
+            sessionID: id,
+            childSessionPicker: false,
+            dock: todoDockAtBoundary(next),
+            closing: false,
+            opening: false,
+          })
           if (next === "clear") clear()
           return
         }
@@ -191,6 +211,14 @@ export function createSessionComposerController(options?: { closeMs?: number | (
     permissionRequest,
     permissionResponding,
     decide,
+    childSessions,
+    childSessionWorking: (sessionID: string) => sync().data.session_working(sessionID),
+    childSessionPicker: () => store.childSessionPicker && !blocked() && childSessions().length > 0,
+    openChildSessions: () => {
+      if (blocked() || childSessions().length === 0) return
+      setStore("childSessionPicker", true)
+    },
+    closeChildSessions: () => setStore("childSessionPicker", false),
     todos,
     dock: () =>
       store.sessionID === params.id

@@ -36,6 +36,8 @@ export function createSessionComposerRegionController(input: {
   revert: Accessor<SessionComposerRevertDock | undefined>
   onResponseSubmit: () => void
   openParent: () => void
+  onChildSessionSelect: (sessionID: string) => void
+  onChildSessionsClose: () => void
   setPromptRef: (el: HTMLDivElement) => void
   setDockRef: (el: HTMLDivElement) => void
 }) {
@@ -127,11 +129,14 @@ export function createSessionComposerRegionController(input: {
     revert: input.revert,
     onResponseSubmit: input.onResponseSubmit,
     openParent: input.openParent,
+    onChildSessionSelect: input.onChildSessionSelect,
+    onChildSessionsClose: input.onChildSessionsClose,
     setPromptRef: input.setPromptRef,
     setDockRef: input.setDockRef,
+    sessionID: input.sessionID,
     parentID,
     child: () => !!parentID(),
-    showComposer: () => !input.state.blocked() || !!parentID(),
+    showComposer: () => (!input.state.blocked() || !!parentID()) && !input.state.childSessionPicker(),
     handoffPrompt: () => getSessionHandoff(input.sessionKey())?.prompt,
     promptReady: () => input.prompt.ready() || promptReady(),
     dock: () => (store.ready && input.state.dock()) || value() > 0.001,

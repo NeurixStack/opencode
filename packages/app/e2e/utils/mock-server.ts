@@ -1,7 +1,7 @@
 import type { Page, Route } from "@playwright/test"
 
 const emptyList = new Set(["/skill", "/command", "/lsp", "/formatter", "/vcs/status", "/vcs/diff"])
-const emptyObject = new Set(["/global/config", "/config", "/provider/auth", "/mcp", "/session/status"])
+const emptyObject = new Set(["/global/config", "/config", "/provider/auth", "/mcp"])
 
 export interface MockServerConfig {
   provider: unknown
@@ -17,6 +17,7 @@ export interface MockServerConfig {
   todos?: (sessionID: string) => unknown[]
   permissions?: unknown[] | (() => unknown[])
   questions?: unknown[] | (() => unknown[])
+  statuses?: Record<string, unknown>
 }
 
 export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
@@ -36,6 +37,7 @@ export async function mockOpenCodeServer(page: Page, config: MockServerConfig) {
     "/agent": [{ name: "build", mode: "primary" }],
     "/vcs": { branch: "main", default_branch: "main" },
     "/session": config.sessions,
+    "/session/status": config.statuses ?? {},
   }
 
   await page.route("**/*", async (route) => {

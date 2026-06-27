@@ -46,6 +46,8 @@ export const dict = {
   "command.language.set": "Use language: {{language}}",
 
   "command.session.new": "New session",
+  "command.session.child": "View child agents",
+  "command.session.child.description": "Switch to a child agent session",
   "command.file.open": "Open file",
   "command.tab.close": "Close tab",
   "command.context.addSelection": "Add selection to context",
@@ -242,6 +244,12 @@ export const dict = {
   "prompt.mode.shell.exit": "esc to exit",
   "session.child.promptDisabled": "Subagent sessions cannot be prompted.",
   "session.child.backToParent": "Back to main session.",
+  "session.child.picker.title": "Child agents",
+  "session.child.picker.description": "Choose an agent to view its session.",
+  "session.child.picker.hint": "Use ↑↓ to navigate · Enter to open",
+  "session.child.picker.agentFallback": "agent",
+  "session.child.picker.running": "Running",
+  "session.child.picker.complete": "Complete",
 
   "prompt.example.1": "Fix a TODO in the codebase",
   "prompt.example.2": "What is the tech stack of this project?",

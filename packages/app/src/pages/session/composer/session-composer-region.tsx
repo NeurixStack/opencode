@@ -7,6 +7,7 @@ import { SessionFollowupDock } from "@/pages/session/composer/session-followup-d
 import { SessionRevertDock } from "@/pages/session/composer/session-revert-dock"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { SessionComposerRegionController } from "./session-composer-region-controller"
+import { SessionChildSessionPicker } from "./session-child-session-picker"
 
 export function SessionComposerRegion(props: {
   controller: SessionComposerRegionController
@@ -57,6 +58,16 @@ export function SessionComposerRegion(props: {
               />
             </div>
           )}
+        </Show>
+
+        <Show when={controller.state.childSessionPicker()}>
+          <SessionChildSessionPicker
+            sessions={controller.state.childSessions()}
+            activeID={controller.parentID() ? controller.sessionID() : undefined}
+            working={controller.state.childSessionWorking}
+            onSelect={controller.onChildSessionSelect}
+            onClose={controller.onChildSessionsClose}
+          />
         </Show>
 
         <Show when={controller.showComposer()}>
