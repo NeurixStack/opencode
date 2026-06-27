@@ -1,5 +1,6 @@
 import { checksum } from "@opencode-ai/core/util/encode"
 import DOMPurify from "dompurify"
+import type { MarkdownToken } from "./markdown-worker-protocol"
 import { project } from "./markdown-stream"
 
 export type MarkdownCacheEntry = {
@@ -8,8 +9,18 @@ export type MarkdownCacheEntry = {
   html: string
 }
 
+export type MarkdownCodeCacheEntry = {
+  raw: string
+  hash: string
+  language: string
+  generation: number
+  stable: MarkdownToken[]
+  unstable: MarkdownToken[]
+}
+
 const max = 200
 const cache = new Map<string, MarkdownCacheEntry>()
+const codeCache = new Map<string, MarkdownCodeCacheEntry>()
 const config = {
   USE_PROFILES: { html: true, mathMl: true },
   SANITIZE_NAMED_PROPS: true,
@@ -50,6 +61,21 @@ export function touchCachedMarkdown(key: string, value: MarkdownCacheEntry) {
   const first = cache.keys().next().value
   if (!first) return
   cache.delete(first)
+}
+
+export function getCachedMarkdownCode(key: string) {
+  return codeCache.get(key)
+}
+
+export function touchCachedMarkdownCode(key: string, value: MarkdownCodeCacheEntry) {
+  codeCache.delete(key)
+  codeCache.set(key, value)
+
+  if (codeCache.size <= max) return
+
+  const first = codeCache.keys().next().value
+  if (!first) return
+  codeCache.delete(first)
 }
 
 export async function preloadMarkdown(

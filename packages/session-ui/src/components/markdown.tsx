@@ -24,7 +24,14 @@ import {
 } from "./markdown-worker"
 import { markdownBlockKey, type MarkdownToken } from "./markdown-worker-protocol"
 import { shouldResetCodeTokens, type RenderedCodeState } from "./markdown-code-state"
-import { getCachedMarkdown, sanitizeMarkdown, touchCachedMarkdown, type MarkdownCacheEntry } from "./markdown-cache"
+import {
+  getCachedMarkdown,
+  getCachedMarkdownCode,
+  sanitizeMarkdown,
+  touchCachedMarkdown,
+  touchCachedMarkdownCode,
+  type MarkdownCacheEntry,
+} from "./markdown-cache"
 import { inlineCodeKind } from "./markdown-inline-code-kind"
 
 type RenderedBlock =
@@ -66,8 +73,12 @@ function fallback(markdown: string) {
   return escape(markdown).replace(/\r\n?/g, "\n").replace(/\n/g, "<br>")
 }
 
+function highlightLanguage(language: string | undefined) {
+  return language && language in bundledLanguages ? language : "text"
+}
+
 async function code(text: string, language: string | undefined, key: string, complete = false) {
-  const name = language && language in bundledLanguages ? language : "text"
+  const name = highlightLanguage(language)
   try {
     const result = await highlightStreamingCode(key, text, name, complete)
     return { language: name, generation: result.generation, stable: result.stable, unstable: result.unstable }
@@ -297,9 +308,15 @@ function initialResult(text: string, key: string | undefined, projection: Projec
   if (!text) return { text, blocks: [] }
   const base = key ?? checksum(text)
   if (base) {
-    const blocks = projection.blocks.flatMap((block, index) => {
-      if (block.mode === "code") return []
+    const blocks = projection.blocks.flatMap((block, index): RenderedBlock[] => {
       const cacheKey = `${base}:${index}:${block.mode}`
+      if (block.mode === "code") {
+        if (!block.complete) return []
+        const cached = getCachedMarkdownCode(cacheKey)
+        if (cached?.raw !== block.raw) return []
+        touchCachedMarkdownCode(cacheKey, cached)
+        return [{ key: `${owner}:${cacheKey}`, mode: block.mode, complete: true, ...cached }]
+      }
       const cached = getCachedMarkdown(cacheKey)
       if (cached?.raw !== block.raw) return []
       return [{ key: `${owner}:${cacheKey}`, mode: block.mode, ...cached }]
@@ -370,9 +387,17 @@ export function Markdown(
           const blockKey = markdownBlockKey(owner, src.key, index, block.mode)
 
           if (block.mode === "code") {
+            const language = highlightLanguage(block.language)
+            if (block.complete && key) {
+              const shared = getCachedMarkdownCode(key)
+              if (shared?.raw === block.raw && shared.language === language) {
+                touchCachedMarkdownCode(key, shared)
+                return { key: blockKey, mode: block.mode, complete: true, ...shared }
+              }
+            }
             const cached = completedCode.get(blockKey)
             if (block.complete && cached?.raw === block.raw) return cached
-            const result = await code(block.src, block.language, blockKey, block.complete)
+            const result = await code(block.src, language, blockKey, block.complete)
             const rendered = {
               key: blockKey,
               mode: block.mode,
@@ -381,7 +406,18 @@ export function Markdown(
               complete: !!block.complete,
               ...result,
             }
-            if (block.complete) completedCode.set(blockKey, rendered)
+            if (block.complete) {
+              completedCode.set(blockKey, rendered)
+              if (key && rendered.generation > 0)
+                touchCachedMarkdownCode(key, {
+                  raw: rendered.raw,
+                  hash: rendered.hash,
+                  language: rendered.language,
+                  generation: rendered.generation,
+                  stable: rendered.stable,
+                  unstable: rendered.unstable,
+                })
+            }
             return rendered
           }
 
