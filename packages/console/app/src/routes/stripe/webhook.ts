@@ -1,7 +1,7 @@
 import type { Stripe } from "stripe"
 import { Billing } from "@opencode-ai/console-core/billing.js"
 import type { APIEvent } from "@solidjs/start/server"
-import { and, Database, eq, sql } from "@opencode-ai/console-core/drizzle/index.js"
+import { and, Database, eq, isNull, sql } from "@opencode-ai/console-core/drizzle/index.js"
 import { BillingTable, LiteTable, PaymentTable } from "@opencode-ai/console-core/schema/billing.sql.js"
 import { Identifier } from "@opencode-ai/console-core/identifier.js"
 import { centsToMicroCents } from "@opencode-ai/console-core/util/price.js"
@@ -352,19 +352,26 @@ export async function POST(input: APIEvent) {
       if (!payment) throw new Error("Payment not found")
 
       await Database.transaction(async (tx) => {
-        await tx
+        const refundAmount = Math.min(centsToMicroCents(body.data.object.amount_refunded), payment.amount)
+        const marked = await tx
           .update(PaymentTable)
           .set({
             timeRefunded: new Date(body.created * 1000),
           })
-          .where(and(eq(PaymentTable.paymentID, paymentIntentID), eq(PaymentTable.workspaceID, workspaceID)))
+          .where(
+            and(
+              eq(PaymentTable.paymentID, paymentIntentID),
+              eq(PaymentTable.workspaceID, workspaceID),
+              isNull(PaymentTable.timeRefunded),
+            ),
+          )
 
         // deduct balance only for top up
-        if (!payment.enrichment?.type) {
+        if (!payment.enrichment?.type && marked.rowsAffected > 0) {
           await tx
             .update(BillingTable)
             .set({
-              balance: sql`${BillingTable.balance} - ${payment.amount}`,
+              balance: sql`${BillingTable.balance} - ${refundAmount}`,
             })
             .where(eq(BillingTable.workspaceID, workspaceID))
         }
