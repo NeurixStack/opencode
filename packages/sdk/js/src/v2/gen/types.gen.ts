@@ -2766,8 +2766,6 @@ export type SessionHistory = {
   hasMore: boolean
 }
 
-export type SessionDurableEvent1 = string
-
 export type SessionMessagesResponse = {
   data: Array<SessionMessage>
   cursor: {
@@ -2847,7 +2845,7 @@ export type QuestionRejected2 = {
   }
 }
 
-export type V2Event1 =
+export type V2Event =
   | ModelsDevRefreshed
   | IntegrationUpdated
   | IntegrationConnectionUpdated
@@ -2936,8 +2934,6 @@ export type V2Event1 =
   | WorktreeFailed
   | ServerConnected
   | GlobalDisposed
-
-export type V2Event = string
 
 export type ForbiddenError = {
   _tag: "ForbiddenError"
@@ -11898,11 +11894,7 @@ export type V2SessionEventsResponses = {
   /**
    * Success
    */
-  200: {
-    id: string
-    event: string
-    data: SessionDurableEvent1
-  }
+  200: SessionDurableEvent
 }
 
 export type V2SessionEventsResponse = V2SessionEventsResponses[keyof V2SessionEventsResponses]
