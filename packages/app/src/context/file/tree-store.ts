@@ -127,10 +127,11 @@ export function createFileTreeStore(options: TreeStoreOptions) {
     return promise
   }
 
-  const expandDir = (input: string) => {
+  const expandDir = (input: string, opts?: { load?: boolean }) => {
     const dir = options.normalizeDir(input)
     ensureDir(dir)
     setTree("dir", dir, "expanded", true)
+    if (opts?.load === false) return
     void listDir(dir)
   }
 

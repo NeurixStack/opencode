@@ -22,6 +22,8 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Project } from "@opencode-ai/schema/project"
+import { SessionContextEpoch } from "@opencode-ai/core/session/context-epoch"
+import path from "path"
 
 export const Info = Project.Info
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
@@ -229,12 +231,19 @@ export const layer = Layer.effect(
             sandboxes: [] as string[],
             time: { created: Date.now(), updated: Date.now() },
           }
+      const previousWorktree =
+        row &&
+        projectID !== ProjectV2.ID.global &&
+        existing.worktree !== worktree &&
+        !(yield* fs.isDir(existing.worktree))
+          ? existing.worktree
+          : undefined
 
       if (flags.experimentalIconDiscovery) yield* discover(existing).pipe(Effect.ignore, Effect.forkIn(scope))
 
       const result: Info = {
         ...existing,
-        worktree: projectID === ProjectV2.ID.global ? worktree : existing.worktree,
+        worktree: projectID === ProjectV2.ID.global || previousWorktree ? worktree : existing.worktree,
         vcs: data.vcs?.type ?? fakeVcs,
         time: { ...existing.time, updated: Date.now() },
       }
@@ -252,7 +261,11 @@ export const layer = Layer.effect(
             Effect.map((exists) => (exists ? s : undefined)),
           ),
         { concurrency: "unbounded" },
-      ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
+      ).pipe(
+        Effect.map((arr) =>
+          arr.filter((x): x is string => x !== undefined && x !== result.worktree && x !== previousWorktree),
+        ),
+      )
 
       yield* db
         .insert(ProjectTable)
@@ -288,6 +301,29 @@ export const layer = Layer.effect(
         .run()
         .pipe(Effect.orDie)
 
+      if (previousWorktree) {
+        const sessions = yield* db
+          .select({ id: SessionTable.id, directory: SessionTable.directory })
+          .from(SessionTable)
+          .where(eq(SessionTable.project_id, projectID))
+          .all()
+          .pipe(Effect.orDie)
+        yield* Effect.forEach(
+          sessions.filter((session) => FSUtil.contains(previousWorktree, session.directory)),
+          (session) =>
+            Effect.gen(function* () {
+              yield* db
+                .update(SessionTable)
+                .set({ directory: path.join(result.worktree, path.relative(previousWorktree, session.directory)) })
+                .where(eq(SessionTable.id, session.id))
+                .run()
+                .pipe(Effect.orDie)
+              yield* SessionContextEpoch.reset(db, session.id)
+            }),
+          { concurrency: 1, discard: true },
+        )
+      }
+
       if (projectID !== ProjectV2.ID.global) {
         yield* db
           .update(SessionTable)
@@ -301,6 +337,9 @@ export const layer = Layer.effect(
         projectID,
         directory: data.directory,
       })
+      if (previousWorktree) {
+        yield* projectDirectories.remove({ projectID, directory: AbsolutePath.make(previousWorktree) })
+      }
 
       yield* emitUpdated(result)
       if (projectID !== ProjectV2.ID.global && data.vcs?.type === "git") {
@@ -334,7 +373,16 @@ export const layer = Layer.effect(
     })
 
     const list = Effect.fn("Project.list")(function* () {
-      return (yield* db.select().from(ProjectTable).all().pipe(Effect.orDie)).map(fromRow)
+      const projects = (yield* db.select().from(ProjectTable).all().pipe(Effect.orDie)).map(fromRow)
+      return (yield* Effect.forEach(
+        projects,
+        Effect.fnUntraced(function* (project) {
+          if (project.id === ProjectV2.ID.global) return project
+          if (yield* fs.isDir(project.worktree)) return project
+          return undefined
+        }),
+        { concurrency: "unbounded" },
+      )).filter((project): project is Info => project !== undefined)
     })
 
     const get = Effect.fn("Project.get")(function* (id: ProjectV2.ID) {

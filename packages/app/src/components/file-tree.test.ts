@@ -40,6 +40,7 @@ beforeAll(async () => {
 describe("file tree fetch discipline", () => {
   test("root lists on mount unless already loaded or loading", () => {
     expect(shouldListRoot({ level: 0 })).toBe(true)
+    expect(shouldListRoot({ level: 0, filtered: true })).toBe(false)
     expect(shouldListRoot({ level: 0, dir: { loaded: true } })).toBe(false)
     expect(shouldListRoot({ level: 0, dir: { loading: true } })).toBe(false)
     expect(shouldListRoot({ level: 1 })).toBe(false)

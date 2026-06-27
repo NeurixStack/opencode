@@ -32,7 +32,12 @@ type Filter = {
   dirs: Set<string>
 }
 
-export function shouldListRoot(input: { level: number; dir?: { loaded?: boolean; loading?: boolean } }) {
+export function shouldListRoot(input: {
+  level: number
+  filtered?: boolean
+  dir?: { loaded?: boolean; loading?: boolean }
+}) {
+  if (input.filtered) return false
   if (input.level !== 0) return false
   if (input.dir?.loaded) return false
   if (input.dir?.loading) return false
@@ -309,7 +314,7 @@ export default function FileTree(props: {
       filter: current,
       expanded: (dir) => untrack(() => file.tree.state(dir)?.expanded) ?? false,
     })
-    for (const dir of dirs) file.tree.expand(dir)
+    for (const dir of dirs) file.tree.expand(dir, { load: false })
   })
 
   createEffect(
@@ -317,7 +322,7 @@ export default function FileTree(props: {
       () => props.path,
       (path) => {
         const dir = untrack(() => file.tree.state(path))
-        if (!shouldListRoot({ level, dir })) return
+        if (!shouldListRoot({ level, filtered: !!filter(), dir })) return
         void file.tree.list(path)
       },
       { defer: false },
@@ -401,7 +406,9 @@ export default function FileTree(props: {
                   data-scope="filetree"
                   forceMount={false}
                   open={expanded()}
-                  onOpenChange={(open) => (open ? file.tree.expand(node.path) : file.tree.collapse(node.path))}
+                  onOpenChange={(open) =>
+                    open ? file.tree.expand(node.path, { load: !filter() }) : file.tree.collapse(node.path)
+                  }
                 >
                   <Collapsible.Trigger>
                     <FileTreeNode

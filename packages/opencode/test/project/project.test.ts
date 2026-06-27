@@ -6,7 +6,7 @@ import path from "path"
 import { tmpdirScoped } from "../fixture/fixture"
 import { GlobalBus } from "../../src/bus/global"
 import { Database } from "@opencode-ai/core/database/database"
-import { ProjectTable } from "@opencode-ai/core/project/sql"
+import { ProjectDirectoryTable, ProjectTable } from "@opencode-ai/core/project/sql"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { WorkspaceTable } from "@opencode-ai/core/control-plane/workspace.sql"
 import { eq } from "drizzle-orm"
@@ -23,6 +23,7 @@ import { ProjectDirectories } from "@opencode-ai/core/project/directories"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { testEffect } from "../lib/effect"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { AbsolutePath } from "@opencode-ai/core/schema"
 
 const encoder = new TextEncoder()
 
@@ -401,6 +402,87 @@ describe("Project.fromDirectory with worktrees", () => {
       expect(result.project.worktree).toBe(worktree1)
       expect(result.project.sandboxes).toContain(worktree2)
       expect(result.project.sandboxes).not.toContain(tmp)
+    }),
+  )
+
+  it.live("relocates a project and its sessions when the primary checkout moved", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Database.Service
+      const project = yield* Project.Service
+      const tmp = yield* tmpdirScoped({ git: true })
+      const original = yield* project.fromDirectory(tmp)
+      const moved = `${tmp}-moved`
+      const rootSession = SessionID.make(`ses_${crypto.randomUUID()}`)
+      const nestedSession = SessionID.make(`ses_${crypto.randomUUID()}`)
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${moved}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* db
+        .insert(SessionTable)
+        .values([
+          {
+            id: rootSession,
+            project_id: original.project.id,
+            slug: rootSession,
+            directory: tmp,
+            title: "root",
+            version: "test",
+            time_created: 1,
+            time_updated: 1,
+          },
+          {
+            id: nestedSession,
+            project_id: original.project.id,
+            slug: nestedSession,
+            directory: path.join(tmp, "packages", "app"),
+            path: "packages/app",
+            title: "nested",
+            version: "test",
+            time_created: 2,
+            time_updated: 2,
+          },
+        ])
+        .run()
+        .pipe(Effect.orDie)
+      yield* Effect.promise(() => $`mv ${tmp} ${moved}`.quiet())
+
+      const result = yield* project.fromDirectory(moved)
+      const sessions = yield* db
+        .select({ id: SessionTable.id, directory: SessionTable.directory, path: SessionTable.path })
+        .from(SessionTable)
+        .where(eq(SessionTable.project_id, original.project.id))
+        .all()
+        .pipe(Effect.orDie)
+      const directories = yield* db
+        .select({ directory: ProjectDirectoryTable.directory })
+        .from(ProjectDirectoryTable)
+        .where(eq(ProjectDirectoryTable.project_id, original.project.id))
+        .all()
+        .pipe(Effect.orDie)
+
+      expect(result.project.worktree).toBe(moved)
+      expect(result.project.sandboxes).not.toContain(tmp)
+      expect(result.project.sandboxes).not.toContain(moved)
+      expect(directories.map((item) => item.directory)).toEqual([AbsolutePath.make(moved)])
+      expect(sessions).toContainEqual({ id: rootSession, directory: moved, path: null })
+      expect(sessions).toContainEqual({
+        id: nestedSession,
+        directory: path.join(moved, "packages", "app"),
+        path: "packages/app",
+      })
+    }),
+  )
+
+  it.live("omits projects whose primary checkout no longer exists", () =>
+    Effect.gen(function* () {
+      const project = yield* Project.Service
+      const tmp = yield* tmpdirScoped({ git: true })
+      const original = yield* project.fromDirectory(tmp)
+      const moved = `${tmp}-moved`
+      yield* Effect.addFinalizer(() => Effect.promise(() => $`rm -rf ${moved}`.quiet().nothrow()).pipe(Effect.ignore))
+      yield* Effect.promise(() => $`mv ${tmp} ${moved}`.quiet())
+
+      const result = (yield* project.list()).find((item) => item.id === original.project.id)
+
+      expect(result).toBeUndefined()
     }),
   )
 })
