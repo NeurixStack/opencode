@@ -81,6 +81,16 @@ export function fromPromise(plugin: Plugin) {
             transform: transform(host.reference),
             reload: () => run(host.reference.reload()),
           },
+          session: {
+            create: (input) => run(host.session.create(input)),
+            get: (sessionID) => run(host.session.get(sessionID)),
+            messages: (input) => run(host.session.messages(input)),
+            context: (sessionID) => run(host.session.context(sessionID)),
+            prompt: (input) => run(host.session.prompt(input)),
+            resume: (sessionID) => run(host.session.resume(sessionID)),
+            wait: (sessionID) => run(host.session.wait(sessionID)),
+            interrupt: (sessionID) => run(host.session.interrupt(sessionID)),
+          },
           skill: {
             transform: transform(host.skill),
             reload: () => run(host.skill.reload()),

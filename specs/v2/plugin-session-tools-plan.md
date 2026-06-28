@@ -107,10 +107,10 @@ The SDK should be implemented as one plugin instance: it receives a plugin host/
 
 ## Concrete implementation slices
 
-1. Add `packages/core/src/session/runtime.ts` as a location node.
-2. Move `prompt`, `resume`, `wait`, `interrupt`, `active`, and location-sensitive `revert` operations from `SessionV2.Service` into the runtime service.
-3. Update server route handlers to route location-sensitive requests at the API boundary by resolving the session location and providing that location runtime.
-4. Add `ctx.session` to `PluginHost` by composing `SessionV2.Service` and the location session runtime.
+1. Add `packages/core/src/session/runtime.ts` as a location node. **Implemented in this draft.**
+2. Move `prompt`, `resume`, `wait`, `interrupt`, `active`, and location-sensitive `revert` operations from `SessionV2.Service` into the runtime service. **Implemented in this draft for the new runtime path; old `SessionV2` entrypoints are left as compatibility stubs and should be removed once callers migrate.**
+3. Update server route handlers to route location-sensitive requests at the API boundary by resolving the session location and providing that location runtime. **Implemented in this draft.**
+4. Add `ctx.session` to `PluginHost` by composing `SessionV2.Service` and the location session runtime. **Implemented in this draft.**
 5. Add public plugin `ctx.tool.transform` types and adapt it to the existing canonical core `Tool.make` representation.
 6. Convert `ToolRegistry` registration to transform/rebuild semantics.
 7. Port `subagent` to a built-in plugin that registers a normal location tool.

@@ -13,7 +13,10 @@ import { Integration } from "./integration"
 import { KeyedMutex } from "./effect/keyed-mutex"
 import { PluginHost } from "./plugin/host"
 import { Reference } from "./reference"
+import { SessionV2 } from "./session"
+import { SessionRuntime } from "./session/runtime"
 import { SkillV2 } from "./skill"
+import { Location } from "./location"
 import { State } from "./state"
 
 export const ID = Plugin.ID
@@ -149,6 +152,8 @@ export const locationLayer = layer.pipe(
   Layer.provideMerge(CommandV2.locationLayer),
   Layer.provideMerge(Integration.locationLayer),
   Layer.provideMerge(Reference.locationLayer),
+  Layer.provideMerge(SessionV2.defaultLayer),
+  Layer.provideMerge(SessionRuntime.layer),
   Layer.provideMerge(SkillV2.locationLayer),
 )
 
@@ -163,6 +168,9 @@ export const node = makeLocationNode({
     CommandV2.node,
     Integration.node,
     Reference.node,
+    SessionV2.node,
+    SessionRuntime.node,
     SkillV2.node,
+    Location.node,
   ],
 })

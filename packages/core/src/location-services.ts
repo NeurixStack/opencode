@@ -26,6 +26,7 @@ import { Reference } from "./reference"
 import { ReferenceGuidance } from "./reference/guidance"
 import * as SessionRunnerLLM from "./session/runner/llm"
 import { SessionRunnerModel } from "./session/runner/model"
+import { SessionRuntime } from "./session/runtime"
 import { SessionTodo } from "./session/todo"
 import { SkillV2 } from "./skill"
 import { SkillGuidance } from "./skill/guidance"
@@ -75,6 +76,7 @@ export const locationServices = LayerNode.group([
   BuiltInTools.node,
   SessionRunnerModel.node,
   Snapshot.node,
+  SessionRuntime.node,
   SessionRunnerLLM.node,
 ])
 

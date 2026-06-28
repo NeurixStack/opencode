@@ -26,9 +26,7 @@ import path from "path"
 import { fromRow } from "./session/info"
 import { SessionRunner } from "./session/runner/index"
 import { SessionStore } from "./session/store"
-import { SessionExecution } from "./session/execution"
 import { makeGlobalNode } from "./effect/app-node"
-import { LocationServiceMap } from "./location-service-map"
 import { MessageDecodeError } from "./session/error"
 import { SessionEvent } from "./session/event"
 import { SessionInput } from "./session/input"
@@ -194,9 +192,7 @@ export const layer = Layer.effect(
     const db = database.db
     const events = yield* EventV2.Service
     const projects = yield* ProjectV2.Service
-    const execution = yield* SessionExecution.Service
     const store = yield* SessionStore.Service
-    const locations = yield* LocationServiceMap.Service
     const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Message)
     const isDurableSessionEvent = Schema.is(SessionEvent.Durable)
     const decode = (row: typeof SessionMessageTable.$inferSelect) =>
@@ -389,7 +385,8 @@ export const layer = Layer.effect(
             )
             if (!SessionInput.equivalent(admitted, expected))
               return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
-            if (input.resume !== false) yield* execution.wake(admitted.sessionID)
+            if (input.resume !== false)
+              return yield* Effect.die("SessionV2.prompt with resume moved to SessionRuntime.Service")
             return admitted
           }),
         ),
@@ -438,38 +435,25 @@ export const layer = Layer.effect(
       }),
       wait: Effect.fn("V2Session.wait")(function* (sessionID) {
         yield* result.get(sessionID)
-        yield* execution.awaitIdle(sessionID)
+        return yield* Effect.die("SessionV2.wait moved to SessionRuntime.Service")
       }),
-      active: execution.active,
+      active: Effect.succeed(new Set()),
       resume: Effect.fn("V2Session.resume")(function* (sessionID) {
         yield* result.get(sessionID)
-        yield* execution.resume(sessionID)
+        return yield* Effect.die("SessionV2.resume moved to SessionRuntime.Service")
       }),
-      interrupt: Effect.fn("V2Session.interrupt")((sessionID) =>
-        Effect.uninterruptible(execution.interrupt(sessionID)),
-      ),
+      interrupt: Effect.fn("V2Session.interrupt")(() => Effect.die("SessionV2.interrupt moved to SessionRuntime.Service")),
       revert: {
         stage: Effect.fn("V2Session.revert.stage")(function* (input) {
-          const session = yield* result.get(input.sessionID)
-          if ((yield* execution.active).has(input.sessionID))
-            return yield* new BusyError({ sessionID: input.sessionID })
-          return yield* SessionRevert.stage({ session, messageID: input.messageID, files: input.files }).pipe(
-            Effect.provideService(Database.Service, database),
-            Effect.provideService(EventV2.Service, events),
-            Effect.provide(locations.get(session.location)),
-          )
+          yield* result.get(input.sessionID)
+          return yield* Effect.die("SessionV2.revert.stage moved to SessionRuntime.Service")
         }),
         clear: Effect.fn("V2Session.revert.clear")(function* (sessionID) {
-          const session = yield* result.get(sessionID)
-          if ((yield* execution.active).has(sessionID)) return yield* new BusyError({ sessionID })
-          return yield* SessionRevert.clear(session).pipe(
-            Effect.provideService(EventV2.Service, events),
-            Effect.provide(locations.get(session.location)),
-          )
+          yield* result.get(sessionID)
+          return yield* Effect.die("SessionV2.revert.clear moved to SessionRuntime.Service")
         }),
         commit: Effect.fn("V2Session.revert.commit")(function* (sessionID) {
           const session = yield* result.get(sessionID)
-          if ((yield* execution.active).has(sessionID)) return yield* new BusyError({ sessionID })
           return yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
         }),
       },
@@ -510,9 +494,7 @@ export const node = makeGlobalNode({
     Database.node,
     EventV2.node,
     ProjectV2.node,
-    SessionExecution.node,
     SessionStore.node,
-    LocationServiceMap.node,
     SessionProjector.node,
   ],
 })

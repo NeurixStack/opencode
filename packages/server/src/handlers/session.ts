@@ -1,4 +1,6 @@
 import { SessionV2 } from "@opencode-ai/core/session"
+import { LocationServiceMap } from "@opencode-ai/core/location-service-map"
+import { SessionRuntime } from "@opencode-ai/core/session/runtime"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
@@ -20,6 +22,14 @@ const DefaultSessionHistoryLimit = 50
 export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* SessionV2.Service
+    const locations = yield* LocationServiceMap.Service
+    const route = Effect.fn("SessionHandler.route")(function* <A, E>(
+      sessionID: SessionV2.ID,
+      effect: Effect.Effect<A, E, SessionRuntime.Service>,
+    ) {
+      const info = yield* session.get(sessionID)
+      return yield* effect.pipe(Effect.provide(locations.get(info.location)))
+    })
 
     return handlers
       .handle(
@@ -159,15 +169,18 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         "session.prompt",
         Effect.fn(function* (ctx) {
           return {
-            data: yield* session
-              .prompt({
-                sessionID: ctx.params.sessionID,
-                id: ctx.payload.id,
-                prompt: ctx.payload.prompt,
-                delivery: ctx.payload.delivery,
-                resume: ctx.payload.resume,
-              })
-              .pipe(
+            data: yield* route(
+              ctx.params.sessionID,
+              SessionRuntime.Service.use((runtime) =>
+                runtime.prompt({
+                  sessionID: ctx.params.sessionID,
+                  id: ctx.payload.id,
+                  prompt: ctx.payload.prompt,
+                  delivery: ctx.payload.delivery,
+                  resume: ctx.payload.resume,
+                }),
+              ),
+            ).pipe(
                 Effect.catchTag("Session.NotFoundError", (error) =>
                   Effect.fail(
                     new SessionNotFoundError({
@@ -215,7 +228,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.wait",
         Effect.fn(function* (ctx) {
-          yield* session.wait(ctx.params.sessionID).pipe(
+          yield* route(
+            ctx.params.sessionID,
+            SessionRuntime.Service.use((runtime) => runtime.wait(ctx.params.sessionID)),
+          ).pipe(
             Effect.catchTag("Session.NotFoundError", (error) =>
               Effect.fail(
                 new SessionNotFoundError({
@@ -237,7 +253,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
             files: ctx.payload.files,
           })
           return {
-            data: yield* session.revert.stage({ ...ctx.params, ...ctx.payload }).pipe(
+            data: yield* route(
+              ctx.params.sessionID,
+              SessionRuntime.Service.use((runtime) => runtime.revert.stage({ ...ctx.params, ...ctx.payload })),
+            ).pipe(
               Effect.catchTag(
                 "Session.NotFoundError",
                 (error) =>
@@ -284,7 +303,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         "session.revert.clear",
         Effect.fn(function* (ctx) {
           yield* Effect.log("session.revert.clear", { sessionID: ctx.params.sessionID })
-          yield* session.revert.clear(ctx.params.sessionID).pipe(
+          yield* route(
+            ctx.params.sessionID,
+            SessionRuntime.Service.use((runtime) => runtime.revert.clear(ctx.params.sessionID)),
+          ).pipe(
             Effect.catchTag(
               "Session.NotFoundError",
               (error) =>
@@ -322,7 +344,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         "session.revert.commit",
         Effect.fn(function* (ctx) {
           yield* Effect.log("session.revert.commit", { sessionID: ctx.params.sessionID })
-          yield* session.revert.commit(ctx.params.sessionID).pipe(
+          yield* route(
+            ctx.params.sessionID,
+            SessionRuntime.Service.use((runtime) => runtime.revert.commit(ctx.params.sessionID)),
+          ).pipe(
             Effect.catchTag(
               "Session.NotFoundError",
               (error) =>
@@ -407,7 +432,10 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.interrupt",
         Effect.fn(function* (ctx) {
-          yield* session.interrupt(ctx.params.sessionID)
+          yield* route(
+            ctx.params.sessionID,
+            SessionRuntime.Service.use((runtime) => runtime.interrupt(ctx.params.sessionID)),
+          )
           return HttpApiSchema.NoContent.make()
         }),
       )

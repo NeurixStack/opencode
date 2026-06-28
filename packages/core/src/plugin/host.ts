@@ -13,7 +13,11 @@ import { PluginV2 } from "../plugin"
 import { ProviderV2 } from "../provider"
 import { Reference } from "../reference"
 import type { DeepMutable } from "../schema"
+import { SessionV2 } from "../session"
+import { SessionMessage } from "../session/message"
+import { SessionRuntime } from "../session/runtime"
 import { SkillV2 } from "../skill"
+import { Location } from "../location"
 
 const mutable = <T>(value: T) => value as DeepMutable<T>
 
@@ -24,7 +28,10 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
   const commands = yield* CommandV2.Service
   const integration = yield* Integration.Service
   const reference = yield* Reference.Service
+  const session = yield* SessionV2.Service
+  const sessionRuntime = yield* SessionRuntime.Service
   const skill = yield* SkillV2.Service
+  const location = yield* Location.Service
 
   return {
     options: {},
@@ -204,6 +211,59 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
             list: draft.list,
           }),
         ),
+    },
+    session: {
+      create: (input) =>
+        session.create(
+          input.parentID
+            ? {
+                parentID: SessionV2.ID.make(input.parentID),
+                title: input.title,
+                agent: input.agent ? AgentV2.ID.make(input.agent) : undefined,
+                model: input.model
+                  ? {
+                      id: ModelV2.ID.make(input.model.id),
+                      providerID: ProviderV2.ID.make(input.model.providerID),
+                      variant: input.model.variant ? ModelV2.VariantID.make(input.model.variant) : undefined,
+                    }
+                  : undefined,
+              }
+            : {
+                id: input.id ? SessionV2.ID.make(input.id) : undefined,
+                location: { directory: location.directory, workspaceID: location.workspaceID },
+                title: input.title,
+                agent: input.agent ? AgentV2.ID.make(input.agent) : undefined,
+                model: input.model
+                  ? {
+                      id: ModelV2.ID.make(input.model.id),
+                      providerID: ProviderV2.ID.make(input.model.providerID),
+                      variant: input.model.variant ? ModelV2.VariantID.make(input.model.variant) : undefined,
+                    }
+                  : undefined,
+              },
+        ),
+      get: (sessionID) => session.get(SessionV2.ID.make(sessionID)),
+      messages: (input) =>
+        session.messages({
+          sessionID: SessionV2.ID.make(input.sessionID),
+          limit: input.limit,
+          order: input.order,
+          cursor: input.cursor
+            ? { id: SessionMessage.ID.make(input.cursor.id), direction: input.cursor.direction }
+            : undefined,
+        }),
+      context: (sessionID) => session.context(SessionV2.ID.make(sessionID)),
+      prompt: (input) =>
+        sessionRuntime.prompt({
+          id: input.id ? SessionMessage.ID.make(input.id) : undefined,
+          sessionID: SessionV2.ID.make(input.sessionID),
+          prompt: input.prompt,
+          delivery: input.delivery,
+          resume: input.resume,
+        }),
+      resume: (sessionID) => sessionRuntime.resume(SessionV2.ID.make(sessionID)),
+      wait: (sessionID) => sessionRuntime.wait(SessionV2.ID.make(sessionID)),
+      interrupt: (sessionID) => sessionRuntime.interrupt(SessionV2.ID.make(sessionID)),
     },
     skill: {
       reload: skill.reload,
