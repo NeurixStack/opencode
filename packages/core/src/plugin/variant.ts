@@ -28,12 +28,36 @@ export const Plugin = define({
 })
 
 export function generate(model: ModelV2Info): ModelV2Info["variants"] {
-  if (model.api.type !== "aisdk" || model.api.package !== "@ai-sdk/openai-compatible") return []
+  if (model.api.type !== "aisdk") return []
   const ids = `${model.id} ${model.api.id}`.toLowerCase()
-  if (!["glm-5.2", "glm-5-2", "glm-5p2"].some((name) => ids.includes(name))) return []
-  return ["high", "max"].map((id) => ({
-    id,
+
+  if (model.api.package === "@ai-sdk/openai-compatible") {
+    if (["glm-5.2", "glm-5-2", "glm-5p2"].some((name) => ids.includes(name)))
+      return ["high", "max"].map((id) => ({
+        id,
+        headers: {},
+        body: { reasoning_effort: id },
+      }))
+    return []
+  }
+
+  if (model.api.package === "@ai-sdk/anthropic") return anthropicThinking(model)
+
+  return []
+}
+
+// Anthropic thinking levels lower to the Messages API `thinking` body, which the
+// v2 Anthropic protocol only accepts as `{ type: "enabled", budget_tokens }`.
+// Budgets scale with the model output limit so the larger tier stays under the cap.
+function anthropicThinking(model: ModelV2Info): ModelV2Info["variants"] {
+  if (!model.capabilities.reasoning) return []
+  const budget = (target: number) => Math.max(1024, Math.min(target, model.limit.output - 1))
+  return [
+    { id: "high", target: 16_000 },
+    { id: "max", target: 31_999 },
+  ].map((tier) => ({
+    id: tier.id,
     headers: {},
-    body: { reasoning_effort: id },
+    body: { thinking: { type: "enabled", budget_tokens: budget(tier.target) } },
   }))
 }

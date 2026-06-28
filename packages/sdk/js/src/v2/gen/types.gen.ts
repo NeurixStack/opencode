@@ -4787,6 +4787,7 @@ export type ModelApi =
 
 export type ModelCapabilities = {
   tools: boolean
+  reasoning: boolean
   input: Array<string>
   output: Array<string>
 }

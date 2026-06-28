@@ -28,7 +28,7 @@ const model = (api: Api, variants: ModelV2.Info["variants"] = []) =>
     providerID: ProviderV2.ID.make("test-provider"),
     name: "Test model",
     api: { id: ModelV2.ID.make("api-test-model"), ...api },
-    capabilities: { tools: true, input: ["text"], output: ["text"] },
+    capabilities: { tools: true, reasoning: false, input: ["text"], output: ["text"] },
     request: {
       headers: { "x-test": "header" },
       body: { apiKey: "secret", custom_extension: { enabled: true } },

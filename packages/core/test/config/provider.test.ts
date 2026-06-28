@@ -174,7 +174,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
                       models: {
                         chat: {
                           name: "First",
-                          capabilities: { tools: true, input: ["text"], output: ["text"] },
+                          capabilities: { tools: true, reasoning: false, input: ["text"], output: ["text"] },
                           disabled: true,
                           limit: { context: 100, output: 50 },
                           cost: { input: 1, output: 2 },
@@ -251,7 +251,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
         expect(provider.request.headers).toEqual({ first: "first", shared: "last", last: "last" })
         expect(model.api.id).toBe(ModelV2.ID.make("api-chat"))
         expect(model.name).toBe("Last")
-        expect(model.capabilities).toEqual({ tools: true, input: ["text"], output: ["text"] })
+        expect(model.capabilities).toEqual({ tools: true, reasoning: false, input: ["text"], output: ["text"] })
         expect(model.enabled).toBe(false)
         expect(model.limit).toEqual({ context: 100, output: 75 })
         expect(model.cost).toEqual([{ input: 1, output: 2, cache: { read: 0, write: 0 }, tier: undefined }])

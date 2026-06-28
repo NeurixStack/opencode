@@ -111,6 +111,7 @@ describe("OpencodePlugin", () => {
                           family: "remote",
                           release_date: "2026-01-02",
                           tool_call: true,
+                          reasoning: true,
                           modalities: { input: ["text", "image"], output: ["text"] },
                           options: { apiKey: "model-secret", temperature: 0.5 },
                           variants: { high: { apiKey: "variant-secret", temperature: 0.2 } },
@@ -170,7 +171,7 @@ describe("OpencodePlugin", () => {
           expect(model).toMatchObject({
             name: "Remote Model",
             family: "remote",
-            capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
+            capabilities: { tools: true, reasoning: true, input: ["text", "image"], output: ["text"] },
             cost: [{ input: 1, output: 2, cache: { read: 0.1, write: 0 } }],
             limit: { context: 1000, output: 100 },
           })

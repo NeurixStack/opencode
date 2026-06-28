@@ -29767,6 +29767,9 @@
           "tools": {
             "type": "boolean"
           },
+          "reasoning": {
+            "type": "boolean"
+          },
           "input": {
             "type": "array",
             "items": {
@@ -29780,7 +29783,7 @@
             }
           }
         },
-        "required": ["tools", "input", "output"],
+        "required": ["tools", "reasoning", "input", "output"],
         "additionalProperties": false
       },
       "ModelCost": {

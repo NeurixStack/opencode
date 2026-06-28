@@ -76,4 +76,73 @@ describe("VariantPlugin", () => {
       ])
     }),
   )
+
+  it.effect("adds Anthropic thinking variants for reasoning models", () =>
+    Effect.gen(function* () {
+      const service = yield* Catalog.Service
+      yield* service.transform((catalog) => {
+        catalog.model.update(ProviderV2.ID.opencode, ModelV2.ID.make("claude-opus-4-8"), (model) => {
+          model.api = {
+            id: ModelV2.ID.make("claude-opus-4-8"),
+            type: "aisdk",
+            package: "@ai-sdk/anthropic",
+          }
+          model.capabilities.reasoning = true
+          model.limit = { context: 200_000, output: 64_000 }
+        })
+      })
+      yield* VariantPlugin.Plugin.effect(host({ catalog: catalogHost(service) }))
+
+      expect((yield* service.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("claude-opus-4-8")))?.variants).toEqual([
+        expect.objectContaining({ id: "high", body: { thinking: { type: "enabled", budget_tokens: 16_000 } } }),
+        expect.objectContaining({ id: "max", body: { thinking: { type: "enabled", budget_tokens: 31_999 } } }),
+      ])
+    }),
+  )
+
+  it.effect("clamps Anthropic thinking budgets to the output limit", () =>
+    Effect.gen(function* () {
+      const service = yield* Catalog.Service
+      yield* service.transform((catalog) => {
+        catalog.model.update(ProviderV2.ID.opencode, ModelV2.ID.make("claude-haiku-4-5"), (model) => {
+          model.api = {
+            id: ModelV2.ID.make("claude-haiku-4-5"),
+            type: "aisdk",
+            package: "@ai-sdk/anthropic",
+          }
+          model.capabilities.reasoning = true
+          model.limit = { context: 200_000, output: 8_000 }
+        })
+      })
+      yield* VariantPlugin.Plugin.effect(host({ catalog: catalogHost(service) }))
+
+      expect((yield* service.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("claude-haiku-4-5")))?.variants).toEqual(
+        [
+          expect.objectContaining({ id: "high", body: { thinking: { type: "enabled", budget_tokens: 7_999 } } }),
+          expect.objectContaining({ id: "max", body: { thinking: { type: "enabled", budget_tokens: 7_999 } } }),
+        ],
+      )
+    }),
+  )
+
+  it.effect("skips Anthropic models without reasoning capability", () =>
+    Effect.gen(function* () {
+      const service = yield* Catalog.Service
+      yield* service.transform((catalog) => {
+        catalog.model.update(ProviderV2.ID.opencode, ModelV2.ID.make("claude-3-5-haiku"), (model) => {
+          model.api = {
+            id: ModelV2.ID.make("claude-3-5-haiku"),
+            type: "aisdk",
+            package: "@ai-sdk/anthropic",
+          }
+          model.capabilities.reasoning = false
+        })
+      })
+      yield* VariantPlugin.Plugin.effect(host({ catalog: catalogHost(service) }))
+
+      expect((yield* service.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("claude-3-5-haiku")))?.variants).toEqual(
+        [],
+      )
+    }),
+  )
 })
