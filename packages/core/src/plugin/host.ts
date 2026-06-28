@@ -217,6 +217,7 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
         session.create(
           input.parentID
             ? {
+                id: input.id ? SessionV2.ID.make(input.id) : undefined,
                 parentID: SessionV2.ID.make(input.parentID),
                 title: input.title,
                 agent: input.agent ? AgentV2.ID.make(input.agent) : undefined,

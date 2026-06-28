@@ -11,7 +11,7 @@ import { SessionInput } from "./input"
 import { SessionRevert } from "./revert"
 import { SessionRunner } from "./runner"
 import * as SessionRunnerLLM from "./runner/llm"
-import { SessionRunCoordinator } from "./run-coordinator"
+import { SessionRuntimeCoordinator } from "./runtime-coordinator"
 import { SessionSchema } from "./schema"
 import { Snapshot } from "../snapshot"
 import { FSUtil } from "../fs-util"
@@ -59,6 +59,8 @@ export const layer = Layer.effect(
     const location = yield* Location.Service
     const sessions = yield* SessionV2.Service
     const runner = yield* SessionRunner.Service
+    const snapshot = yield* Snapshot.Service
+    const coordinator = yield* SessionRuntimeCoordinator.Service
 
     const local = Effect.fn("SessionRuntime.local")(function* (sessionID: SessionSchema.ID) {
       const session = yield* sessions.get(sessionID)
@@ -67,12 +69,11 @@ export const layer = Layer.effect(
       return session
     })
 
-    const coordinator = yield* SessionRunCoordinator.make<SessionSchema.ID, SessionRunner.RunError>({
-      drain: Effect.fnUntraced(function* (sessionID: SessionSchema.ID, force) {
+    const drain = (sessionID: SessionSchema.ID) =>
+      Effect.fnUntraced(function* (force: boolean) {
         yield* local(sessionID).pipe(Effect.orDie)
         return yield* runner.run({ sessionID, force })
-      }),
-    })
+      })
 
     return Service.of({
       prompt: Effect.fn("SessionRuntime.prompt")((input) =>
@@ -97,21 +98,24 @@ export const layer = Layer.effect(
             )
             if (!SessionInput.equivalent(admitted, expected))
               return yield* new PromptConflictError({ sessionID: input.sessionID, messageID })
-            if (input.resume !== false) yield* coordinator.wake(admitted.sessionID)
+            if (input.resume !== false) yield* coordinator.wake(admitted.sessionID, drain(admitted.sessionID))
             return admitted
           }),
         ),
       ),
       wait: Effect.fn("SessionRuntime.wait")(function* (sessionID) {
         yield* local(sessionID)
-        yield* coordinator.awaitIdle(sessionID)
+        yield* coordinator.wait(sessionID)
       }),
       active: coordinator.active,
       resume: Effect.fn("SessionRuntime.resume")(function* (sessionID) {
         yield* local(sessionID)
-        yield* coordinator.run(sessionID)
+        yield* coordinator.run(sessionID, drain(sessionID))
       }),
-      interrupt: Effect.fn("SessionRuntime.interrupt")((sessionID) => Effect.uninterruptible(coordinator.interrupt(sessionID))),
+      interrupt: Effect.fn("SessionRuntime.interrupt")(function* (sessionID) {
+        yield* local(sessionID)
+        yield* Effect.uninterruptible(coordinator.interrupt(sessionID))
+      }),
       revert: {
         stage: Effect.fn("SessionRuntime.revert.stage")(function* (input) {
           const session = yield* local(input.sessionID)
@@ -119,12 +123,16 @@ export const layer = Layer.effect(
           return yield* SessionRevert.stage({ session, messageID: input.messageID, files: input.files }).pipe(
             Effect.provideService(Database.Service, database),
             Effect.provideService(EventV2.Service, events),
+            Effect.provideService(Snapshot.Service, snapshot),
           )
         }),
         clear: Effect.fn("SessionRuntime.revert.clear")(function* (sessionID) {
           const session = yield* local(sessionID)
           if ((yield* coordinator.active).has(sessionID)) return yield* new BusyError({ sessionID })
-          return yield* SessionRevert.clear(session).pipe(Effect.provideService(EventV2.Service, events))
+          return yield* SessionRevert.clear(session).pipe(
+            Effect.provideService(EventV2.Service, events),
+            Effect.provideService(Snapshot.Service, snapshot),
+          )
         }),
         commit: Effect.fn("SessionRuntime.revert.commit")(function* (sessionID) {
           const session = yield* local(sessionID)
@@ -153,5 +161,5 @@ const resolvePrompt = (input: PromptInput.Prompt) =>
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Database.node, EventV2.node, Location.node, SessionV2.node, SessionRunnerLLM.node, Snapshot.node],
+  deps: [Database.node, EventV2.node, Location.node, SessionV2.node, SessionRunnerLLM.node, Snapshot.node, SessionRuntimeCoordinator.node],
 })

@@ -25,6 +25,7 @@ import { ProjectTable } from "./project/sql"
 import path from "path"
 import { fromRow } from "./session/info"
 import { SessionRunner } from "./session/runner/index"
+import { SessionRuntimeCoordinator } from "./session/runtime-coordinator"
 import { SessionStore } from "./session/store"
 import { makeGlobalNode } from "./effect/app-node"
 import { MessageDecodeError } from "./session/error"
@@ -192,6 +193,7 @@ export const layer = Layer.effect(
     const db = database.db
     const events = yield* EventV2.Service
     const projects = yield* ProjectV2.Service
+    const runtimeCoordinator = yield* SessionRuntimeCoordinator.Service
     const store = yield* SessionStore.Service
     const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Message)
     const isDurableSessionEvent = Schema.is(SessionEvent.Durable)
@@ -437,7 +439,7 @@ export const layer = Layer.effect(
         yield* result.get(sessionID)
         return yield* Effect.die("SessionV2.wait moved to SessionRuntime.Service")
       }),
-      active: Effect.succeed(new Set()),
+      active: runtimeCoordinator.active,
       resume: Effect.fn("V2Session.resume")(function* (sessionID) {
         yield* result.get(sessionID)
         return yield* Effect.die("SessionV2.resume moved to SessionRuntime.Service")
@@ -469,6 +471,7 @@ export const defaultLayer = layer.pipe(
   Layer.provide(EventV2.defaultLayer),
   Layer.provide(Database.defaultLayer),
   Layer.provide(ProjectV2.defaultLayer),
+  Layer.provide(SessionRuntimeCoordinator.defaultLayer),
   Layer.orDie,
 )
 
@@ -494,6 +497,7 @@ export const node = makeGlobalNode({
     Database.node,
     EventV2.node,
     ProjectV2.node,
+    SessionRuntimeCoordinator.node,
     SessionStore.node,
     SessionProjector.node,
   ],
