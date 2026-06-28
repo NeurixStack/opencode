@@ -1,7 +1,7 @@
 export * as SubagentTool from "./subagent"
 
 import { ToolFailure } from "@opencode-ai/llm"
-import { DateTime, Effect, Layer, Schema } from "effect"
+import { DateTime, Effect, Layer, Schema, Scope } from "effect"
 import { AgentV2 } from "../agent"
 import { BackgroundJob } from "../background-job"
 import { EventV2 } from "../event"
@@ -10,10 +10,9 @@ import { SessionV2 } from "../session"
 import { SessionEvent } from "../session/event"
 import { SessionMessage } from "../session/message"
 import { SessionSchema } from "../session/schema"
-import { makeLocationNode, type LocationNode } from "../effect/app-node"
+import { makeGlobalNode } from "../effect/app-node"
+import { ApplicationTools } from "./application-tools"
 import { Tool } from "./tool"
-import { Tools } from "./tools"
-import { ToolRegistry } from "./registry"
 
 export const name = "subagent"
 
@@ -56,20 +55,19 @@ const parseModel = (value: string | undefined): ModelV2.Ref | undefined => {
 
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
-    const tools = yield* Tools.Service
+    const tools = yield* ApplicationTools.Service
     const sessions = yield* SessionV2.Service
     const jobs = yield* BackgroundJob.Service
-    const agents = yield* AgentV2.Service
     const events = yield* EventV2.Service
+    const scope = yield* Scope.Scope
 
     // Concatenate the child's final completed assistant text. Distinguishes "completed with no
     // text" (generic string) from "failed" (the run effect fails, surfaced as a job error).
-    const latestAssistantText = Effect.fn("SubagentTool.latestAssistantText")(function* (
-      sessionID: SessionSchema.ID,
-    ) {
+    const latestAssistantText = Effect.fn("SubagentTool.latestAssistantText")(function* (sessionID: SessionSchema.ID) {
       const messages = yield* sessions.messages({ sessionID, order: "desc", limit: 20 })
       const assistant = messages.find(
-        (message) => message.type === "assistant" && message.time.completed !== undefined && message.error === undefined,
+        (message) =>
+          message.type === "assistant" && message.time.completed !== undefined && message.error === undefined,
       )
       if (assistant === undefined || assistant.type !== "assistant") return NO_TEXT
       const text = assistant.content
@@ -83,14 +81,34 @@ export const layer = Layer.effectDiscard(
       parentID: SessionSchema.ID,
       childID: SessionSchema.ID,
       description: string,
+      state: "completed" | "error" | "cancelled",
       text: string,
     ) {
       yield* events.publish(SessionEvent.Synthetic, {
         sessionID: parentID,
         messageID: SessionMessage.ID.create(),
         timestamp: yield* DateTime.now,
-        text: `<subagent id="${childID}" state="completed" description="${description}">\n${text}\n</subagent>`,
+        text: `<subagent id="${childID}" state="${state}" description="${description}">\n${text}\n</subagent>`,
       })
+    })
+
+    const injectWhenDone = Effect.fn("SubagentTool.injectWhenDone")(function* (
+      parentID: SessionSchema.ID,
+      childID: SessionSchema.ID,
+      description: string,
+    ) {
+      yield* jobs.wait({ id: childID }).pipe(
+        Effect.flatMap((result) => {
+          if (result.info?.status === "completed")
+            return injectCompletion(parentID, childID, description, "completed", result.info.output ?? NO_TEXT)
+          if (result.info?.status === "error")
+            return injectCompletion(parentID, childID, description, "error", result.info.error ?? "Subagent failed")
+          if (result.info?.status === "cancelled")
+            return injectCompletion(parentID, childID, description, "cancelled", "Subagent cancelled")
+          return Effect.void
+        }),
+        Effect.forkIn(scope, { startImmediately: true }),
+      )
     })
 
     yield* tools
@@ -102,14 +120,16 @@ export const layer = Layer.effectDiscard(
           toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
           execute: (input, context) =>
             Effect.gen(function* () {
-              const agent = yield* agents.resolve(input.agent)
-              if (agent === undefined)
-                return yield* new ToolFailure({ message: `Unknown agent: ${input.agent}` })
+              const agent = yield* context.agents.resolve(input.agent)
+              if (agent === undefined) return yield* new ToolFailure({ message: `Unknown agent: ${input.agent}` })
               if (agent.mode === "primary")
                 return yield* new ToolFailure({ message: `Agent ${input.agent} cannot run as a subagent` })
 
               // Precedence: explicit input model -> agent's configured model -> parent session model.
-              const model = parseModel(input.model) ?? agent.model
+              const parent = yield* sessions.get(context.sessionID).pipe(
+                Effect.mapError(() => new ToolFailure({ message: `Parent session not found: ${context.sessionID}` })),
+              )
+              const model = parseModel(input.model) ?? agent.model ?? parent.model
 
               const child = yield* sessions.create({
                 parentID: context.sessionID,
@@ -134,33 +154,30 @@ export const layer = Layer.effectDiscard(
                 id: child.id,
                 type: name,
                 title: input.description,
-                metadata: background ? { background: true } : {},
-                onPromote: jobs
-                  .wait({ id: child.id })
-                  .pipe(
-                    Effect.flatMap((result) =>
-                      result.info?.status === "completed"
-                        ? injectCompletion(context.sessionID, child.id, input.description, result.info.output ?? NO_TEXT)
-                        : Effect.void,
-                    ),
-                  ),
+                metadata: {},
+                onPromote: injectWhenDone(context.sessionID, child.id, input.description),
                 run,
               })
 
               if (background) {
+                if ((yield* jobs.promote(info.id)) === undefined)
+                  yield* injectWhenDone(context.sessionID, child.id, input.description)
                 return { sessionID: child.id, status: "running" as const, output: BACKGROUND_STARTED }
               }
 
               const result = yield* Effect.raceFirst(
                 jobs.wait({ id: child.id }).pipe(Effect.map((waited) => waited.info)),
                 jobs.waitForPromotion(child.id),
+              ).pipe(
+                Effect.onInterrupt(() =>
+                  Effect.all([sessions.interrupt(child.id), jobs.cancel(child.id)], { discard: true }),
+                ),
               )
               if (result?.metadata?.background === true)
                 return { sessionID: child.id, status: "running" as const, output: BACKGROUND_STARTED }
               if (result?.status === "error")
                 return yield* new ToolFailure({ message: result.error ?? "Subagent failed" })
-              if (result?.status === "cancelled")
-                return yield* new ToolFailure({ message: "Subagent cancelled" })
+              if (result?.status === "cancelled") return yield* new ToolFailure({ message: "Subagent cancelled" })
               return { sessionID: child.id, status: "completed" as const, output: result?.output ?? NO_TEXT }
             }),
         }),
@@ -169,12 +186,11 @@ export const layer = Layer.effectDiscard(
   }),
 )
 
-// Registered as a separate Location-scoped node rather than inside builtins, because its session
-// dependencies would form a static import cycle through location-services -> tool/builtins -> session.
-// Explicit annotation keeps SessionV2's type (which references LocationServiceMap) from
-// expanding into the locationServices group inference and forming a type-level self-reference.
-export const node: LocationNode<never> = makeLocationNode({
+// Registered at the app root via ApplicationTools, not as a Location node: SessionV2 sits above
+// LocationServiceMap, so a location-scoped subagent node would create a static dependency cycle.
+// The location ToolRegistry supplies call-local agent lookup through Tool.Context.
+export const node = makeGlobalNode({
   name: "subagent-tool",
   layer,
-  deps: [ToolRegistry.toolsNode, SessionV2.node, AgentV2.node, BackgroundJob.node, EventV2.node],
+  deps: [ApplicationTools.node, SessionV2.node, BackgroundJob.node, EventV2.node],
 })

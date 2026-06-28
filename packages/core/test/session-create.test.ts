@@ -102,6 +102,16 @@ describe("SessionV2.create", () => {
     }),
   )
 
+  it.effect("inherits location from an existing parent when omitted", () =>
+    Effect.gen(function* () {
+      const session = yield* SessionV2.Service
+      const parent = yield* session.create({ location })
+      const child = yield* session.create({ parentID: parent.id, title: "child" })
+
+      expect(child).toMatchObject({ parentID: parent.id, location })
+    }),
+  )
+
   it.effect("returns the existing Session when one ID is reused with different create arguments", () =>
     Effect.gen(function* () {
       const session = yield* SessionV2.Service

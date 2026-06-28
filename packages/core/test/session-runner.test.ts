@@ -124,6 +124,7 @@ const applications = ApplicationTools.layer
 const registry = ToolRegistry.layer.pipe(
   Layer.provide(permission),
   Layer.provide(applications),
+  Layer.provide(AgentV2.layer),
   Layer.provide(ToolOutputStore.defaultLayer),
 )
 const agents = AgentV2.layer
@@ -381,7 +382,10 @@ const recordedEventTypes = (id: SessionV2.ID) =>
       .where(eq(EventTable.aggregate_id, id))
       .orderBy(asc(EventTable.seq))
       .all()
-      .pipe(Effect.orDie, Effect.map((rows) => rows.map((row) => row.type)))
+      .pipe(
+        Effect.orDie,
+        Effect.map((rows) => rows.map((row) => row.type)),
+      )
   })
 
 const replaySessionProjection = (id: SessionV2.ID) =>
@@ -604,7 +608,7 @@ describe("SessionRunnerLLM", () => {
       yield* session.resume(sessionID)
 
       expect(requests[0]?.tools.map((tool) => tool.name)).toContain("application_context")
-      expect(contexts).toEqual([
+      expect(contexts).toMatchObject([
         {
           sessionID,
           agent: AgentV2.ID.make("build"),

@@ -43,6 +43,7 @@ const registryLayer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const applications = yield* ApplicationTools.Service
+    const agents = yield* AgentV2.Service
     const resources = yield* ToolOutputStore.Service
     type Registration = { readonly identity: object; readonly tool: AnyTool }
     const local = new Map<string, Array<{ readonly token: object; readonly registration: Registration }>>()
@@ -64,6 +65,9 @@ const registryLayer = Layer.effect(
         agent: input.agent,
         assistantMessageID: input.assistantMessageID,
         toolCallID: input.call.id,
+        agents: {
+          resolve: agents.resolve,
+        },
       }).pipe(
         Effect.map((output) => ({ output })),
         Effect.catchTag("LLM.ToolFailure", (failure) =>
@@ -136,17 +140,18 @@ function whollyDisabled(action: string, rules: PermissionV2.Ruleset) {
 
 export const defaultLayer = layer.pipe(
   Layer.provide(ApplicationTools.layer),
+  Layer.provide(AgentV2.layer),
   Layer.provide(ToolOutputStore.defaultLayer),
 )
 
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [ApplicationTools.node, ToolOutputStore.node],
+  deps: [ApplicationTools.node, AgentV2.node, ToolOutputStore.node],
 })
 
 export const toolsNode = makeLocationNode({
   service: Tools.Service,
   layer,
-  deps: [ApplicationTools.node, ToolOutputStore.node],
+  deps: [ApplicationTools.node, AgentV2.node, ToolOutputStore.node],
 })

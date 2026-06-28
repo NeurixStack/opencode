@@ -11,6 +11,9 @@ export interface Context {
   readonly agent: AgentV2.ID
   readonly assistantMessageID: SessionMessage.ID
   readonly toolCallID: string
+  readonly agents: {
+    readonly resolve: (id?: AgentV2.ID | string) => Effect.Effect<AgentV2.Info | undefined>
+  }
 }
 
 export type SchemaType<A> = Schema.Codec<A, any, never, never>

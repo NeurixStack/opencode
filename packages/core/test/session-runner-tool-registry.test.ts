@@ -27,7 +27,11 @@ const outputStore = Layer.mock(ToolOutputStore.Service, {
     )
   },
 })
-const registry = ToolRegistry.layer.pipe(Layer.provide(ApplicationTools.layer), Layer.provide(outputStore))
+const registry = ToolRegistry.layer.pipe(
+  Layer.provide(ApplicationTools.layer),
+  Layer.provide(AgentV2.layer),
+  Layer.provide(outputStore),
+)
 const it = testEffect(registry)
 const integrated = testEffect(Layer.mergeAll(ApplicationTools.layer, registry))
 const identity = {
@@ -237,7 +241,7 @@ describe("ToolRegistry", () => {
         ...identity,
         call: { type: "tool-call", id: "call-context", name: "context", input: {} },
       })
-      expect(contexts).toEqual([{ sessionID, ...identity, toolCallID: "call-context" }])
+      expect(contexts).toMatchObject([{ sessionID, ...identity, toolCallID: "call-context" }])
     }),
   )
 

@@ -41,6 +41,7 @@ import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
+import { AgentV2 } from "@opencode-ai/core/agent"
 import { Skill } from "../../src/skill"
 import { SystemPrompt } from "../../src/session/system"
 import { Shell } from "@opencode-ai/core/shell"
@@ -56,7 +57,7 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
-import { LocationServiceMap, locationServiceMapLayer } from "@opencode-ai/core/location-services"
+import { locationServiceMapLayer } from "@opencode-ai/core/location-services"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -191,6 +192,7 @@ function makePrompt(input?: { mcpInstructions?: MCP.ServerInstructions[]; proces
   const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
   const registry = ToolRegistry.layer.pipe(
+    Layer.provide(AgentV2.layer),
     Layer.provide(Skill.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
