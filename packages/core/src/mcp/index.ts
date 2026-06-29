@@ -1,11 +1,11 @@
-export * as MCP from "./mcp"
+export * as MCP from "./index"
 
 import { Context, Effect, Layer, Schema } from "effect"
-import { makeLocationNode } from "./effect/app-node"
-import { Config } from "./config"
-import { ConfigMCP } from "./config/mcp"
-import { Integration } from "./integration"
-import { IntegrationConnection } from "./integration/connection"
+import { makeLocationNode } from "../effect/app-node"
+import { Config } from "../config"
+import { ConfigMCP } from "../config/mcp"
+import { Integration } from "../integration"
+import { IntegrationConnection } from "../integration/connection"
 
 export const ServerName = Schema.String.pipe(Schema.brand("MCP.ServerName"))
 export type ServerName = typeof ServerName.Type
