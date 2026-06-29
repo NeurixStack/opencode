@@ -1,5 +1,6 @@
 import { Match, Show, Switch, createMemo } from "solid-js"
 import { Tooltip, type TooltipProps } from "@opencode-ai/ui/tooltip"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { ProgressCircle } from "@opencode-ai/ui/progress-circle"
 import { ProgressCircleV2 } from "@opencode-ai/ui/v2/progress-circle-v2"
 import { Button } from "@opencode-ai/ui/button"
@@ -90,61 +91,78 @@ export function SessionContextUsage(props: SessionContextUsageProps) {
     </div>
   )
 
-  const tooltipValue = () => (
-    <div>
-      <Show when={tokens()}>
-        {(value) => (
-          <div class="flex items-center gap-2">
-            <span class="text-text-invert-strong">
-              {getSessionTokenTotal(value())?.toLocaleString(language.intl())}
-            </span>
-            <span class="text-text-invert-base">{language.t("context.usage.tokens")}</span>
-          </div>
-        )}
-      </Show>
-      <Show when={context()}>
-        {(ctx) => (
-          <div class="flex items-center gap-2">
-            <span class="text-text-invert-strong">{ctx().usage ?? 0}%</span>
-            <span class="text-text-invert-base">{language.t("context.usage.usage")}</span>
-          </div>
-        )}
-      </Show>
-      <div class="flex items-center gap-2">
-        <span class="text-text-invert-strong">{cost()}</span>
-        <span class="text-text-invert-base">{language.t("context.usage.cost")}</span>
+  const tooltipValue = () => {
+    const useV2 = buttonAppearance() === "v2"
+    const valueClass = useV2 ? "text-v2-text-text-base" : "text-text-invert-strong"
+    const labelClass = useV2 ? "text-v2-text-text-muted" : "text-text-invert-base"
+
+    return (
+      <div classList={{ "flex flex-col gap-1": useV2 }}>
+        <Show when={tokens()}>
+          {(value) => (
+            <div class="flex items-center gap-2">
+              <span class={valueClass}>{getSessionTokenTotal(value())?.toLocaleString(language.intl())}</span>
+              <span class={labelClass}>{language.t("context.usage.tokens")}</span>
+            </div>
+          )}
+        </Show>
+        <Show when={context()}>
+          {(ctx) => (
+            <div class="flex items-center gap-2">
+              <span class={valueClass}>{ctx().usage ?? 0}%</span>
+              <span class={labelClass}>{language.t("context.usage.usage")}</span>
+            </div>
+          )}
+        </Show>
+        <div class="flex items-center gap-2">
+          <span class={valueClass}>{cost()}</span>
+          <span class={labelClass}>{language.t("context.usage.cost")}</span>
+        </div>
       </div>
-    </div>
+    )
+  }
+
+  const trigger = () => (
+    <Switch>
+      <Match when={variant() === "indicator"}>{circle()}</Match>
+      <Match when={buttonAppearance() === "v2"}>
+        <IconButtonV2
+          type="button"
+          variant="ghost-muted"
+          size="large"
+          icon={circleV2()}
+          onClick={openContext}
+          aria-label={language.t("context.usage.view")}
+        />
+      </Match>
+      <Match when={true}>
+        <Button
+          type="button"
+          variant="ghost"
+          class="size-6"
+          onClick={openContext}
+          aria-label={language.t("context.usage.view")}
+        >
+          {circle()}
+        </Button>
+      </Match>
+    </Switch>
   )
 
   return (
     <Show when={params.id}>
-      <Tooltip value={tooltipValue()} placement={props.placement ?? "top"}>
-        <Switch>
-          <Match when={variant() === "indicator"}>{circle()}</Match>
-          <Match when={buttonAppearance() === "v2"}>
-            <IconButtonV2
-              type="button"
-              variant="ghost-muted"
-              size="large"
-              icon={circleV2()}
-              onClick={openContext}
-              aria-label={language.t("context.usage.view")}
-            />
-          </Match>
-          <Match when={true}>
-            <Button
-              type="button"
-              variant="ghost"
-              class="size-6"
-              onClick={openContext}
-              aria-label={language.t("context.usage.view")}
-            >
-              {circle()}
-            </Button>
-          </Match>
-        </Switch>
-      </Tooltip>
+      <Show
+        when={buttonAppearance() === "v2"}
+        fallback={
+          <Tooltip value={tooltipValue()} placement={props.placement ?? "top"}>
+            {trigger()}
+          </Tooltip>
+        }
+      >
+        <TooltipV2 value={tooltipValue()} placement={props.placement ?? "top"}>
+          {trigger()}
+        </TooltipV2>
+      </Show>
     </Show>
   )
 }
