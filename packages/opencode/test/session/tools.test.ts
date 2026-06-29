@@ -132,7 +132,7 @@ const belowThresholdIt = makeIt({
   queryDescription: "Natural language analytics query",
 })
 
-function resolveToolResult(input: { messages?: SessionV1.WithParts[]; canDeferMcpTools?: boolean } = {}) {
+function resolveToolResult(input: { messages?: SessionV1.WithParts[] } = {}) {
   return SessionTools.resolve({
     agent,
     model,
@@ -141,11 +141,10 @@ function resolveToolResult(input: { messages?: SessionV1.WithParts[]; canDeferMc
     bypassAgentCheck: false,
     messages: input.messages ?? [],
     promptOps,
-    canDeferMcpTools: input.canDeferMcpTools,
   })
 }
 
-function resolveTools(input: { messages?: SessionV1.WithParts[]; canDeferMcpTools?: boolean } = {}) {
+function resolveTools(input: { messages?: SessionV1.WithParts[] } = {}) {
   return resolveToolResult(input).pipe(Effect.map((result) => result.tools))
 }
 
@@ -232,14 +231,6 @@ describe("session.tools", () => {
   belowThresholdIt.instance("keeps MCP tools direct below the fixed deferral threshold", () =>
     Effect.gen(function* () {
       const tools = yield* resolveTools()
-
-      expect(Object.keys(tools).sort()).toEqual(["posthog_feature_flags", "posthog_query_trends"])
-    }),
-  )
-
-  deferredIt.instance("keeps MCP tools direct when deferred search cannot finish before the last step", () =>
-    Effect.gen(function* () {
-      const tools = yield* resolveTools({ canDeferMcpTools: false })
 
       expect(Object.keys(tools).sort()).toEqual(["posthog_feature_flags", "posthog_query_trends"])
     }),

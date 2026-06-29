@@ -51,7 +51,6 @@ interface Input {
   bypassAgentCheck: boolean
   messages: SessionV1.WithParts[]
   promptOps: TaskPromptOps
-  canDeferMcpTools?: boolean
 }
 
 interface DeferredToolDescriptor {
@@ -248,7 +247,7 @@ export const resolve = Effect.fn("SessionMcpTools.resolve")(function* (input: In
     Object.entries(mcpTools).filter(([key]) => userTools?.[key] !== false && !mcpDisabled.has(key)),
   )
   const deferredDescriptors =
-    (input.canDeferMcpTools ?? true) && flags.experimentalToolSearch && Object.keys(allowedMcpTools).length > 0
+    flags.experimentalToolSearch && Object.keys(allowedMcpTools).length > 0
       ? yield* deferredToolDescriptors(allowedMcpTools)
       : []
   const deferMcpTools =
