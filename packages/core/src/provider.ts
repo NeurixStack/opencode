@@ -3,7 +3,7 @@ export * as ProviderV2 from "./provider"
 import { Effect, Schema } from "effect"
 import { pathToFileURL } from "url"
 import { Provider } from "@opencode-ai/schema/provider"
-import type { Model, ProviderPackageDefinition, ProviderPackageSettings } from "@opencode-ai/llm"
+import type { ProviderPackageDefinition } from "@opencode-ai/llm"
 import { Npm } from "./npm"
 import type { DeepMutable } from "./schema"
 
@@ -43,12 +43,6 @@ export const loadPackage = Effect.fn("ProviderV2.loadPackage")(function* (specif
   return yield* importPackage(specifier, entrypoint)
 })
 
-export const makeModel = (
-  module: ProviderPackageDefinition,
-  modelID: string,
-  settings: ProviderPackageSettings,
-): Model => module.model(modelID, settings)
-
 export function mergeOverlay(
   base: Readonly<Record<string, unknown>> | undefined,
   overlay: Readonly<Record<string, unknown>> | undefined,
@@ -81,8 +75,10 @@ export function mergeHeaders(
   base: Readonly<Record<string, string>> | undefined,
   overlay: Readonly<Record<string, string>> | undefined,
 ) {
+  if (base === undefined) return overlay && { ...overlay }
+  if (overlay === undefined) return { ...base }
   return Object.fromEntries(
-    [...Object.entries(base ?? {}), ...Object.entries(overlay ?? {})]
+    [...Object.entries(base), ...Object.entries(overlay)]
       .reduce((result, entry) => {
         result.set(entry[0].toLowerCase(), entry)
         return result

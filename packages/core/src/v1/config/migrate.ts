@@ -169,8 +169,7 @@ function providers(info?: Readonly<Record<string, ConfigProviderV1.Info>>) {
 }
 
 function migrateProvider(info: ConfigProviderV1.Info) {
-  const lowerer = ConfigProviderOptionsV1.get(info.npm)
-  const options = lowerer.provider(info.options ?? {})
+  const options = ConfigProviderOptionsV1.provider(info.options ?? {})
   return {
     name: info.name,
     env: info.env,
@@ -180,14 +179,12 @@ function migrateProvider(info: ConfigProviderV1.Info) {
     body: info.options && options.body,
     models:
       info.models &&
-      Object.fromEntries(Object.entries(info.models).map(([name, model]) => [name, migrateModel(model, info.npm)])),
+      Object.fromEntries(Object.entries(info.models).map(([name, model]) => [name, migrateModel(model)])),
   }
 }
 
-function migrateModel(info: typeof ConfigProviderV1.Model.Type, packageName?: string) {
-  const packageID = info.provider?.npm ?? packageName
-  const lowerer = ConfigProviderOptionsV1.get(packageID)
-  const settings = info.options && lowerer.model(info.options)
+function migrateModel(info: typeof ConfigProviderV1.Model.Type) {
+  const settings = info.options && ConfigProviderOptionsV1.model(info.options)
   const costs = info.cost && [
     {
       input: info.cost.input,
@@ -221,7 +218,7 @@ function migrateModel(info: typeof ConfigProviderV1.Model.Type, packageName?: st
       info.variants &&
       Object.entries(info.variants).map(([id, options]) => ({
         id,
-        settings: lowerer.model(options),
+        settings: ConfigProviderOptionsV1.model(options),
       })),
     cost: costs,
     disabled: info.status === "deprecated" ? true : undefined,

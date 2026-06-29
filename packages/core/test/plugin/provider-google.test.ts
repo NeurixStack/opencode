@@ -80,4 +80,24 @@ describe("GooglePlugin", () => {
       expect(language.provider).toBe("custom-google")
     }),
   )
+
+  it.effect("wraps AI SDK language models for the native runner", () =>
+    Effect.gen(function* () {
+      const aisdk = yield* AISDK.Service
+      yield* addPlugin()
+
+      const resolved = yield* aisdk.model(
+        ModelV2.Info.make({
+          ...ModelV2.Info.empty(ProviderV2.ID.make("custom-google"), ModelV2.ID.make("alias")),
+          modelID: ModelV2.ID.make("gemini-api"),
+          package: "aisdk:@ai-sdk/google",
+          settings: { apiKey: "test" },
+        }),
+      )
+
+      expect(String(resolved.id)).toBe("gemini-api")
+      expect(String(resolved.provider)).toBe("custom-google")
+      expect(resolved.route.id).toBe("ai-sdk:@ai-sdk/google")
+    }),
+  )
 })

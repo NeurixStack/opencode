@@ -8,27 +8,23 @@ export interface ProviderResult {
   readonly body?: Record<string, unknown>
 }
 
-export interface Lowerer {
-  readonly provider: (options: Options) => ProviderResult
-  readonly model: (options: Options) => Record<string, unknown>
+export function provider(options: Options): ProviderResult {
+  const headers = options.headers
+  const body = options.body
+  const entries = Object.entries(options)
+  const settings = Object.fromEntries(entries.filter(([key]) => key !== "headers" && key !== "body"))
+  const headerOverlay =
+    typeof headers === "object" && headers !== null && !Array.isArray(headers)
+      ? Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      : undefined
+  const bodyOverlay = typeof body === "object" && body !== null && !Array.isArray(body) ? { ...body } : undefined
+  return {
+    settings,
+    headers: headerOverlay,
+    body: bodyOverlay,
+  }
 }
 
-const lowerer: Lowerer = {
-  provider(options) {
-    return {
-      settings: Object.fromEntries(Object.entries(options).filter(([key]) => key !== "headers" && key !== "body")),
-      headers: record(options.headers, (value): value is string => typeof value === "string"),
-      body: record(options.body, (_value): _value is unknown => true),
-    }
-  },
-  model: (options) => ({ ...options }),
-}
-
-export function get(_packageName?: string): Lowerer {
-  return lowerer
-}
-
-function record<T>(input: unknown, guard: (value: unknown) => value is T) {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined
-  return Object.fromEntries(Object.entries(input).filter((entry): entry is [string, T] => guard(entry[1])))
+export function model(options: Options) {
+  return { ...options }
 }

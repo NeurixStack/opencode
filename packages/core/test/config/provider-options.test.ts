@@ -3,10 +3,8 @@ import { ConfigProviderOptionsV1 } from "@opencode-ai/core/v1/config/provider-op
 
 describe("ConfigProviderOptionsV1", () => {
   test("splits provider overlays without changing package settings", () => {
-    const lowerer = ConfigProviderOptionsV1.get("@ai-sdk/openai")
-
     expect(
-      lowerer.provider({
+      ConfigProviderOptionsV1.provider({
         apiKey: "secret",
         baseURL: "https://openai.example/v1",
         organization: "org",
@@ -27,10 +25,8 @@ describe("ConfigProviderOptionsV1", () => {
   })
 
   test("keeps model and variant options unchanged", () => {
-    const lowerer = ConfigProviderOptionsV1.get("@ai-sdk/anthropic")
-
     expect(
-      lowerer.model({
+      ConfigProviderOptionsV1.model({
         reasoningEffort: "high",
         taskBudget: 1024,
         metadata: { userId: "user" },
@@ -42,8 +38,8 @@ describe("ConfigProviderOptionsV1", () => {
     })
   })
 
-  test("uses the same mechanical lowering for every package", () => {
-    expect(ConfigProviderOptionsV1.get("custom-provider").provider({ enabled: true })).toEqual({
+  test("uses mechanical lowering for custom provider options", () => {
+    expect(ConfigProviderOptionsV1.provider({ enabled: true })).toEqual({
       settings: { enabled: true },
       headers: undefined,
       body: undefined,
