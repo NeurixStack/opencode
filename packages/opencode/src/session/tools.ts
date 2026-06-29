@@ -108,12 +108,8 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
     })
   }
 
-  const mcp = yield* SessionMcpTools.resolve(input)
-  Object.assign(tools, mcp.tools)
-  return {
-    tools,
-    deferredSystemPrompt: mcp.deferredSystemPrompt,
-  }
+  Object.assign(tools, yield* SessionMcpTools.resolve(input))
+  return tools
 })
 
 export * as SessionTools from "./tools"

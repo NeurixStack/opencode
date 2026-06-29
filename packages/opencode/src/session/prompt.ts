@@ -55,6 +55,7 @@ import { eq } from "drizzle-orm"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
+import { SessionMcpTools } from "./mcp-tools"
 import { LLMEvent } from "@opencode-ai/llm"
 
 // @ts-ignore
@@ -1223,7 +1224,7 @@ export const layer = Layer.effect(
             const bypassAgentCheck = lastUserMsg?.parts.some((p) => p.type === "agent") ?? false
             const promptOps = yield* ops()
 
-            const resolvedTools = yield* SessionTools.resolve({
+            const tools = yield* SessionTools.resolve({
               agent,
               session,
               model,
@@ -1239,7 +1240,6 @@ export const layer = Layer.effect(
               Effect.provideService(Truncate.Service, truncate),
               Effect.provideService(RuntimeFlags.Service, flags),
             )
-            const tools = resolvedTools.tools
 
             if (lastUser.format?.type === "json_schema") {
               tools["StructuredOutput"] = createStructuredOutputTool({
@@ -1260,7 +1260,10 @@ export const layer = Layer.effect(
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
               sys.mcp(agent, session.permission),
-              Effect.succeed(resolvedTools.deferredSystemPrompt),
+              SessionMcpTools.systemPrompt({ agent, session, messages: msgs }).pipe(
+                Effect.provideService(MCP.Service, mcp),
+                Effect.provideService(RuntimeFlags.Service, flags),
+              ),
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [

@@ -11,6 +11,7 @@ import { MCP } from "@/mcp"
 import { Permission } from "@/permission"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { SessionTools } from "@/session/tools"
+import { SessionMcpTools } from "@/session/mcp-tools"
 import { MessageID, SessionID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { Plugin } from "@/plugin"
@@ -132,7 +133,7 @@ const belowThresholdIt = makeIt({
   queryDescription: "Natural language analytics query",
 })
 
-function resolveToolResult(input: { messages?: SessionV1.WithParts[] } = {}) {
+function resolveTools(input: { messages?: SessionV1.WithParts[] } = {}) {
   return SessionTools.resolve({
     agent,
     model,
@@ -142,10 +143,6 @@ function resolveToolResult(input: { messages?: SessionV1.WithParts[] } = {}) {
     messages: input.messages ?? [],
     promptOps,
   })
-}
-
-function resolveTools(input: { messages?: SessionV1.WithParts[] } = {}) {
-  return resolveToolResult(input).pipe(Effect.map((result) => result.tools))
 }
 
 describe("session.tools", () => {
@@ -184,7 +181,7 @@ describe("session.tools", () => {
 
   deferredIt.instance("lists deferred MCP servers in the system prompt", () =>
     Effect.gen(function* () {
-      const prompt = (yield* resolveToolResult()).deferredSystemPrompt
+      const prompt = yield* SessionMcpTools.systemPrompt({ agent, session, messages: [] })
 
       expect(prompt).toContain("Deferred MCP servers available through `search_deferred_tools`:")
       expect(prompt).toContain("- posthog: 2 tools")
