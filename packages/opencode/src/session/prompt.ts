@@ -1254,16 +1254,17 @@ export const layer = Layer.effect(
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
 
             yield* plugin.trigger("experimental.chat.messages.transform", {}, { messages: msgs })
+            const deferredMcpInstructions = SessionMcpTools.systemPrompt({ agent, session, messages: msgs }).pipe(
+              Effect.provideService(MCP.Service, mcp),
+              Effect.provideService(RuntimeFlags.Service, flags),
+            )
 
             const [skills, env, instructions, mcpInstructions, deferredToolInstructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
               sys.environment(model),
               instruction.system().pipe(Effect.orDie),
               sys.mcp(agent, session.permission),
-              SessionMcpTools.systemPrompt({ agent, session, messages: msgs }).pipe(
-                Effect.provideService(MCP.Service, mcp),
-                Effect.provideService(RuntimeFlags.Service, flags),
-              ),
+              deferredMcpInstructions,
               MessageV2.toModelMessagesEffect(msgs, model),
             ])
             const system = [
