@@ -28,6 +28,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
   bypassAgentCheck: boolean
   messages: SessionV1.WithParts[]
   promptOps: TaskPromptOps
+  canDeferMcpTools?: boolean
 }) {
   const tools: Record<string, Tool> = {}
   const run = yield* EffectBridge.make()
