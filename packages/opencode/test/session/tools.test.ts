@@ -63,7 +63,8 @@ const promptOps = {
 const toolExecutionOptions = {
   toolCallId: "call_deferred",
   abortSignal: new AbortController().signal,
-} as ToolExecutionOptions
+  messages: [],
+} satisfies ToolExecutionOptions
 
 const makeIt = (input: { flags: Parameters<typeof RuntimeFlags.layer>[0]; queryDescription: string }) =>
   testEffect(
