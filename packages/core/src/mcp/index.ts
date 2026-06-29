@@ -141,6 +141,7 @@ type ServerEntry = {
   readonly startup: Deferred.Deferred<void>
   scope?: Scope.Closeable
   client?: MCPClient.Connection
+  tools?: ReadonlyArray<Tool>
   readonly integrationID?: Integration.ID
   readonly connection?: IntegrationConnection.Info
 }
@@ -208,11 +209,30 @@ export const layer = Layer.effect(
         connection: entry.connection,
       })
 
+    const toTool = (server: ServerName, def: MCPClient.ToolDefinition) =>
+      new Tool({ server, name: def.name, description: def.description, inputSchema: def.inputSchema })
+
+    const refreshTools = (name: ServerName, entry: ServerEntry, connection: MCPClient.Connection) =>
+      connection.tools().pipe(
+        Effect.map((defs) => {
+          entry.tools = defs.map((def) => toTool(name, def))
+        }),
+      )
+
     const watch = (name: ServerName, entry: ServerEntry, connection: MCPClient.Connection) => {
       connection.onClose(() => {
         entry.client = undefined
+        entry.tools = undefined
         entry.status = { status: "failed", error: "Connection closed" }
         fork(events.publish(McpEvent.ToolsChanged, { server: name }).pipe(Effect.ignore))
+      })
+      connection.onToolsChanged(() => {
+        fork(
+          refreshTools(name, entry, connection).pipe(
+            Effect.andThen(events.publish(McpEvent.ToolsChanged, { server: name })),
+            Effect.ignore,
+          ),
+        )
       })
     }
 
@@ -220,14 +240,18 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const scope = yield* Scope.fork(root)
         entry.scope = scope
+        // List tools as part of connect so a failure here marks the server failed rather than
+        // leaving it connected with a silently empty tool list and no path to recover.
         const result = yield* MCPClient.connect(name, entry.config, location.directory).pipe(
+          Effect.flatMap((connection) => connection.tools().pipe(Effect.map((defs) => ({ connection, defs })))),
           Scope.provide(scope),
           Effect.exit,
         )
         if (Exit.isSuccess(result)) {
-          entry.client = result.value
+          entry.client = result.value.connection
+          entry.tools = result.value.defs.map((def) => toTool(name, def))
           entry.status = { status: "connected" }
-          watch(name, entry, result.value)
+          watch(name, entry, result.value.connection)
           return
         }
         yield* Scope.close(scope, Exit.void)
@@ -266,7 +290,9 @@ export const layer = Layer.effect(
       }),
       tools: Effect.fn("MCP.tools")(function* () {
         yield* whenAllReady
-        return []
+        return Array.from(runtime.values())
+          .flatMap((entry) => entry.tools ?? [])
+          .toSorted((a, b) => a.server.localeCompare(b.server) || a.name.localeCompare(b.name))
       }),
       instructions: Effect.fn("MCP.instructions")(function* () {
         yield* whenAllReady

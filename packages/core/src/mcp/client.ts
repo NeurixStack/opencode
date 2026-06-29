@@ -6,12 +6,25 @@ import { Client, type ClientOptions } from "@modelcontextprotocol/sdk/client/ind
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
-import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
+import {
+  ListRootsRequestSchema,
+  ListToolsResultSchema,
+  ToolListChangedNotificationSchema,
+  ToolSchema,
+} from "@modelcontextprotocol/sdk/types.js"
 import { Cause, Effect, Exit, Schema } from "effect"
 import { ConfigMCP } from "../config/mcp"
 import { InstallationVersion } from "../installation/version"
 
 const DEFAULT_STARTUP_TIMEOUT = 30_000
+const DEFAULT_REQUEST_TIMEOUT = 30_000
+const MAX_LIST_PAGES = 1_000
+
+// Some servers advertise tool outputSchemas the SDK's strict validator can't resolve; this drops
+// only that field so a single bad schema doesn't blank out the whole tool list.
+const TolerantListToolsResult = ListToolsResultSchema.extend({
+  tools: ToolSchema.omit({ outputSchema: true }).array(),
+})
 
 export class NeedsAuthError extends Schema.TaggedErrorClass<NeedsAuthError>()("MCP.NeedsAuthError", {
   server: Schema.String,
@@ -22,11 +35,21 @@ export class ConnectError extends Schema.TaggedErrorClass<ConnectError>()("MCP.C
   message: Schema.String,
 }) {}
 
+export interface ToolDefinition {
+  readonly name: string
+  readonly description: string | undefined
+  readonly inputSchema: unknown
+}
+
 /** Handle over a connected MCP server that keeps the SDK `Client` out of the rest of core. */
 export interface Connection {
   /** Server-supplied usage instructions from the initialize result, if any. */
   readonly instructions: string | undefined
+  /** Lists the server's tools; returns [] when the server doesn't advertise tool support, fails on a transport error. */
+  readonly tools: () => Effect.Effect<ToolDefinition[], Error>
   readonly onClose: (callback: () => void) => void
+  /** Registers a callback fired when the server announces its tool list changed; no-op if unsupported. */
+  readonly onToolsChanged: (callback: () => void) => void
 }
 
 /** Connects an MCP server; closing the calling scope tears down the transport and any spawned process. */
@@ -74,10 +97,44 @@ export const connect = Effect.fnUntraced(function* (
   }).pipe(Effect.exit)
   if (Exit.isSuccess(exit)) {
     yield* Effect.addFinalizer(() => Effect.promise(() => client.close()).pipe(Effect.ignore))
+    const requestTimeout = config.timeout?.request ?? DEFAULT_REQUEST_TIMEOUT
     return {
       instructions: client.getInstructions()?.trim() || undefined,
+      tools: () =>
+        Effect.gen(function* () {
+          if (!client.getServerCapabilities()?.tools) return []
+          const tools = yield* Effect.tryPromise({
+            try: () =>
+              paginate(
+                async (cursor) => {
+                  const params = cursor === undefined ? undefined : { cursor }
+                  try {
+                    return await client.listTools(params, { timeout: requestTimeout })
+                  } catch (error) {
+                    if (!(error instanceof Error) || !isOutputSchemaError(error)) throw error
+                    return client.request({ method: "tools/list", params }, TolerantListToolsResult, {
+                      timeout: requestTimeout,
+                    })
+                  }
+                },
+                (result) => result.tools,
+              ),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          }).pipe(
+            Effect.tapError((error) => Effect.logWarning("failed to list MCP tools", { server, error: error.message })),
+          )
+          return tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.inputSchema,
+          }))
+        }),
       onClose: (callback) => {
         client.onclose = callback
+      },
+      onToolsChanged: (callback) => {
+        if (!client.getServerCapabilities()?.tools?.listChanged) return
+        client.setNotificationHandler(ToolListChangedNotificationSchema, async () => callback())
       },
     } satisfies Connection
   }
@@ -88,3 +145,26 @@ export const connect = Effect.fnUntraced(function* (
     return yield* new NeedsAuthError({ server })
   return yield* new ConnectError({ server, message: error instanceof Error ? error.message : String(error) })
 })
+
+async function paginate<R extends { nextCursor?: string }, T>(
+  list: (cursor: string | undefined) => Promise<R>,
+  items: (result: R) => T[],
+) {
+  const collected: T[] = []
+  const seen = new Set<string>()
+  let cursor: string | undefined
+  for (let page = 0; page < MAX_LIST_PAGES; page++) {
+    const result = await list(cursor)
+    collected.push(...items(result))
+    if (result.nextCursor === undefined) return collected
+    if (seen.has(result.nextCursor)) throw new Error(`MCP list returned duplicate cursor: ${result.nextCursor}`)
+    seen.add(result.nextCursor)
+    cursor = result.nextCursor
+  }
+  throw new Error(`MCP list exceeded ${MAX_LIST_PAGES} pages`)
+}
+
+const isOutputSchemaError = (error: Error) =>
+  /can't resolve reference|resolves to more than one schema|outputSchema|schema.*reference|reference.*schema/i.test(
+    error.message,
+  )
