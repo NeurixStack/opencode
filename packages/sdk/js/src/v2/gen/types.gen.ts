@@ -80,6 +80,8 @@ export type Event =
   | EventTuiToastShow2
   | EventTuiSessionSelect2
   | EventMcpToolsChanged
+  | EventMcpPromptsChanged
+  | EventMcpResourcesChanged
   | EventMcpBrowserOpenFailed
   | EventCommandExecuted
   | EventProjectUpdated
@@ -646,7 +648,6 @@ export type Prompt = {
   text: string
   files?: Array<PromptFileAttachment>
   agents?: Array<PromptAgentAttachment>
-  system?: string
 }
 
 export type Pty = {
@@ -1509,6 +1510,20 @@ export type GlobalEvent = {
     | {
         id: string
         type: "mcp.tools.changed"
+        properties: {
+          server: string
+        }
+      }
+    | {
+        id: string
+        type: "mcp.prompts.changed"
+        properties: {
+          server: string
+        }
+      }
+    | {
+        id: string
+        type: "mcp.resources.changed"
         properties: {
           server: string
         }
@@ -2760,7 +2775,6 @@ export type PromptInput = {
   text: string
   files?: Array<PromptInputFileAttachment>
   agents?: Array<PromptAgentAttachment>
-  system?: string
 }
 
 export type ConflictError = {
@@ -2831,6 +2845,12 @@ export type SessionMessagesResponse = {
   cursor: {
     previous?: string
     next?: string
+  }
+}
+
+export type GenerateTextResponse = {
+  data: {
+    text: string
   }
 }
 
@@ -2999,6 +3019,8 @@ export type V2Event =
   | TuiToastShow
   | TuiSessionSelect
   | McpToolsChanged
+  | McpPromptsChanged
+  | McpResourcesChanged
   | McpBrowserOpenFailed
   | CommandExecuted
   | ProjectUpdated
@@ -4096,7 +4118,6 @@ export type SessionMessageUser = {
   text: string
   files?: Array<PromptFileAttachment>
   agents?: Array<PromptAgentAttachment>
-  system?: string
   type: "user"
 }
 
@@ -6036,6 +6057,40 @@ export type McpToolsChanged = {
   }
 }
 
+export type McpPromptsChanged = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "mcp.prompts.changed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    server: string
+  }
+}
+
+export type McpResourcesChanged = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "mcp.resources.changed"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    server: string
+  }
+}
+
 export type McpBrowserOpenFailed = {
   id: string
   metadata?: {
@@ -7112,6 +7167,22 @@ export type EventPermissionReplied = {
 export type EventMcpToolsChanged = {
   id: string
   type: "mcp.tools.changed"
+  properties: {
+    server: string
+  }
+}
+
+export type EventMcpPromptsChanged = {
+  id: string
+  type: "mcp.prompts.changed"
+  properties: {
+    server: string
+  }
+}
+
+export type EventMcpResourcesChanged = {
+  id: string
+  type: "mcp.resources.changed"
   properties: {
     server: string
   }
@@ -12352,6 +12423,47 @@ export type V2ModelListResponses = {
 }
 
 export type V2ModelListResponse = V2ModelListResponses[keyof V2ModelListResponses]
+
+export type V2GenerateTextData = {
+  body: {
+    prompt: string
+    model?: ModelRef
+  }
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/generate"
+}
+
+export type V2GenerateTextErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2GenerateTextError = V2GenerateTextErrors[keyof V2GenerateTextErrors]
+
+export type V2GenerateTextResponses = {
+  /**
+   * GenerateTextResponse
+   */
+  200: GenerateTextResponse
+}
+
+export type V2GenerateTextResponse = V2GenerateTextResponses[keyof V2GenerateTextResponses]
 
 export type V2ProviderListData = {
   body?: never

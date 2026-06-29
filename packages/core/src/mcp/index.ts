@@ -264,7 +264,16 @@ export const layer = Layer.effect(
         entry.client = undefined
         entry.tools = undefined
         entry.status = { status: "failed", error: "Connection closed" }
-        fork(events.publish(McpEvent.ToolsChanged, { server: name }).pipe(Effect.ignore))
+        fork(
+          Effect.all(
+            [
+              events.publish(McpEvent.ToolsChanged, { server: name }),
+              events.publish(McpEvent.PromptsChanged, { server: name }),
+              events.publish(McpEvent.ResourcesChanged, { server: name }),
+            ],
+            { discard: true },
+          ).pipe(Effect.ignore),
+        )
       })
       connection.onLog((message) => fork(serverLog(name, message).pipe(Effect.ignore)))
       connection.onToolsChanged(() => {
@@ -274,6 +283,12 @@ export const layer = Layer.effect(
             Effect.ignore,
           ),
         )
+      })
+      connection.onPromptsChanged(() => {
+        fork(events.publish(McpEvent.PromptsChanged, { server: name }).pipe(Effect.ignore))
+      })
+      connection.onResourcesChanged(() => {
+        fork(events.publish(McpEvent.ResourcesChanged, { server: name }).pipe(Effect.ignore))
       })
     }
 
