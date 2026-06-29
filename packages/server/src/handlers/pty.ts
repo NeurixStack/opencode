@@ -41,16 +41,18 @@ export const PtyHandler = HttpApiBuilder.group(Api, "server.pty", (handlers) =>
           const pty = yield* Pty.Service
           const location = yield* Location.Service
           const cwd = ctx.payload.cwd || location.directory
+          const env = yield* environment.get({ directory: location.directory, cwd })
+          const created = yield* pty.create({
+            ...ctx.payload,
+            args: ctx.payload.args ? [...ctx.payload.args] : undefined,
+            cwd,
+            env: {
+              ...ctx.payload.env,
+              ...env,
+            },
+          })
           return yield* response(
-            pty.create({
-              ...ctx.payload,
-              args: ctx.payload.args ? [...ctx.payload.args] : undefined,
-              cwd,
-              env: {
-                ...ctx.payload.env,
-                ...(yield* environment.get({ directory: location.directory, cwd })),
-              },
-            }),
+            Effect.succeed(created),
           )
         }),
       )

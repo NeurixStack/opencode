@@ -1,12 +1,11 @@
 export * as PluginPtyEnvironment from "./pty-environment"
 
-import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { PtyEnvironment } from "@opencode-ai/server/pty-environment"
 import { Effect, Layer } from "effect"
 import { InstanceStore } from "@/project/instance-store"
 import { Plugin } from "."
 
-const layer = Layer.effect(
+export const layer = Layer.effect(
   PtyEnvironment.Service,
   Effect.gen(function* () {
     const plugin = yield* Plugin.Service
@@ -23,5 +22,3 @@ const layer = Layer.effect(
     })
   }),
 )
-
-export const node = LayerNode.make({ service: PtyEnvironment.Service, layer, deps: [Plugin.node, InstanceStore.node] })
