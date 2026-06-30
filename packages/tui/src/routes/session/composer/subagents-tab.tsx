@@ -7,6 +7,9 @@ import { useTheme, selectedForeground } from "../../../context/theme"
 import { Locale } from "../../../util/locale"
 import { useBindings, useCommandShortcut } from "../../../keymap"
 import { useComposerTab } from "./index"
+import { useSDK } from "../../../context/sdk"
+import { useToast } from "../../../ui/toast"
+import { errorMessage } from "../../../util/error"
 
 interface SubagentEntry {
   sessionID: string
@@ -17,54 +20,42 @@ interface SubagentEntry {
 }
 
 export function SubagentsTab(props: { sessionID: string }) {
-  const route = useRouteData("session")
+  const routeData = useRouteData("session")
+  const route = useRoute()
   const data = useData()
   const { theme } = useTheme()
   const fg = selectedForeground(theme)
-  const navigate = useRoute().navigate
   const composer = useComposerTab()
+  const sdk = useSDK()
+  const toast = useToast()
   const interruptHint = useCommandShortcut("composer.subagent.interrupt")
   const backgroundHint = useCommandShortcut("composer.background")
 
   const session = createMemo(() => data.session.get(props.sessionID))
+  const parentID = createMemo(() => session()?.parentID ?? props.sessionID)
 
   const entries = createMemo<SubagentEntry[]>(() => {
     const current = session()
     if (!current) return []
 
-    const result: SubagentEntry[] = []
-
-    if (current.parentID) {
-      const siblings = data.session.list().filter((s) => s.parentID === current.parentID)
-      for (const sibling of siblings) {
-        const agentMatch = sibling.title.match(/@(\w+) subagent/)
-        const agent = sibling.agent ? Locale.titlecase(sibling.agent) : agentMatch ? Locale.titlecase(agentMatch[1]) : "Subagent"
-        const name = agentMatch ? sibling.title.replace(agentMatch[0], "").trim() || sibling.title : sibling.title
-        result.push({
-          sessionID: sibling.id,
-          agent,
-          title: name,
-          status: data.session.status(sibling.id),
-          current: sibling.id === route.sessionID,
-        })
-      }
-    } else {
-      const children = data.session.list().filter((s) => s.parentID === props.sessionID)
-      for (const child of children) {
+    return data.session
+      .list()
+      .filter((child) => child.parentID === parentID())
+      .map((child) => {
         const agentMatch = child.title.match(/@(\w+) subagent/)
-        const agent = child.agent ? Locale.titlecase(child.agent) : agentMatch ? Locale.titlecase(agentMatch[1]) : "Subagent"
-        const name = agentMatch ? child.title.replace(agentMatch[0], "").trim() || child.title : child.title
-        result.push({
+        const agent = child.agent
+          ? Locale.titlecase(child.agent)
+          : agentMatch
+            ? Locale.titlecase(agentMatch[1])
+            : "Subagent"
+        return {
           sessionID: child.id,
           agent,
-          title: name,
+          title: agentMatch ? child.title.replace(agentMatch[0], "").trim() || child.title : child.title,
           status: data.session.status(child.id),
-          current: child.id === route.sessionID,
-        })
-      }
-    }
-
-    return result
+          current: child.id === routeData.sessionID,
+        }
+      })
   })
 
   const [store, setStore] = createStore({ selected: 0 })
@@ -88,10 +79,10 @@ export function SubagentsTab(props: { sessionID: string }) {
       return
     }
     const list = entries()
-    if (selectedSessionID !== route.sessionID && list.length > 0) {
+    if (selectedSessionID !== routeData.sessionID && list.length > 0) {
       const currentIdx = list.findIndex((e) => e.current)
       const next = currentIdx >= 0 ? currentIdx : 0
-      selectedSessionID = route.sessionID
+      selectedSessionID = routeData.sessionID
       setStore("selected", next)
       const scrollCurrentIntoView = () => scrollToIndex(next, true)
       scrollCurrentIntoView()
@@ -125,6 +116,33 @@ export function SubagentsTab(props: { sessionID: string }) {
     }
   }
 
+  async function background() {
+    const parent = data.session.get(parentID())
+    const location = parent?.location ?? session()?.location
+    if (!location) return
+    try {
+      const capabilities = await sdk.client.experimental.capabilities.get(
+        { directory: location.directory, workspace: location.workspaceID },
+        { throwOnError: true },
+      )
+      if (!capabilities.data.backgroundSubagents) {
+        toast.show({ message: "Background subagents are not enabled", variant: "info", duration: 3000 })
+        return
+      }
+      const result = await sdk.client.experimental.session.background(
+        { sessionID: parentID(), directory: location.directory, workspace: location.workspaceID },
+        { throwOnError: true },
+      )
+      toast.show({
+        message: result.data ? "Backgrounded running subagents" : "No running subagents to background",
+        variant: result.data ? "success" : "info",
+        duration: 3000,
+      })
+    } catch (error) {
+      toast.show({ message: errorMessage(error), variant: "error", duration: 5000 })
+    }
+  }
+
   onMount(() => {
     const cleanup = composer.register({
       id: "subagents",
@@ -134,12 +152,12 @@ export function SubagentsTab(props: { sessionID: string }) {
         if (!entry || entry.status !== "running") return []
         return [
           { label: "interrupt", shortcut: interruptHint() },
-          ...(entry.current ? [{ label: "background", shortcut: backgroundHint() }] : []),
+          { label: "background", shortcut: backgroundHint() },
         ]
       },
       onClose: () => {
         const parentID = session()?.parentID
-        if (parentID) navigate({ type: "session", sessionID: parentID })
+        if (parentID) route.navigate({ type: "session", sessionID: parentID })
       },
     })
     onCleanup(cleanup)
@@ -175,7 +193,7 @@ export function SubagentsTab(props: { sessionID: string }) {
         category: "Composer",
         run() {
           const entry = entries()[store.selected]
-          if (entry) navigate({ type: "session", sessionID: entry.sessionID })
+          if (entry) route.navigate({ type: "session", sessionID: entry.sessionID })
         },
       },
       {
@@ -193,7 +211,8 @@ export function SubagentsTab(props: { sessionID: string }) {
         category: "Composer",
         run() {
           const entry = selectedEntry()
-          if (!entry || entry.status !== "running" || !entry.current) return
+          if (!entry || entry.status !== "running") return
+          void background()
         },
       },
     ],
@@ -208,11 +227,7 @@ export function SubagentsTab(props: { sessionID: string }) {
 
   return (
     <Show when={composer.active("subagents")}>
-      <scrollbox
-        scrollbarOptions={{ visible: false }}
-        maxHeight={5}
-        ref={(r: ScrollBoxRenderable) => (scroll = r)}
-      >
+      <scrollbox scrollbarOptions={{ visible: false }} maxHeight={5} ref={(r: ScrollBoxRenderable) => (scroll = r)}>
         <Show when={entries().length > 0} fallback={<text fg={theme.textMuted}> No subagents</text>}>
           <For each={entries()}>
             {(entry, index) => {
@@ -230,7 +245,7 @@ export function SubagentsTab(props: { sessionID: string }) {
                   onMouseOver={() => setStore("selected", index())}
                   onMouseUp={() => {
                     setStore("selected", index())
-                    navigate({ type: "session", sessionID: entry.sessionID })
+                    route.navigate({ type: "session", sessionID: entry.sessionID })
                   }}
                 >
                   <box flexGrow={1} minWidth={0} flexDirection="row">

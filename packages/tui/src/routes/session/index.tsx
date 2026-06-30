@@ -99,12 +99,13 @@ const sessionBindingCommands = [
   "messages.copy",
   "session.copy",
   "session.export",
-  "session.background",
   "session.child.first",
   "session.parent",
   "session.child.next",
   "session.child.previous",
 ] as const
+
+const sessionBackgroundBindingCommands = ["session.background"] as const
 
 const sessionGlobalBindingCommands = [
   "session.page.up",
@@ -786,7 +787,33 @@ export function Session() {
       value: "session.background",
       category: "Session",
       hidden: true,
-      run: () => unavailable("Backgrounding subagents"),
+      run: async () => {
+        const current = location()
+        if (!current) return
+        const targetSessionID = session()?.parentID ?? route.sessionID
+        dialog.clear()
+        try {
+          const capabilities = await sdk.client.experimental.capabilities.get(
+            { directory: current.directory, workspace: current.workspaceID },
+            { throwOnError: true },
+          )
+          if (!capabilities.data.backgroundSubagents) {
+            toast.show({ message: "Background subagents are not enabled", variant: "info", duration: 3000 })
+            return
+          }
+          const result = await sdk.client.experimental.session.background(
+            { sessionID: targetSessionID, directory: current.directory, workspace: current.workspaceID },
+            { throwOnError: true },
+          )
+          toast.show({
+            message: result.data ? "Backgrounded running subagents" : "No running subagents to background",
+            variant: result.data ? "success" : "info",
+            duration: 3000,
+          })
+        } catch (error) {
+          toast.show({ message: errorMessage(error), variant: "error", duration: 5000 })
+        }
+      },
     },
     {
       title: "Toggle subagent picker",
@@ -860,6 +887,12 @@ export function Session() {
   useBindings(() => ({
     mode: OPENCODE_BASE_MODE,
     bindings: tuiConfig.keybinds.gather("session", sessionBindingCommands),
+  }))
+
+  useBindings(() => ({
+    mode: OPENCODE_BASE_MODE,
+    enabled: () => renderer.currentFocusedEditor === null || (prompt?.focused === true && prompt.current.input === ""),
+    bindings: tuiConfig.keybinds.gather("session.background", sessionBackgroundBindingCommands),
   }))
 
   // snap to bottom when session changes

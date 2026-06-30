@@ -159,7 +159,9 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       params: { sessionID: SessionID }
     }) {
       if (!flags.experimentalBackgroundSubagents) return false
-      return (yield* jobs.backgroundAll({ sessionID: ctx.params.sessionID, type: "task" })).length > 0
+      const tasks = yield* jobs.backgroundAll({ sessionID: ctx.params.sessionID, type: "task" })
+      const subagents = yield* jobs.backgroundAll({ sessionID: ctx.params.sessionID, type: "subagent" })
+      return tasks.length > 0 || subagents.length > 0
     })
 
     const resource = Effect.fn("ExperimentalHttpApi.resource")(function* () {
