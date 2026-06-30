@@ -14,10 +14,12 @@ export const Plugin = define({
       draft.update("init", (command) => {
         command.template = PROMPT_INITIALIZE.replace("${path}", location.project.directory)
         command.description = "guided AGENTS.md setup"
+        command.source = "command"
       })
       draft.update("review", (command) => {
         command.template = PROMPT_REVIEW.replace("${path}", location.project.directory)
         command.description = "review changes [commit|branch|pr], defaults to uncommitted"
+        command.source = "command"
         command.subtask = true
       })
     })

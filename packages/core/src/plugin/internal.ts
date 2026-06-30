@@ -21,6 +21,7 @@ import { Global } from "../global"
 import { Integration } from "../integration"
 import { Location } from "../location"
 import { ModelsDev } from "../models-dev"
+import { MCP } from "../mcp"
 import { Npm } from "../npm"
 import { PluginV2 } from "../plugin"
 import { Reference } from "../reference"
@@ -30,6 +31,7 @@ import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { AgentPlugin } from "./agent"
 import { CommandPlugin } from "./command"
 import { ModelsDevPlugin } from "./models-dev"
+import { MCPCommandPlugin } from "./mcp-command"
 import { ProviderPlugins } from "./provider"
 import { SdkPlugins } from "./sdk"
 import { SkillPlugin } from "./skill"
@@ -48,6 +50,7 @@ export type Requirements =
   | Integration.Service
   | Location.Service
   | ModelsDev.Service
+  | MCP.Service
   | Npm.Service
   | Reference.Service
   | SkillV2.Service
@@ -72,6 +75,7 @@ const layer = Layer.effectDiscard(
     const config = yield* Config.Service
     const location = yield* Location.Service
     const modelsDev = yield* ModelsDev.Service
+    const mcp = yield* MCP.Service
     const npm = yield* Npm.Service
     const events = yield* EventV2.Service
     const fs = yield* FSUtil.Service
@@ -94,6 +98,7 @@ const layer = Layer.effectDiscard(
               Effect.provideService(Config.Service, config),
               Effect.provideService(Location.Service, location),
               Effect.provideService(ModelsDev.Service, modelsDev),
+              Effect.provideService(MCP.Service, mcp),
               Effect.provideService(Npm.Service, npm),
               Effect.provideService(EventV2.Service, events),
               Effect.provideService(FSUtil.Service, fs),
@@ -116,6 +121,7 @@ const layer = Layer.effectDiscard(
         yield* add(ModelsDevPlugin)
         yield* add(ConfigAgentPlugin.Plugin)
         yield* add(ConfigCommandPlugin.Plugin)
+        yield* add(MCPCommandPlugin.Plugin)
         yield* add(ConfigSkillPlugin.Plugin)
         for (const item of ProviderPlugins) yield* add(item)
         yield* add(ConfigExternalPlugin.Plugin)
@@ -147,6 +153,7 @@ export const node = makeLocationNode({
     Config.node,
     Location.node,
     ModelsDev.node,
+    MCP.node,
     Npm.node,
     EventV2.node,
     FSUtil.node,
