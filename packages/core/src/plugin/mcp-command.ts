@@ -17,7 +17,6 @@ export const Plugin = define({
           draft.update(commandName(prompt), (command) => {
             command.template = ""
             command.description = prompt.description
-            command.source = "mcp"
           })
         }
       }),

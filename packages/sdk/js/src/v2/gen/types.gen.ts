@@ -5166,7 +5166,6 @@ export type CommandV2Info = {
   description?: string
   agent?: string
   model?: ModelRef
-  source?: "command" | "mcp" | "skill"
   subtask?: boolean
 }
 
