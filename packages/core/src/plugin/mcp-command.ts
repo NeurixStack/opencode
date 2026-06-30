@@ -34,7 +34,6 @@ export const Plugin = define({
           if (!template || draft.get(command.name)) continue
           draft.update(command.name, (item) => {
             item.template = template
-            item.source = "mcp"
             if (command.description !== undefined) item.description = command.description
           })
         }

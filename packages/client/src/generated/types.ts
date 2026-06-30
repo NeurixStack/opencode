@@ -2758,7 +2758,6 @@ export type CommandListOutput = {
     readonly description?: string
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
-    readonly source?: "command" | "mcp" | "skill"
     readonly subtask?: boolean
   }>
 }

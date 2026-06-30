@@ -31,7 +31,6 @@ export const Plugin = define({
           for (const [name, command] of Object.entries(document.commands ?? {})) {
             draft.update(name, (item) => {
               item.template = command.template
-              item.source = "command"
               if (command.description !== undefined) item.description = command.description
               if (command.agent !== undefined) item.agent = command.agent
               if (command.model !== undefined) {
