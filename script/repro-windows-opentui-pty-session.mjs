@@ -33,6 +33,7 @@ let exited = false
 let exitCode = undefined
 let exitSignal = undefined
 let permissionSubmitted = false
+let toolCallSent = false
 
 mkdirSync(project, { recursive: true })
 
@@ -54,6 +55,10 @@ function writeSse(res, event) {
 function responseText() {
   if (scenario.startsWith("bash-")) {
     return "The bash tool completed and the session continued after tool execution."
+  }
+
+  if (scenario.startsWith("task-")) {
+    return "The subagent task completed and returned control to the parent session."
   }
 
   if (scenario === "markdown") {
@@ -83,7 +88,17 @@ function hasToolResult(parsedBody) {
 function shouldCallBash(parsedBody) {
   if (!scenario.startsWith("bash-")) return false
   if (!parsedBody?.tools?.some?.((tool) => (tool.function?.name ?? tool.name) === "bash")) return false
-  return !hasToolResult(parsedBody)
+  if (hasToolResult(parsedBody) || toolCallSent) return false
+  toolCallSent = true
+  return true
+}
+
+function shouldCallTask(parsedBody) {
+  if (!scenario.startsWith("task-")) return false
+  if (!parsedBody?.tools?.some?.((tool) => (tool.function?.name ?? tool.name) === "task")) return false
+  if (hasToolResult(parsedBody) || toolCallSent) return false
+  toolCallSent = true
+  return true
 }
 
 const server = createServer(async (req, res) => {
@@ -108,6 +123,7 @@ const server = createServer(async (req, res) => {
   if (req.url?.endsWith("/chat/completions")) {
     const parsed = parsedBody ?? {}
     const callBash = shouldCallBash(parsed)
+    const callTask = shouldCallTask(parsed)
     const text = responseText()
     if (parsed.stream) {
       res.writeHead(200, {
@@ -123,7 +139,15 @@ const server = createServer(async (req, res) => {
         choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
       })
       await delay(50)
-      if (callBash) {
+      if (callBash || callTask) {
+        const toolName = callBash ? "bash" : "task"
+        const toolArguments = callBash
+          ? { command: "echo opentui-tool-repro > opentui-tool-repro.txt" }
+          : {
+              description: "subagent repro",
+              prompt: "Respond with one sentence for the Windows OpenTUI crash repro.",
+              subagent_type: "general",
+            }
         writeSse(res, {
           id: "chatcmpl-opentui-repro",
           object: "chat.completion.chunk",
@@ -136,11 +160,11 @@ const server = createServer(async (req, res) => {
                 tool_calls: [
                   {
                     index: 0,
-                    id: "call_opentui_repro_bash",
+                    id: `call_opentui_repro_${toolName}`,
                     type: "function",
                     function: {
-                      name: "bash",
-                      arguments: JSON.stringify({ command: "echo opentui-tool-repro > opentui-tool-repro.txt" }),
+                      name: toolName,
+                      arguments: JSON.stringify(toolArguments),
                     },
                   },
                 ],
@@ -273,6 +297,8 @@ const proc = pty.spawn(
     "--prompt",
     scenario.startsWith("bash-")
       ? "run a shell command through the bash tool, then summarize"
+      : scenario.startsWith("task-")
+        ? "delegate a small task to a subagent, then summarize"
       : "start a CI repro session and answer briefly",
     ...(scenario === "bash-auto" ? ["--auto"] : []),
   ],
@@ -288,7 +314,11 @@ const proc = pty.spawn(
 proc.onData((data) => {
   appendOutput(data)
   process.stdout.write(data)
-  if (scenario === "bash-permission" && !permissionSubmitted && /Permission required|Allow once|Call tool bash/.test(output)) {
+  if (
+    (scenario === "bash-permission" || scenario === "task-permission") &&
+    !permissionSubmitted &&
+    /Permission required|Allow once|Call tool bash|Call tool task|subagent repro/.test(output)
+  ) {
     permissionSubmitted = true
     setTimeout(() => proc.write("\r"), 250)
   }

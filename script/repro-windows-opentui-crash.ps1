@@ -175,6 +175,7 @@ try {
   node (Join-Path $PSScriptRoot "repro-windows-opentui-pty-session.mjs") -- --exe $exe --project $sessionProject --version $Version --seconds $PtySeconds --scenario markdown
   node (Join-Path $PSScriptRoot "repro-windows-opentui-pty-session.mjs") -- --exe $exe --project $sessionProject --version $Version --seconds $PtySeconds --scenario bash-auto
   node (Join-Path $PSScriptRoot "repro-windows-opentui-pty-session.mjs") -- --exe $exe --project $sessionProject --version $Version --seconds $PtySeconds --scenario bash-permission
+  node (Join-Path $PSScriptRoot "repro-windows-opentui-pty-session.mjs") -- --exe $exe --project $sessionProject --version $Version --seconds $PtySeconds --scenario task-permission
 } finally {
   Pop-Location
 }
