@@ -57,6 +57,7 @@ import { usePromptMove } from "./move"
 import { readLocalAttachment } from "./local-attachment"
 import { useData } from "../../context/data"
 import { useLocation } from "../../context/location"
+import { foregroundSubagentCount } from "../../util/subagent"
 
 export type PromptProps = {
   sessionID?: string
@@ -160,12 +161,13 @@ export function Prompt(props: PromptProps) {
   const dialog = useDialog()
   const toast = useToast()
   const status = createMemo(() => data.session.status(props.sessionID ?? ""))
-  const activeSubagents = createMemo(
-    () =>
-      data.session
-        .list()
-        .filter((session) => session.parentID === props.sessionID && data.session.status(session.id) === "running")
-        .length,
+  const activeSubagents = createMemo(() =>
+    foregroundSubagentCount({
+      sessionID: props.sessionID,
+      sessions: data.session.list(),
+      messages: props.sessionID ? data.session.message.list(props.sessionID) : [],
+      status: (sessionID) => data.session.status(sessionID),
+    }),
   )
   const runningShells = createMemo(
     () => data.shell.list().filter((shell) => shell.metadata.sessionID === props.sessionID).length,
@@ -175,6 +177,7 @@ export function Prompt(props: PromptProps) {
   const keymap = useOpencodeKeymap()
   const agentShortcut = useCommandShortcut("agent.cycle")
   const paletteShortcut = useCommandShortcut("command.palette.show")
+  const backgroundShortcut = useCommandShortcut("session.background")
   const renderer = useRenderer()
   const exit = useExit()
   const dimensions = useTerminalDimensions()
@@ -290,20 +293,6 @@ export function Prompt(props: PromptProps) {
     }
   })
 
-  // Far-right footer cluster: live work counts lead, then context/cost usage, all dot-joined.
-  // When empty, the cluster falls back to the hotkey hints.
-  const statusItems = createMemo(() => {
-    const agents = activeSubagents()
-    const shells = runningShells()
-    const stats = usage()
-    return [
-      agents ? `${agents} subagent${agents === 1 ? "" : "s"}` : undefined,
-      shells ? `${shells} shell${shells === 1 ? "" : "s"}` : undefined,
-      stats?.context,
-      stats?.cost,
-    ].filter(Boolean)
-  })
-
   const [store, setStore] = createStore<{
     prompt: PromptInfo
     mode: "normal" | "shell"
@@ -319,6 +308,22 @@ export function Prompt(props: PromptProps) {
     mode: "normal",
     extmarkToPartIndex: new Map(),
     interrupt: 0,
+  })
+
+  // Far-right footer cluster: live work counts lead, then context/cost usage, all dot-joined.
+  // When empty, the cluster falls back to the hotkey hints.
+  const statusItems = createMemo(() => {
+    const agents = activeSubagents()
+    const shells = runningShells()
+    const stats = usage()
+    const background = backgroundShortcut()
+    return [
+      agents ? `${agents} subagent${agents === 1 ? "" : "s"}` : undefined,
+      agents && store.prompt.input === "" && background ? `${background} background` : undefined,
+      shells ? `${shells} shell${shells === 1 ? "" : "s"}` : undefined,
+      stats?.context,
+      stats?.cost,
+    ].filter(Boolean)
   })
 
   createEffect(

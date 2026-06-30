@@ -28,6 +28,7 @@ export const Output = Schema.Struct({
   sessionID: SessionSchema.ID,
   status: Schema.Literals(["completed", "running"]),
   output: Schema.String,
+  background: Schema.Boolean.pipe(Schema.optional),
 })
 
 export const description = [
@@ -146,7 +147,7 @@ export const Plugin = {
               if (background) {
                 yield* runtime.job.background(info.id)
                 yield* notifyWhenDone(context.sessionID, child.id, input.description)
-                return { sessionID: child.id, status: "running" as const, output: BACKGROUND_STARTED }
+                return { sessionID: child.id, status: "running" as const, output: BACKGROUND_STARTED, background: true }
               }
 
               const result = yield* runtime.job.block({ id: child.id, sessionID: context.sessionID }).pipe(
@@ -158,7 +159,7 @@ export const Plugin = {
               )
               if (result?.type === "backgrounded") {
                 yield* notifyWhenDone(context.sessionID, child.id, input.description)
-                return { sessionID: child.id, status: "running" as const, output: BACKGROUND_STARTED }
+                return { sessionID: child.id, status: "running" as const, output: BACKGROUND_STARTED, background: true }
               }
               if (result?.info.status === "error")
                 return yield* new ToolFailure({ message: result.info.error ?? "Subagent failed" })

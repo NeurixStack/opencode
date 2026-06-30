@@ -71,6 +71,7 @@ import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut } from "../../keyma
 import { usePathFormatter } from "../../context/path-format"
 import { LocationProvider } from "../../context/location"
 import { createSessionRows, type PartRef, type SessionRow } from "./rows"
+import { foregroundSubagentCount, subagentDisplayState } from "../../util/subagent"
 
 addDefaultParsers(parsers.parsers)
 
@@ -148,7 +149,7 @@ export function Session() {
   }
   const pluginRuntime = usePluginRuntime()
   const route = useRouteData("session")
-  const { navigate } = useRoute()
+  const router = useRoute()
   const data = useData()
   const project = useProject()
   const paths = useTuiPaths()
@@ -242,6 +243,15 @@ export function Session() {
   const sdk = useSDK()
   const editor = useEditorContext()
   const rows = createSessionRows(() => route.sessionID)
+  const backgroundSessionID = createMemo(() => session()?.parentID ?? route.sessionID)
+  const foregroundSubagents = createMemo(() =>
+    foregroundSubagentCount({
+      sessionID: backgroundSessionID(),
+      sessions: data.session.list(),
+      messages: data.session.message.list(backgroundSessionID()),
+      status: (sessionID) => data.session.status(sessionID),
+    }),
+  )
 
   createEffect(
     on(descendantSessionIDs, (sessionIDs) => {
@@ -264,7 +274,7 @@ export function Session() {
           variant: "error",
           duration: 5000,
         })
-        navigate({ type: "home" })
+        router.navigate({ type: "home" })
         return
       }
 
@@ -278,7 +288,7 @@ export function Session() {
         variant: "error",
         duration: 5000,
       })
-      navigate({ type: "home" })
+      router.navigate({ type: "home" })
     })
   })
 
@@ -790,7 +800,7 @@ export function Session() {
       run: async () => {
         const current = location()
         if (!current) return
-        const targetSessionID = session()?.parentID ?? route.sessionID
+        const targetSessionID = backgroundSessionID()
         dialog.clear()
         try {
           const capabilities = await sdk.client.experimental.capabilities.get(
@@ -834,7 +844,7 @@ export function Session() {
       run: () => {
         const parentID = session()?.parentID
         if (parentID) {
-          navigate({
+          router.navigate({
             type: "session",
             sessionID: parentID,
           })
@@ -891,7 +901,15 @@ export function Session() {
 
   useBindings(() => ({
     mode: OPENCODE_BASE_MODE,
-    enabled: () => renderer.currentFocusedEditor === null || (prompt?.focused === true && prompt.current.input === ""),
+    enabled: () =>
+      foregroundSubagents() > 0 &&
+      (renderer.currentFocusedEditor === null || (prompt?.focused === true && prompt.current.input === "")),
+    bindings: tuiConfig.keybinds.gather("session.background", sessionBackgroundBindingCommands),
+  }))
+
+  useBindings(() => ({
+    mode: "composer",
+    enabled: () => foregroundSubagents() > 0 && composer.open,
     bindings: tuiConfig.keybinds.gather("session.background", sessionBackgroundBindingCommands),
   }))
 
@@ -2200,26 +2218,34 @@ function WebSearch(props: ToolProps) {
 }
 
 function Task(props: ToolProps) {
-  const { navigate } = useRoute()
+  const router = useRoute()
+  const data = useData()
   const sessionID = createMemo(() => stringValue(props.metadata.sessionID) ?? stringValue(props.metadata.sessionId))
   const description = createMemo(() => stringValue(props.input.description))
+  const display = createMemo(() =>
+    subagentDisplayState({
+      toolStatus: props.part.state.status,
+      metadata: props.metadata,
+      sessionStatus: (sessionID) => data.session.status(sessionID),
+    }),
+  )
 
   return (
     <InlineTool
-      icon={props.part.state.status === "completed" ? "✓" : "│"}
-      spinner={props.part.state.status === "running"}
+      icon={display().icon}
+      spinner={display().running}
       complete={description()}
       pending="Delegating..."
       part={props.part}
       onClick={() => {
         const id = sessionID()
-        if (id) navigate({ type: "session", sessionID: id })
+        if (id) router.navigate({ type: "session", sessionID: id })
       }}
     >
       {formatSubagentTitle(
         Locale.titlecase(stringValue(props.input.agent) ?? stringValue(props.input.subagent_type) ?? "General"),
         description() ?? "Subagent",
-        props.metadata.background === true,
+        display().background,
       )}
     </InlineTool>
   )

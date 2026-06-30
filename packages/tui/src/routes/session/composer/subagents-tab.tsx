@@ -7,9 +7,6 @@ import { useTheme, selectedForeground } from "../../../context/theme"
 import { Locale } from "../../../util/locale"
 import { useBindings, useCommandShortcut } from "../../../keymap"
 import { useComposerTab } from "./index"
-import { useSDK } from "../../../context/sdk"
-import { useToast } from "../../../ui/toast"
-import { errorMessage } from "../../../util/error"
 
 interface SubagentEntry {
   sessionID: string
@@ -26,10 +23,7 @@ export function SubagentsTab(props: { sessionID: string }) {
   const { theme } = useTheme()
   const fg = selectedForeground(theme)
   const composer = useComposerTab()
-  const sdk = useSDK()
-  const toast = useToast()
   const interruptHint = useCommandShortcut("composer.subagent.interrupt")
-  const backgroundHint = useCommandShortcut("composer.background")
 
   const session = createMemo(() => data.session.get(props.sessionID))
   const parentID = createMemo(() => session()?.parentID ?? props.sessionID)
@@ -116,33 +110,6 @@ export function SubagentsTab(props: { sessionID: string }) {
     }
   }
 
-  async function background() {
-    const parent = data.session.get(parentID())
-    const location = parent?.location ?? session()?.location
-    if (!location) return
-    try {
-      const capabilities = await sdk.client.experimental.capabilities.get(
-        { directory: location.directory, workspace: location.workspaceID },
-        { throwOnError: true },
-      )
-      if (!capabilities.data.backgroundSubagents) {
-        toast.show({ message: "Background subagents are not enabled", variant: "info", duration: 3000 })
-        return
-      }
-      const result = await sdk.client.experimental.session.background(
-        { sessionID: parentID(), directory: location.directory, workspace: location.workspaceID },
-        { throwOnError: true },
-      )
-      toast.show({
-        message: result.data ? "Backgrounded running subagents" : "No running subagents to background",
-        variant: result.data ? "success" : "info",
-        duration: 3000,
-      })
-    } catch (error) {
-      toast.show({ message: errorMessage(error), variant: "error", duration: 5000 })
-    }
-  }
-
   onMount(() => {
     const cleanup = composer.register({
       id: "subagents",
@@ -150,10 +117,7 @@ export function SubagentsTab(props: { sessionID: string }) {
       hints: () => {
         const entry = selectedEntry()
         if (!entry || entry.status !== "running") return []
-        return [
-          { label: "interrupt", shortcut: interruptHint() },
-          { label: "background", shortcut: backgroundHint() },
-        ]
+        return [{ label: "interrupt", shortcut: interruptHint() }]
       },
       onClose: () => {
         const parentID = session()?.parentID
@@ -205,23 +169,12 @@ export function SubagentsTab(props: { sessionID: string }) {
           if (!entry || entry.status !== "running") return
         },
       },
-      {
-        name: "composer.background",
-        title: "Background subagent",
-        category: "Composer",
-        run() {
-          const entry = selectedEntry()
-          if (!entry || entry.status !== "running") return
-          void background()
-        },
-      },
     ],
     bindings: [
       { key: "up", desc: "Previous subagent", group: "Subagents", cmd: "composer.subagent.up" },
       { key: "down", desc: "Next subagent", group: "Subagents", cmd: "composer.subagent.down" },
       { key: "return", desc: "Navigate to subagent", group: "Subagents", cmd: "composer.subagent.select" },
       { key: "ctrl+d", desc: "Interrupt subagent", group: "Subagents", cmd: "composer.subagent.interrupt" },
-      { key: "ctrl+b", desc: "Background subagent", group: "Subagents", cmd: "composer.background" },
     ],
   }))
 

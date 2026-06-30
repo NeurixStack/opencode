@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { DateTime, Effect, Layer, Schema } from "effect"
+import { DateTime, Effect, Fiber, Layer, Schema } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { makeGlobalNode } from "@opencode-ai/core/effect/app-node"
@@ -43,7 +43,9 @@ const executionNode = makeGlobalNode({
       const completed = new Set<SessionV2.ID>()
       const complete = Effect.fn("SubagentTest.complete")(function* (sessionID: SessionV2.ID) {
         if (completed.has(sessionID)) return
-        if ((yield* store.get(sessionID))?.title.includes("fail")) {
+        const session = yield* store.get(sessionID)
+        if (session?.title.includes("manual background")) yield* Effect.never
+        if (session?.title.includes("fail")) {
           yield* new SessionRunnerModel.ModelNotSelectedError({ sessionID })
           return
         }
@@ -191,6 +193,7 @@ describe("SubagentTool", () => {
           })
 
           expect(settled.output?.structured).toMatchObject({ status: "completed", output: childText })
+          expect(Schema.decodeUnknownSync(SubagentTool.Output)(settled.output?.structured).background).toBeUndefined()
           const child = yield* sessions.get(outputSessionID(settled.output?.structured))
           expect(child).toMatchObject({
             parentID: parent.id,
@@ -274,13 +277,57 @@ describe("SubagentTool", () => {
             },
           })
           const childID = outputSessionID(settled.output?.structured)
-          expect(settled.output?.structured).toMatchObject({ status: "running" })
+          expect(settled.output?.structured).toMatchObject({ status: "running", background: true })
 
           yield* Effect.yieldNow
           const synthetic = (yield* sessions.context(parent.id)).filter((message) => message.type === "synthetic")
           expect(synthetic).toHaveLength(1)
           expect(synthetic[0]?.text).toContain(`<subagent id="${childID}" state="completed"`)
           expect(synthetic[0]?.text).toContain(childText)
+        }),
+      ),
+    ),
+  )
+
+  it.live("marks foreground subagents as backgrounded when blocking wait is backgrounded", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const location = Location.Ref.make({ directory: AbsolutePath.make(dir.path) })
+          const sessions = yield* SessionV2.Service
+          const jobs = yield* Job.Service
+          const parent = yield* sessions.create({ location })
+          yield* withSubagent(parent.location)
+          const locations = yield* LocationServiceMap.Service
+          const registry = yield* ToolRegistry.Service.pipe(Effect.provide(locations.get(parent.location)))
+
+          const settled = yield* settleTool(registry, {
+            sessionID: parent.id,
+            ...toolIdentity,
+            call: {
+              type: "tool-call",
+              id: "call-manual-background-subagent",
+              name: SubagentTool.name,
+              input: { agent: "reviewer", description: "manual background review", prompt: "review" },
+            },
+          }).pipe(Effect.forkScoped)
+
+          const backgrounded = yield* Effect.gen(function* () {
+            for (const _ of Array.from({ length: 20 })) {
+              const result = yield* jobs.backgroundAll({ sessionID: parent.id, type: SubagentTool.name })
+              if (result.length > 0) return result
+              yield* Effect.sleep("10 millis")
+            }
+            return []
+          })
+          expect(backgrounded).toHaveLength(1)
+          expect((yield* Fiber.join(settled)).output?.structured).toMatchObject({
+            status: "running",
+            background: true,
+          })
         }),
       ),
     ),
