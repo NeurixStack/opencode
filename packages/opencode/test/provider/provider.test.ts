@@ -1426,6 +1426,30 @@ test("models.dev normalization fills required response fields", () => {
   expect(model.release_date).toBe("")
 })
 
+test("models.dev normalization preserves reasoning options for variant generation", () => {
+  const provider = {
+    id: "custom",
+    name: "Custom",
+    env: [],
+    npm: "@ai-sdk/openai-compatible",
+    models: {
+      reasoner: {
+        id: "reasoner",
+        name: "Reasoner",
+        reasoning: true,
+        reasoning_options: [{ type: "effort", values: ["high", "xhigh"] }],
+        cost: { input: 1, output: 2 },
+        limit: { context: 128_000, output: 32_000 },
+      },
+    },
+  } as unknown as ModelsDev.Provider
+
+  const model = Provider.fromModelsDevProvider(provider).models.reasoner
+  expect(model.reasoning_options).toEqual([{ type: "effort", values: ["high", "xhigh"] }])
+  expect(Object.keys(model.variants!)).toEqual(["high", "xhigh"])
+  expect(model.variants!.xhigh).toEqual({ reasoningEffort: "xhigh" })
+})
+
 it.instance("model variants are generated for reasoning models", () =>
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")
@@ -1524,7 +1548,13 @@ it.instance(
         anthropic: {
           models: {
             "claude-sonnet-4-20250514": {
-              variants: { high: { disabled: true }, max: { disabled: true } },
+              variants: {
+                low: { disabled: true },
+                medium: { disabled: true },
+                high: { disabled: true },
+                xhigh: { disabled: true },
+                max: { disabled: true },
+              },
             },
           },
         },

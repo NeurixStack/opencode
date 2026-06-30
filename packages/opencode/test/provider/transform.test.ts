@@ -2827,6 +2827,132 @@ describe("ProviderTransform.variants", () => {
     expect(result).toEqual({})
   })
 
+  test("reasoning_options drive OpenAI-compatible effort variants", () => {
+    const result = ProviderTransform.variants(
+      createMockModel({
+        id: "custom/new-reasoner",
+        providerID: "custom",
+        api: {
+          id: "new-reasoner",
+          url: "https://api.example.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        reasoning_options: [{ type: "effort", values: ["none", "high", "xhigh"] }],
+      }),
+    )
+    expect(Object.keys(result)).toEqual(["none", "high", "xhigh"])
+    expect(result.xhigh).toEqual({ reasoningEffort: "xhigh" })
+  })
+
+  test("empty reasoning_options suppress heuristic variants", () => {
+    const result = ProviderTransform.variants(
+      createMockModel({
+        id: "anthropic/claude-sonnet-5",
+        providerID: "anthropic",
+        api: {
+          id: "claude-sonnet-5",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+        reasoning_options: [],
+      }),
+    )
+    expect(result).toEqual({})
+  })
+
+  test("reasoning_options infer adaptive Anthropic variants without release heuristics", () => {
+    const result = ProviderTransform.variants(
+      createMockModel({
+        id: "anthropic/claude-future",
+        providerID: "anthropic",
+        api: {
+          id: "claude-future",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+        reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "max"] }],
+      }),
+    )
+    expect(Object.keys(result)).toEqual(["low", "max"])
+    expect(result.max).toEqual({
+      thinking: { type: "adaptive", display: "summarized" },
+      effort: "max",
+    })
+  })
+
+  test("reasoning_options keep legacy Anthropic effort shape when budget tokens are also supported", () => {
+    const result = ProviderTransform.variants(
+      createMockModel({
+        id: "anthropic/claude-opus-4-5",
+        providerID: "anthropic",
+        api: {
+          id: "claude-opus-4-5",
+          url: "https://api.anthropic.com",
+          npm: "@ai-sdk/anthropic",
+        },
+        reasoning_options: [
+          { type: "effort", values: ["low", "medium", "high"] },
+          { type: "budget_tokens", min: 1024 },
+        ],
+      }),
+    )
+    expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+    expect(result.high).toEqual({ effort: "high" })
+  })
+
+  test("reasoning_options budget tokens generate budget variants when no effort is available", () => {
+    const result = ProviderTransform.variants(
+      createMockModel({
+        id: "google/gemini-new",
+        providerID: "google",
+        api: {
+          id: "gemini-new",
+          url: "https://generativelanguage.googleapis.com",
+          npm: "@ai-sdk/google",
+        },
+        reasoning_options: [{ type: "toggle" }, { type: "budget_tokens", min: 128, max: 32768 }],
+      }),
+    )
+    expect(Object.keys(result)).toEqual(["high", "max"])
+    expect(result.high).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 16000 } })
+    expect(result.max).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 32768 } })
+  })
+
+  test("reasoning_options ignore toggle-only models", () => {
+    const result = ProviderTransform.variants(
+      createMockModel({
+        id: "custom/toggle-only",
+        providerID: "custom",
+        api: {
+          id: "toggle-only",
+          url: "https://api.example.com",
+          npm: "@ai-sdk/openai-compatible",
+        },
+        reasoning_options: [{ type: "toggle" }],
+      }),
+    )
+    expect(result).toEqual({})
+  })
+
+  test("reasoning_options do not override existing MiniMax M3 toggle variants", () => {
+    const result = ProviderTransform.variants(
+      createMockModel({
+        id: "minimax/minimax-m3",
+        providerID: "minimax",
+        api: {
+          id: "MiniMax-M3",
+          url: "https://api.minimax.com/anthropic/v1",
+          npm: "@ai-sdk/anthropic",
+        },
+        reasoning_options: [],
+      }),
+    )
+    expect(result).toEqual({
+      none: { thinking: { type: "disabled" } },
+      thinking: { thinking: { type: "adaptive" } },
+    })
+  })
+
   test("deepseek returns empty object", () => {
     const model = createMockModel({
       id: "deepseek/deepseek-chat",
@@ -2836,6 +2962,7 @@ describe("ProviderTransform.variants", () => {
         url: "https://api.deepseek.com",
         npm: "@ai-sdk/openai-compatible",
       },
+      reasoning_options: [],
     })
     const result = ProviderTransform.variants(model)
     expect(result).toEqual({})
@@ -2850,6 +2977,7 @@ describe("ProviderTransform.variants", () => {
         url: "https://api.minimax.com",
         npm: "@ai-sdk/openai-compatible",
       },
+      reasoning_options: [],
     })
     const result = ProviderTransform.variants(model)
     expect(result).toEqual({})
@@ -2888,21 +3016,7 @@ describe("ProviderTransform.variants", () => {
     })
   })
 
-  test("glm returns empty object", () => {
-    const model = createMockModel({
-      id: "glm/glm-4",
-      providerID: "glm",
-      api: {
-        id: "glm-4",
-        url: "https://api.glm.com",
-        npm: "@ai-sdk/openai-compatible",
-      },
-    })
-    const result = ProviderTransform.variants(model)
-    expect(result).toEqual({})
-  })
-
-  test("glm-5.2 returns native effort variants for openai-compatible providers", () => {
+  test("model-specific efforts are read from reasoning_options", () => {
     const model = createMockModel({
       id: "zhipuai/glm-5.2",
       providerID: "zhipuai",
@@ -2911,90 +3025,11 @@ describe("ProviderTransform.variants", () => {
         url: "https://open.bigmodel.cn/api/paas/v4",
         npm: "@ai-sdk/openai-compatible",
       },
+      reasoning_options: [{ type: "effort", values: ["high", "max"] }],
     })
     expect(ProviderTransform.variants(model)).toEqual({
       high: { reasoningEffort: "high" },
       max: { reasoningEffort: "max" },
-    })
-  })
-
-  test("recognizes GLM-5.2 provider model IDs", () => {
-    for (const id of ["accounts/fireworks/models/glm-5p2", "zai-org-glm-5-2", "umans-glm-5.2"]) {
-      const model = createMockModel({
-        id: `test/${id}`,
-        api: {
-          id,
-          url: "https://api.test.com",
-          npm: "@ai-sdk/openai-compatible",
-        },
-      })
-      expect(ProviderTransform.variants(model)).toEqual({
-        high: { reasoningEffort: "high" },
-        max: { reasoningEffort: "max" },
-      })
-    }
-  })
-
-  test("recognizes GLM-5.2 from the API ID when the configured model ID is an alias", () => {
-    const model = createMockModel({
-      id: "custom/my-glm",
-      api: {
-        id: "accounts/fireworks/models/glm-5p2",
-        url: "https://api.fireworks.ai/inference/v1",
-        npm: "@ai-sdk/openai-compatible",
-      },
-    })
-    expect(ProviderTransform.variants(model)).toEqual({
-      high: { reasoningEffort: "high" },
-      max: { reasoningEffort: "max" },
-    })
-  })
-
-  test("glm-5.2 returns openrouter effort variants for openrouter", () => {
-    const model = createMockModel({
-      id: "openrouter/z-ai/glm-5.2",
-      providerID: "openrouter",
-      api: {
-        id: "z-ai/glm-5.2",
-        url: "https://openrouter.ai/api/v1",
-        npm: "@openrouter/ai-sdk-provider",
-      },
-    })
-    expect(ProviderTransform.variants(model)).toEqual({
-      high: { reasoning: { effort: "high" } },
-      xhigh: { reasoning: { effort: "xhigh" } },
-    })
-  })
-
-  test("glm-5.2 returns effort variants for anthropic-compatible providers", () => {
-    const model = createMockModel({
-      id: "zai-coding-plan/glm-5.2",
-      providerID: "zai-coding-plan",
-      api: {
-        id: "glm-5.2",
-        url: "https://api.z.ai/api/anthropic",
-        npm: "@ai-sdk/anthropic",
-      },
-    })
-    expect(ProviderTransform.variants(model)).toEqual({
-      high: { effort: "high" },
-      max: { effort: "max" },
-    })
-  })
-
-  test("glm-5.2 falls back to provider defaults for other packages", () => {
-    const model = createMockModel({
-      id: "test/glm-5.2",
-      api: {
-        id: "glm-5.2",
-        url: "https://api.test.com",
-        npm: "@ai-sdk/amazon-bedrock",
-      },
-    })
-    expect(ProviderTransform.variants(model)).toEqual({
-      low: { reasoningConfig: { type: "enabled", maxReasoningEffort: "low" } },
-      medium: { reasoningConfig: { type: "enabled", maxReasoningEffort: "medium" } },
-      high: { reasoningConfig: { type: "enabled", maxReasoningEffort: "high" } },
     })
   })
 
@@ -3047,21 +3082,6 @@ describe("ProviderTransform.variants", () => {
     expect(result).toEqual({})
   })
 
-  test("mistral large with reasoning returns empty object (only small supports reasoning)", () => {
-    const model = createMockModel({
-      id: "mistral/mistral-large",
-      providerID: "mistral",
-      api: {
-        id: "mistral-large-latest",
-        url: "https://api.mistral.com",
-        npm: "@ai-sdk/mistral",
-      },
-      capabilities: { reasoning: true },
-    })
-    const result = ProviderTransform.variants(model)
-    expect(result).toEqual({})
-  })
-
   describe("@openrouter/ai-sdk-provider", () => {
     test("returns widely supported efforts for other reasoning models", () => {
       const model = createMockModel({
@@ -3078,286 +3098,26 @@ describe("ProviderTransform.variants", () => {
       expect(result.medium).toEqual({ reasoning: { effort: "medium" } })
     })
 
-    test("gpt models return OPENAI_EFFORTS with reasoning", () => {
-      const model = createMockModel({
-        id: "openrouter/gpt-4",
-        providerID: "openrouter",
-        api: {
-          id: "gpt-4",
-          url: "https://openrouter.ai",
-          npm: "@openrouter/ai-sdk-provider",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
-      expect(result.low).toEqual({ reasoning: { effort: "low" } })
-      expect(result.high).toEqual({ reasoning: { effort: "high" } })
-    })
-
-    for (const testCase of [
-      { id: "openai/o3-mini", efforts: ["none", "minimal", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5.4", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-pro", efforts: ["high"] },
-      { id: "openai/gpt-5.5-pro", efforts: ["medium", "high", "xhigh"] },
-      { id: "openai/gpt-5.2-codex", efforts: ["low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5.3-codex", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5.3-codex-max", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-chat-latest", efforts: [] },
-      { id: "openai/gpt-5.2-chat-latest", efforts: ["medium"] },
-    ]) {
-      test(`${testCase.id} returns supported OpenAI reasoning efforts`, () => {
-        const result = ProviderTransform.variants(
-          createMockModel({
-            id: testCase.id,
-            providerID: "openrouter",
-            api: {
-              id: testCase.id,
-              url: "https://openrouter.ai",
-              npm: "@openrouter/ai-sdk-provider",
-            },
-          }),
-        )
-        expect(Object.keys(result)).toEqual(testCase.efforts)
-      })
-    }
-
-    test("gemini-3 returns widely supported efforts with reasoning", () => {
-      const model = createMockModel({
-        id: "openrouter/gemini-3-5-pro",
-        providerID: "openrouter",
-        api: {
-          id: "gemini-3-5-pro",
-          url: "https://openrouter.ai",
-          npm: "@openrouter/ai-sdk-provider",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
-    })
-
-    test("grok-4 returns empty object", () => {
-      const model = createMockModel({
-        id: "openrouter/grok-4",
-        providerID: "openrouter",
-        api: {
-          id: "grok-4",
-          url: "https://openrouter.ai",
-          npm: "@openrouter/ai-sdk-provider",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(result).toEqual({})
-    })
-
-    test("grok-3-mini returns low and high with reasoning", () => {
-      const model = createMockModel({
-        id: "openrouter/grok-3-mini",
-        providerID: "openrouter",
-        api: {
-          id: "grok-3-mini",
-          url: "https://openrouter.ai",
-          npm: "@openrouter/ai-sdk-provider",
-        },
-      })
-      const result = ProviderTransform.variants(model)
+    test("model-specific OpenRouter efforts come from reasoning_options", () => {
+      const result = ProviderTransform.variants(
+        createMockModel({
+          id: "openrouter/grok-3-mini",
+          providerID: "openrouter",
+          api: {
+            id: "grok-3-mini",
+            url: "https://openrouter.ai",
+            npm: "@openrouter/ai-sdk-provider",
+          },
+          reasoning_options: [{ type: "effort", values: ["low", "high"] }],
+        }),
+      )
       expect(Object.keys(result)).toEqual(["low", "high"])
       expect(result.low).toEqual({ reasoning: { effort: "low" } })
-      expect(result.high).toEqual({ reasoning: { effort: "high" } })
     })
   })
 
   describe("@ai-sdk/gateway", () => {
-    test("anthropic sonnet 4.6 models return adaptive thinking options", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-sonnet-4-6",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-sonnet-4-6",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
-      expect(result.medium).toEqual({
-        thinking: {
-          type: "adaptive",
-        },
-        effort: "medium",
-      })
-    })
-
-    test("anthropic sonnet 4.6 dot-format models return adaptive thinking options", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-sonnet-4-6",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-sonnet-4.6",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
-      expect(result.medium).toEqual({
-        thinking: {
-          type: "adaptive",
-        },
-        effort: "medium",
-      })
-    })
-
-    test("anthropic opus 4.6 dot-format models return adaptive thinking options", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-opus-4-6",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-opus-4.6",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
-      expect(result.high).toEqual({
-        thinking: {
-          type: "adaptive",
-        },
-        effort: "high",
-      })
-    })
-
-    test("anthropic opus 4.7 models return adaptive thinking options with xhigh", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-opus-4-7",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-opus-4-7",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
-      expect(result.xhigh).toEqual({
-        thinking: {
-          type: "adaptive",
-          display: "summarized",
-        },
-        effort: "xhigh",
-      })
-      expect(result.max).toEqual({
-        thinking: {
-          type: "adaptive",
-          display: "summarized",
-        },
-        effort: "max",
-      })
-    })
-
-    test("anthropic opus 4.7 dot-format models return adaptive thinking options with xhigh", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-opus-4-7",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-opus-4.7",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
-    })
-
-    test("anthropic opus 4.8 forces display summarized for adaptive reasoning", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-opus-4-8",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-opus-4-8",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
-      expect(result.high).toEqual({
-        thinking: {
-          type: "adaptive",
-          display: "summarized",
-        },
-        effort: "high",
-      })
-    })
-
-    test("anthropic sonnet 5 returns adaptive thinking options with xhigh", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-sonnet-5",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-sonnet-5",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
-      expect(result.high).toEqual({
-        thinking: {
-          type: "adaptive",
-          display: "summarized",
-        },
-        effort: "high",
-      })
-    })
-
-    test("anthropic opus 4.6 omits display so it keeps the summarized default", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-opus-4-6",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-opus-4-6",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
-      expect(result.high).toEqual({
-        thinking: {
-          type: "adaptive",
-        },
-        effort: "high",
-      })
-    })
-
-    test("anthropic models return anthropic thinking options", () => {
-      const model = createMockModel({
-        id: "anthropic/claude-sonnet-4",
-        providerID: "gateway",
-        api: {
-          id: "anthropic/claude-sonnet-4",
-          url: "https://gateway.ai",
-          npm: "@ai-sdk/gateway",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["high", "max"])
-      expect(result.high).toEqual({
-        thinking: {
-          type: "enabled",
-          budgetTokens: 16000,
-        },
-      })
-      expect(result.max).toEqual({
-        thinking: {
-          type: "enabled",
-          budgetTokens: 31999,
-        },
-      })
-    })
-
-    test("returns OPENAI_EFFORTS with reasoningEffort", () => {
+    test("falls back to widely-supported reasoningEffort variants", () => {
       const model = createMockModel({
         id: "gateway/gateway-model",
         providerID: "gateway",
@@ -3368,36 +3128,66 @@ describe("ProviderTransform.variants", () => {
         },
       })
       const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
       expect(result.low).toEqual({ reasoningEffort: "low" })
       expect(result.high).toEqual({ reasoningEffort: "high" })
     })
 
-    for (const testCase of [
-      { id: "openai/gpt-5-5", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-pro", efforts: ["high"] },
-      { id: "openai/gpt-5-5-pro", efforts: ["medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-2-codex", efforts: ["low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-3-codex", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-3-codex-max", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-chat-latest", efforts: [] },
-      { id: "openai/gpt-5-2-chat-latest", efforts: ["medium"] },
-    ]) {
-      test(`${testCase.id} returns supported OpenAI reasoning efforts`, () => {
-        const result = ProviderTransform.variants(
-          createMockModel({
-            id: testCase.id,
-            providerID: "gateway",
-            api: {
-              id: testCase.id,
-              url: "https://gateway.ai",
-              npm: "@ai-sdk/gateway",
-            },
-          }),
-        )
-        expect(Object.keys(result)).toEqual(testCase.efforts)
+    test("uses reasoning_options for Anthropic adaptive variants", () => {
+      const result = ProviderTransform.variants(
+        createMockModel({
+          id: "anthropic/claude-sonnet-5",
+          providerID: "gateway",
+          api: {
+            id: "anthropic/claude-sonnet-5",
+            url: "https://gateway.ai",
+            npm: "@ai-sdk/gateway",
+          },
+          reasoning_options: [{ type: "effort", values: ["low", "high", "xhigh", "max"] }],
+        }),
+      )
+      expect(Object.keys(result)).toEqual(["low", "high", "xhigh", "max"])
+      expect(result.high).toEqual({
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: "high",
       })
-    }
+    })
+
+    test("uses reasoning_options budget tokens for Anthropic variants", () => {
+      const result = ProviderTransform.variants(
+        createMockModel({
+          id: "anthropic/claude-sonnet-4",
+          providerID: "gateway",
+          api: {
+            id: "anthropic/claude-sonnet-4",
+            url: "https://gateway.ai",
+            npm: "@ai-sdk/gateway",
+          },
+          reasoning_options: [{ type: "budget_tokens", min: 1024, max: 32768 }],
+        }),
+      )
+      expect(Object.keys(result)).toEqual(["high", "max"])
+      expect(result.high).toEqual({ thinking: { type: "enabled", budgetTokens: 16_000 } })
+      expect(result.max).toEqual({ thinking: { type: "enabled", budgetTokens: 32_768 } })
+    })
+
+    test("uses reasoning_options budget tokens for Google variants", () => {
+      const result = ProviderTransform.variants(
+        createMockModel({
+          id: "google/gemini-2.5-pro",
+          providerID: "gateway",
+          api: {
+            id: "google/gemini-2.5-pro",
+            url: "https://gateway.ai",
+            npm: "@ai-sdk/gateway",
+          },
+          reasoning_options: [{ type: "budget_tokens", min: 128, max: 32768 }],
+        }),
+      )
+      expect(Object.keys(result)).toEqual(["high", "max"])
+      expect(result.high).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 16_000 } })
+      expect(result.max).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 32_768 } })
+    })
   })
 
   describe("@ai-sdk/github-copilot", () => {
@@ -3420,109 +3210,6 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
-    test("gpt-5.1-codex-max includes xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.1-codex-max",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.1-codex-max",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
-    })
-
-    test("gpt-5.1-codex-mini does not include xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.1-codex-mini",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.1-codex-mini",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
-    })
-
-    test("gpt-5.1-codex does not include xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.1-codex",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.1-codex",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
-    })
-
-    test("gpt-5.2 includes xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.2",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.2",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
-      expect(result.xhigh).toEqual({
-        reasoningEffort: "xhigh",
-        reasoningSummary: "auto",
-        include: ["reasoning.encrypted_content"],
-      })
-    })
-
-    test("gpt-5.2-codex includes xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.2-codex",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.2-codex",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
-    })
-
-    test("gpt-5.3-codex includes xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.3-codex",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.3-codex",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
-    })
-
-    test("gpt-5.4 includes xhigh", () => {
-      const model = createMockModel({
-        id: "gpt-5.4",
-        release_date: "2026-03-05",
-        providerID: "github-copilot",
-        api: {
-          id: "gpt-5.4",
-          url: "https://api.githubcopilot.com",
-          npm: "@ai-sdk/github-copilot",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh"])
-    })
   })
 
   describe("@ai-sdk/cerebras", () => {
@@ -3562,7 +3249,7 @@ describe("ProviderTransform.variants", () => {
   })
 
   describe("@ai-sdk/xai", () => {
-    test("grok-3 returns empty object", () => {
+    test("returns WIDELY_SUPPORTED_EFFORTS with reasoningEffort", () => {
       const model = createMockModel({
         id: "xai/grok-3",
         providerID: "xai",
@@ -3573,23 +3260,8 @@ describe("ProviderTransform.variants", () => {
         },
       })
       const result = ProviderTransform.variants(model)
-      expect(result).toEqual({})
-    })
-
-    test("grok-3-mini returns low and high with reasoningEffort", () => {
-      const model = createMockModel({
-        id: "xai/grok-3-mini",
-        providerID: "xai",
-        api: {
-          id: "grok-3-mini",
-          url: "https://api.x.ai",
-          npm: "@ai-sdk/xai",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "high"])
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
       expect(result.low).toEqual({ reasoningEffort: "low" })
-      expect(result.high).toEqual({ reasoningEffort: "high" })
     })
   })
 
@@ -3628,17 +3300,19 @@ describe("ProviderTransform.variants", () => {
       expect(result.high).toEqual({ reasoningEffort: "high" })
     })
 
-    test("north-mini-code-1-0 returns only none and high", () => {
-      const model = createMockModel({
-        id: "cohere/north-mini-code-1-0",
-        providerID: "cohere",
-        api: {
-          id: "North-Mini-Code-1-0-latest",
-          url: "https://api.cohere.com/compatibility/v1",
-          npm: "@ai-sdk/openai-compatible",
-        },
-      })
-      const result = ProviderTransform.variants(model)
+    test("model-specific OpenAI-compatible efforts come from reasoning_options", () => {
+      const result = ProviderTransform.variants(
+        createMockModel({
+          id: "cohere/north-mini-code-1-0",
+          providerID: "cohere",
+          api: {
+            id: "North-Mini-Code-1-0-latest",
+            url: "https://api.cohere.com/compatibility/v1",
+            npm: "@ai-sdk/openai-compatible",
+          },
+          reasoning_options: [{ type: "effort", values: ["none", "high"] }],
+        }),
+      )
       expect(result).toEqual({
         none: { reasoningEffort: "none" },
         high: { reasoningEffort: "high" },
@@ -3647,21 +3321,7 @@ describe("ProviderTransform.variants", () => {
   })
 
   describe("@ai-sdk/azure", () => {
-    test("o1-mini returns empty object", () => {
-      const model = createMockModel({
-        id: "o1-mini",
-        providerID: "azure",
-        api: {
-          id: "o1-mini",
-          url: "https://azure.com",
-          npm: "@ai-sdk/azure",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(result).toEqual({})
-    })
-
-    test("standard azure models return custom efforts with reasoningSummary", () => {
+    test("falls back to OpenAI-style efforts with reasoningSummary", () => {
       const model = createMockModel({
         id: "o1",
         providerID: "azure",
@@ -3672,67 +3332,17 @@ describe("ProviderTransform.variants", () => {
         },
       })
       const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
       expect(result.low).toEqual({
         reasoningEffort: "low",
         reasoningSummary: "auto",
         include: ["reasoning.encrypted_content"],
       })
     })
-
-    test("gpt-5 adds minimal effort", () => {
-      const model = createMockModel({
-        id: "gpt-5",
-        providerID: "azure",
-        api: {
-          id: "gpt-5",
-          url: "https://azure.com",
-          npm: "@ai-sdk/azure",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["minimal", "low", "medium", "high"])
-    })
-
-    for (const testCase of [
-      { id: "gpt-5-1", efforts: ["none", "low", "medium", "high"] },
-      { id: "gpt-5-4", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "gpt-5.4", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "gpt-5-5", efforts: ["none", "low", "medium", "high", "xhigh"] },
-    ]) {
-      test(`${testCase.id} returns supported Azure reasoning efforts`, () => {
-        const result = ProviderTransform.variants(
-          createMockModel({
-            id: testCase.id,
-            providerID: "azure",
-            api: {
-              id: testCase.id,
-              url: "https://azure.com",
-              npm: "@ai-sdk/azure",
-            },
-          }),
-        )
-        expect(Object.keys(result)).toEqual(testCase.efforts)
-      })
-    }
   })
 
   describe("@ai-sdk/openai", () => {
-    test("gpt-5-pro returns only high effort", () => {
-      const model = createMockModel({
-        id: "gpt-5-pro",
-        providerID: "openai",
-        api: {
-          id: "gpt-5-pro",
-          url: "https://api.openai.com",
-          npm: "@ai-sdk/openai",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["high"])
-    })
-
-    test("standard openai models return custom efforts with reasoningSummary", () => {
+    test("falls back to OpenAI-style efforts with reasoningSummary", () => {
       const model = createMockModel({
         id: "gpt-5",
         providerID: "openai",
@@ -3744,7 +3354,7 @@ describe("ProviderTransform.variants", () => {
         release_date: "2024-06-01",
       })
       const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["minimal", "low", "medium", "high"])
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
       expect(result.low).toEqual({
         reasoningEffort: "low",
         reasoningSummary: "auto",
@@ -3752,95 +3362,20 @@ describe("ProviderTransform.variants", () => {
       })
     })
 
-    test("models after 2025-11-13 include 'none' effort", () => {
-      const model = createMockModel({
-        id: "gpt-5-nano",
-        providerID: "openai",
-        api: {
-          id: "gpt-5-nano",
-          url: "https://api.openai.com",
-          npm: "@ai-sdk/openai",
-        },
-        release_date: "2025-11-14",
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high"])
-    })
-
-    test("models after 2025-12-04 include 'xhigh' effort", () => {
-      const model = createMockModel({
-        id: "openai/gpt-5-reasoning",
-        providerID: "openai",
-        api: {
-          id: "gpt-5-reasoning",
-          url: "https://api.openai.com",
-          npm: "@ai-sdk/openai",
-        },
-        release_date: "2025-12-05",
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
-    })
-
-    for (const testCase of [
-      { id: "o1", releaseDate: "2024-12-17", efforts: ["low", "medium", "high"] },
-      { id: "o1-pro", releaseDate: "2025-03-19", efforts: ["low", "medium", "high"] },
-      { id: "o3", releaseDate: "2025-04-16", efforts: ["low", "medium", "high"] },
-      { id: "o3-mini", releaseDate: "2025-01-31", efforts: ["low", "medium", "high"] },
-      { id: "o3-pro", releaseDate: "2025-06-10", efforts: ["low", "medium", "high"] },
-      { id: "o4-mini", releaseDate: "2025-04-16", efforts: ["low", "medium", "high"] },
-      { id: "o3-deep-research", releaseDate: "2025-06-26", efforts: ["medium"] },
-      { id: "o4-mini-deep-research", releaseDate: "2025-06-26", efforts: ["medium"] },
-      { id: "gpt-5.1", releaseDate: "2025-11-13", efforts: ["none", "low", "medium", "high"] },
-      { id: "gpt-5.4", releaseDate: "2026-03-05", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      {
-        id: "gpt-5.5",
-        modelID: "gpt-5-5",
-        releaseDate: "2026-04-23",
-        efforts: ["none", "low", "medium", "high", "xhigh"],
-      },
-      { id: "gpt-5.4-pro", releaseDate: "2026-03-05", efforts: ["medium", "high", "xhigh"] },
-      { id: "gpt-5.5-pro", releaseDate: "2026-04-23", efforts: ["medium", "high", "xhigh"] },
-      { id: "gpt-5-codex", releaseDate: "2025-09-23", efforts: ["low", "medium", "high"] },
-      { id: "gpt-5.1-codex", releaseDate: "2025-11-13", efforts: ["low", "medium", "high"] },
-      { id: "gpt-5.1-codex-max", releaseDate: "2025-11-13", efforts: ["low", "medium", "high", "xhigh"] },
-      { id: "gpt-5.2-codex", releaseDate: "2025-12-11", efforts: ["low", "medium", "high", "xhigh"] },
-      { id: "gpt-5.3-codex", releaseDate: "2026-01-22", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "gpt-5.3-codex-max", releaseDate: "2026-01-22", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "gpt-5-chat-latest", releaseDate: "2025-08-07", efforts: [] },
-      { id: "gpt-5.1-chat-latest", releaseDate: "2025-11-13", efforts: ["medium"] },
-      { id: "gpt-5.2-chat-latest", releaseDate: "2025-12-11", efforts: ["medium"] },
-    ]) {
-      test(`${testCase.id} returns supported reasoning efforts`, () => {
-        const result = ProviderTransform.variants(
-          createMockModel({
-            id: testCase.modelID ?? testCase.id,
-            providerID: "openai",
-            api: {
-              id: testCase.id,
-              url: "https://api.openai.com",
-              npm: "@ai-sdk/openai",
-            },
-            release_date: testCase.releaseDate,
-          }),
-        )
-        expect(Object.keys(result)).toEqual(testCase.efforts)
-      })
-    }
-
-    test("gpt-50 (lookalike) does not get gpt-5 family treatment", () => {
-      const model = createMockModel({
-        id: "gpt-50",
-        providerID: "openai",
-        api: {
-          id: "gpt-50",
-          url: "https://api.openai.com",
-          npm: "@ai-sdk/openai",
-        },
-        release_date: "2024-01-01",
-      })
-      const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+    test("model-specific OpenAI efforts come from reasoning_options", () => {
+      const result = ProviderTransform.variants(
+        createMockModel({
+          id: "gpt-5-pro",
+          providerID: "openai",
+          api: {
+            id: "gpt-5-pro",
+            url: "https://api.openai.com",
+            npm: "@ai-sdk/openai",
+          },
+          reasoning_options: [{ type: "effort", values: ["high"] }],
+        }),
+      )
+      expect(Object.keys(result)).toEqual(["high"])
     })
   })
 
@@ -3857,7 +3392,7 @@ describe("ProviderTransform.variants", () => {
         release_date: "2026-04-23",
       })
       const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["none", "low", "medium", "high", "xhigh"])
+      expect(Object.keys(result)).toEqual(["none", "minimal", "low", "medium", "high", "xhigh"])
       expect(result.medium).toEqual({
         reasoningEffort: "medium",
         reasoningSummary: "auto",
@@ -3878,13 +3413,13 @@ describe("ProviderTransform.variants", () => {
         name: "sonnet 4.6",
         apiIds: ["claude-sonnet-4-6", "claude-sonnet-4.6"],
         efforts: ["low", "medium", "high", "max"],
-        expectedHigh: { thinking: { type: "adaptive" }, effort: "high" },
+        expectedHigh: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
       },
       {
         name: "opus 4.6",
         apiIds: ["claude-opus-4-6", "claude-opus-4.6"],
         efforts: ["low", "medium", "high", "max"],
-        expectedHigh: { thinking: { type: "adaptive" }, effort: "high" },
+        expectedHigh: { thinking: { type: "adaptive", display: "summarized" }, effort: "high" },
       },
       {
         name: "opus 4.7",
@@ -3917,42 +3452,21 @@ describe("ProviderTransform.variants", () => {
             createMockModel({
               id: `anthropic/${apiId}`,
               providerID: "anthropic",
-              api: {
-                id: apiId,
-                url: "https://api.anthropic.com",
-                npm: "@ai-sdk/anthropic",
-              },
-            }),
-          )
+            api: {
+              id: apiId,
+              url: "https://api.anthropic.com",
+              npm: "@ai-sdk/anthropic",
+            },
+            reasoning_options: [{ type: "effort", values: testCase.efforts }],
+          }),
+        )
           expect(Object.keys(result)).toEqual(testCase.efforts)
           expect(result.high).toEqual(testCase.expectedHigh)
         })
       }
     }
 
-    test("github copilot opus 4.7 returns only medium reasoning effort", () => {
-      const model = createMockModel({
-        id: "claude-opus-4.7",
-        providerID: "github-copilot",
-        api: {
-          id: "claude-opus-4.7",
-          url: "https://api.githubcopilot.com/v1",
-          npm: "@ai-sdk/anthropic",
-        },
-      })
-      const result = ProviderTransform.variants(model)
-      expect(result).toEqual({
-        medium: {
-          thinking: {
-            type: "adaptive",
-            display: "summarized",
-          },
-          effort: "medium",
-        },
-      })
-    })
-
-    test("returns high and max with thinking config", () => {
+    test("falls back to adaptive thinking efforts", () => {
       const model = createMockModel({
         id: "anthropic/claude-4",
         providerID: "anthropic",
@@ -3963,18 +3477,10 @@ describe("ProviderTransform.variants", () => {
         },
       })
       const result = ProviderTransform.variants(model)
-      expect(Object.keys(result)).toEqual(["high", "max"])
+      expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
       expect(result.high).toEqual({
-        thinking: {
-          type: "enabled",
-          budgetTokens: 16000,
-        },
-      })
-      expect(result.max).toEqual({
-        thinking: {
-          type: "enabled",
-          budgetTokens: 31999,
-        },
+        thinking: { type: "adaptive", display: "summarized" },
+        effort: "high",
       })
     })
   })
@@ -3990,6 +3496,7 @@ describe("ProviderTransform.variants", () => {
             url: "https://us-central1-aiplatform.googleapis.com",
             npm: "@ai-sdk/google-vertex/anthropic",
           },
+          reasoning_options: [{ type: "effort", values: ["low", "medium", "high", "xhigh", "max"] }],
         }),
       )
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
@@ -4012,6 +3519,7 @@ describe("ProviderTransform.variants", () => {
             url: "https://us-central1-aiplatform.googleapis.com",
             npm: "@ai-sdk/google-vertex/anthropic",
           },
+          reasoning_options: [{ type: "effort", values: ["low", "medium", "high", "xhigh", "max"] }],
         }),
       )
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
@@ -4035,6 +3543,7 @@ describe("ProviderTransform.variants", () => {
           url: "https://bedrock.amazonaws.com",
           npm: "@ai-sdk/amazon-bedrock",
         },
+        reasoning_options: [{ type: "effort", values: ["low", "medium", "high", "max"] }],
       })
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "max"])
@@ -4042,6 +3551,7 @@ describe("ProviderTransform.variants", () => {
         reasoningConfig: {
           type: "adaptive",
           maxReasoningEffort: "max",
+          display: "summarized",
         },
       })
     })
@@ -4055,6 +3565,7 @@ describe("ProviderTransform.variants", () => {
           url: "https://bedrock.amazonaws.com",
           npm: "@ai-sdk/amazon-bedrock",
         },
+        reasoning_options: [{ type: "effort", values: ["low", "medium", "high", "xhigh", "max"] }],
       })
       const result = ProviderTransform.variants(model)
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
@@ -4084,6 +3595,7 @@ describe("ProviderTransform.variants", () => {
             url: "https://bedrock.amazonaws.com",
             npm: "@ai-sdk/amazon-bedrock",
           },
+          reasoning_options: [{ type: "effort", values: ["low", "medium", "high", "xhigh", "max"] }],
         }),
       )
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
@@ -4106,6 +3618,7 @@ describe("ProviderTransform.variants", () => {
             url: "https://bedrock.amazonaws.com",
             npm: "@ai-sdk/amazon-bedrock",
           },
+          reasoning_options: [{ type: "effort", values: ["low", "medium", "high", "xhigh", "max"] }],
         }),
       )
       expect(Object.keys(result)).toEqual(["low", "medium", "high", "xhigh", "max"])
@@ -4198,6 +3711,9 @@ describe("ProviderTransform.variants", () => {
                 url: provider.url,
                 npm: provider.name,
               },
+              reasoning_options: testCase.expectedMax
+                ? [{ type: "budget_tokens", max: testCase.expectedMax.thinkingConfig.thinkingBudget }]
+                : [{ type: "effort", values: testCase.efforts }],
             }),
           )
           expect(Object.keys(result)).toEqual(testCase.efforts)
@@ -4263,7 +3779,7 @@ describe("ProviderTransform.variants", () => {
   })
 
   describe("@jerome-benoit/sap-ai-provider-v2", () => {
-    const sapModel = (apiId: string, releaseDate = "2024-01-01") =>
+    const sapModel = (apiId: string, reasoning_options?: any[]) =>
       createMockModel({
         id: `sap-ai-core/${apiId}`,
         providerID: "sap-ai-core",
@@ -4272,116 +3788,27 @@ describe("ProviderTransform.variants", () => {
           url: "https://api.ai.sap",
           npm: "@jerome-benoit/sap-ai-provider-v2",
         },
-        release_date: releaseDate,
+        reasoning_options,
       })
 
-    for (const testCase of [
-      {
-        name: "sonnet 4.6",
-        apiIds: ["anthropic--claude-sonnet-4-6"],
-        efforts: ["low", "medium", "high", "max"],
-        thinking: { type: "adaptive" },
-      },
-      {
-        name: "opus 4.6",
-        apiIds: ["anthropic--claude-4.6-opus", "anthropic--claude-4-6-opus"],
-        efforts: ["low", "medium", "high", "max"],
-        thinking: { type: "adaptive" },
-      },
-      {
-        name: "opus 4.7",
-        apiIds: ["anthropic--claude-4.7-opus", "anthropic--claude-4-7-opus"],
-        efforts: ["low", "medium", "high", "xhigh", "max"],
-        thinking: { type: "adaptive", display: "summarized" },
-      },
-      {
-        name: "opus 4.8",
-        apiIds: ["anthropic--claude-4.8-opus", "anthropic--claude-4-8-opus"],
-        efforts: ["low", "medium", "high", "xhigh", "max"],
-        thinking: { type: "adaptive", display: "summarized" },
-      },
-      {
-        name: "sonnet 5",
-        apiIds: ["anthropic--claude-sonnet-5", "anthropic--claude-5-sonnet"],
-        efforts: ["low", "medium", "high", "xhigh", "max"],
-        thinking: { type: "adaptive", display: "summarized" },
-      },
-    ]) {
-      for (const apiId of testCase.apiIds) {
-        test(`${testCase.name} ${apiId} returns adaptive thinking variants under modelParams`, () => {
-          const result = ProviderTransform.variants(sapModel(apiId))
-          expect(Object.keys(result)).toEqual(testCase.efforts)
-          for (const effort of testCase.efforts) {
-            expect(result[effort]).toEqual({
-              modelParams: {
-                thinking: testCase.thinking,
-                output_config: { effort },
-              },
-            })
-          }
-        })
-      }
-    }
+    test("falls back to harmonized reasoning_effort variants", () => {
+      const result = ProviderTransform.variants(sapModel("generic-reasoner"))
+      expect(Object.keys(result)).toEqual(["low", "medium", "high"])
+      expect(result.high).toEqual({ modelParams: { reasoning_effort: "high" } })
+    })
 
-    for (const apiId of ["anthropic--claude-sonnet-4", "anthropic--claude-4.5-opus"]) {
-      test(`${apiId} returns budget_tokens variants under modelParams`, () => {
-        const result = ProviderTransform.variants(sapModel(apiId))
-        expect(Object.keys(result)).toEqual(["high", "max"])
-        expect(result.high).toEqual({
-          modelParams: { thinking: { type: "enabled", budget_tokens: 16000 } },
-        })
-        expect(result.max).toEqual({
-          modelParams: { thinking: { type: "enabled", budget_tokens: 31999 } },
-        })
+    test("uses reasoning_options for Anthropic adaptive variants", () => {
+      const result = ProviderTransform.variants(
+        sapModel("anthropic--claude-sonnet-5", [{ type: "effort", values: ["low", "high", "max"] }]),
+      )
+      expect(Object.keys(result)).toEqual(["low", "high", "max"])
+      expect(result.max).toEqual({
+        modelParams: {
+          thinking: { type: "adaptive", display: "summarized" },
+          output_config: { effort: "max" },
+        },
       })
-    }
-
-    for (const testCase of [
-      { apiId: "gemini-2.5-pro", maxBudget: 32768 },
-      { apiId: "gemini-2.5-flash", maxBudget: 24576 },
-    ]) {
-      test(`${testCase.apiId} returns thinkingConfig variants under modelParams`, () => {
-        const result = ProviderTransform.variants(sapModel(testCase.apiId))
-        expect(Object.keys(result)).toEqual(["high", "max"])
-        expect(result.high).toEqual({
-          modelParams: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16000 } },
-        })
-        expect(result.max).toEqual({
-          modelParams: { thinkingConfig: { includeThoughts: true, thinkingBudget: testCase.maxBudget } },
-        })
-      })
-    }
-
-    for (const testCase of [
-      { apiId: "gpt-5", releaseDate: "2025-08-07", efforts: ["minimal", "low", "medium", "high"] },
-      { apiId: "gpt-5-mini", releaseDate: "2025-08-07", efforts: ["minimal", "low", "medium", "high"] },
-      { apiId: "gpt-5-nano", releaseDate: "2025-08-07", efforts: ["minimal", "low", "medium", "high"] },
-      { apiId: "gpt-5.4", releaseDate: "2026-01-15", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { apiId: "azure-openai--o3-mini", releaseDate: "2024-01-01", efforts: ["low", "medium", "high"] },
-    ]) {
-      test(`${testCase.apiId} returns reasoning_effort variants under modelParams`, () => {
-        const result = ProviderTransform.variants(sapModel(testCase.apiId, testCase.releaseDate))
-        expect(Object.keys(result)).toEqual(testCase.efforts)
-        for (const effort of testCase.efforts) {
-          expect(result[effort]).toEqual({ modelParams: { reasoning_effort: effort } })
-        }
-      })
-    }
-
-    for (const apiId of [
-      "gemini-3.1-flash-lite",
-      "cohere--command-a-reasoning",
-      "sonar-deep-research",
-      "aws--llama-opus-4.7-fake",
-    ]) {
-      test(`${apiId} falls through to harmonized reasoning_effort fallback`, () => {
-        const result = ProviderTransform.variants(sapModel(apiId))
-        expect(Object.keys(result)).toEqual(["low", "medium", "high"])
-        for (const effort of ["low", "medium", "high"]) {
-          expect(result[effort]).toEqual({ modelParams: { reasoning_effort: effort } })
-        }
-      })
-    }
+    })
   })
 
   describe("ai-gateway-provider (cloudflare-ai-gateway)", () => {
@@ -4397,20 +3824,14 @@ describe("ProviderTransform.variants", () => {
         release_date: releaseDate,
       })
 
-    for (const testCase of [
-      { id: "openai/gpt-5.4", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5.2-codex", efforts: ["low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5.3-codex", efforts: ["none", "low", "medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-pro", efforts: ["high"] },
-      { id: "openai/gpt-5.2-pro", efforts: ["medium", "high", "xhigh"] },
-      { id: "openai/gpt-5-chat-latest", efforts: [] },
-      { id: "openai/gpt-5.2-chat-latest", efforts: ["medium"] },
-    ]) {
-      test(`${testCase.id} returns supported reasoning efforts`, () => {
-        const result = ProviderTransform.variants(cfModel(testCase.id, "2026-03-05"))
-        expect(Object.keys(result)).toEqual(testCase.efforts)
+    test("falls back to widely-supported OAI efforts", () => {
+      const result = ProviderTransform.variants(cfModel("openai/gpt-future", "2026-03-05"))
+      expect(result).toEqual({
+        low: { reasoningEffort: "low" },
+        medium: { reasoningEffort: "medium" },
+        high: { reasoningEffort: "high" },
       })
-    }
+    })
 
     test("openai gpt-4o (no reasoning) returns empty", () => {
       const model = cfModel("openai/gpt-4o")
@@ -4449,12 +3870,20 @@ describe("ProviderTransform.smallOptions - gpt-5 chat/search", () => {
   }
 
   for (const testCase of [
-    { id: "gpt-5-chat-latest", options: { store: false } },
+    {
+      id: "gpt-5-chat-latest",
+      options: {
+        store: false,
+        reasoningEffort: "none",
+        reasoningSummary: "auto",
+        include: ["reasoning.encrypted_content"],
+      },
+    },
     {
       id: "gpt-5.1-chat-latest",
       options: {
         store: false,
-        reasoningEffort: "medium",
+        reasoningEffort: "none",
         reasoningSummary: "auto",
         include: ["reasoning.encrypted_content"],
       },
@@ -4463,7 +3892,7 @@ describe("ProviderTransform.smallOptions - gpt-5 chat/search", () => {
       id: "gpt-5.2-chat-latest",
       options: {
         store: false,
-        reasoningEffort: "medium",
+        reasoningEffort: "none",
         reasoningSummary: "auto",
         include: ["reasoning.encrypted_content"],
       },
@@ -4520,14 +3949,14 @@ describe("ProviderTransform.smallOptions - google thinking controls", () => {
 
   for (const testCase of [
     { id: "gemini-3-pro-preview", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } } },
-    { id: "gemini-3-flash-preview", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "minimal" } } },
+    { id: "gemini-3-flash-preview", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } } },
     {
       id: "gemini-3.1-flash-image-preview",
-      options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "minimal" } },
+      options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } },
     },
-    { id: "gemini-3-pro-image-preview", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "high" } } },
-    { id: "gemini-2.5-pro", options: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16000 } } },
-    { id: "gemini-2.5-flash", options: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16000 } } },
+    { id: "gemini-3-pro-image-preview", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } } },
+    { id: "gemini-2.5-pro", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } } },
+    { id: "gemini-2.5-flash", options: { thinkingConfig: { includeThoughts: true, thinkingLevel: "low" } } },
   ]) {
     test(`${testCase.id} returns supported small thinking options`, () => {
       expect(ProviderTransform.smallOptions(createGoogleModel(testCase.id))).toEqual(testCase.options)

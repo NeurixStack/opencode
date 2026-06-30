@@ -1022,6 +1022,7 @@ export const Model = Schema.Struct({
   name: Schema.String,
   family: optional(Schema.String),
   capabilities: ProviderCapabilities,
+  reasoning_options: optional(Schema.Array(ModelsDev.ReasoningOption)),
   cost: ProviderCost,
   limit: ProviderLimit,
   status: ModelStatus,
@@ -1185,6 +1186,13 @@ function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
   return result
 }
 
+function reasoningOptions(model: ModelsDev.Model): Model["reasoning_options"] {
+  return model.reasoning_options?.map((option) => {
+    if (option.type === "effort") return { ...option, values: [...option.values] }
+    return { ...option }
+  })
+}
+
 function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model): Model {
   const base: Model = {
     id: ModelV2.ID.make(model.id),
@@ -1226,6 +1234,7 @@ function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model
       },
       interleaved: model.interleaved ?? false,
     },
+    reasoning_options: reasoningOptions(model),
     release_date: model.release_date ?? "",
     variants: {},
   }
@@ -1456,6 +1465,7 @@ const layer = Layer.effect(
                     ? { field: "reasoning_content" }
                     : false),
               },
+              reasoning_options: existingModel?.reasoning_options,
               cost: {
                 input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
                 output: model?.cost?.output ?? existingModel?.cost?.output ?? 0,
