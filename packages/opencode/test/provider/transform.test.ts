@@ -3133,6 +3133,26 @@ describe("ProviderTransform.variants", () => {
       expect(Object.keys(result)).toEqual(["low", "high"])
       expect(result.low).toEqual({ reasoning: { effort: "low" } })
     })
+
+    test("budget token reasoning_options use max_tokens", () => {
+      const result = ProviderTransform.variants(
+        createMockModel({
+          id: "openrouter/anthropic/claude-sonnet-4.5",
+          providerID: "openrouter",
+          api: {
+            id: "anthropic/claude-sonnet-4.5",
+            url: "https://openrouter.ai",
+            npm: "@openrouter/ai-sdk-provider",
+          },
+          reasoning_options: [{ type: "budget_tokens", min: 1024, max: 63999 }],
+          limit: { context: 1_000_000, output: 64_000 },
+        }),
+      )
+      expect(result).toEqual({
+        high: { reasoning: { max_tokens: 16_000 } },
+        max: { reasoning: { max_tokens: 63_999 } },
+      })
+    })
   })
 
   describe("@ai-sdk/gateway", () => {

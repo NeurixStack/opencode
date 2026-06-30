@@ -751,6 +751,9 @@ function reasoningOptionVariants(model: Provider.Model): Record<string, Record<s
   if (!budget) return {}
 
   switch (model.api.npm) {
+    case "@openrouter/ai-sdk-provider":
+      return reasoningBudgetVariants(budget, (max_tokens) => ({ reasoning: { max_tokens } }), model.limit.output)
+
     case "@ai-sdk/gateway":
       if (idIncludes(model, "anthropic")) {
         return reasoningBudgetVariants(
