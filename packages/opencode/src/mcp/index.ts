@@ -27,6 +27,7 @@ import { McpOAuthCallback } from "./oauth-callback"
 import { McpAuth } from "./auth"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { TuiEvent } from "@/server/tui-event"
+import { Event } from "@opencode-ai/schema/event"
 import open from "open"
 import { Cause, Effect, Exit, Layer, Context, Schema, Stream } from "effect"
 import { EffectBridge } from "@/effect/bridge"
@@ -61,7 +62,13 @@ export type Resource = Schema.Schema.Type<typeof Resource>
 
 export const ToolsChanged = McpEvent.ToolsChanged
 
-export const BrowserOpenFailed = McpEvent.BrowserOpenFailed
+export const BrowserOpenFailed = Event.define({
+  type: "mcp.browser.open.failed",
+  schema: {
+    mcpName: Schema.String,
+    url: Schema.String,
+  },
+})
 
 export const Failed = NamedError.create("MCPFailed", {
   name: Schema.String,
