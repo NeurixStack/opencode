@@ -173,6 +173,8 @@ try {
   npm install "@lydell/node-pty@1.2.0-beta.12" | Out-Host
   node (Join-Path $PSScriptRoot "repro-windows-opentui-pty-session.mjs") -- --exe $exe --project $sessionProject --version $Version --seconds $PtySeconds --scenario text
   node (Join-Path $PSScriptRoot "repro-windows-opentui-pty-session.mjs") -- --exe $exe --project $sessionProject --version $Version --seconds $PtySeconds --scenario markdown
+  node (Join-Path $PSScriptRoot "repro-windows-opentui-pty-session.mjs") -- --exe $exe --project $sessionProject --version $Version --seconds $PtySeconds --scenario bash-auto
+  node (Join-Path $PSScriptRoot "repro-windows-opentui-pty-session.mjs") -- --exe $exe --project $sessionProject --version $Version --seconds $PtySeconds --scenario bash-permission
 } finally {
   Pop-Location
 }

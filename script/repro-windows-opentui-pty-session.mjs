@@ -32,6 +32,7 @@ let providerRequests = 0
 let exited = false
 let exitCode = undefined
 let exitSignal = undefined
+let permissionSubmitted = false
 
 mkdirSync(project, { recursive: true })
 
@@ -51,6 +52,10 @@ function writeSse(res, event) {
 }
 
 function responseText() {
+  if (scenario.startsWith("bash-")) {
+    return "The bash tool completed and the session continued after tool execution."
+  }
+
   if (scenario === "markdown") {
     const sections = []
     for (let i = 0; i < 40; i++) {
@@ -69,6 +74,16 @@ function responseText() {
   }
 
   return "This is a deterministic CI response from the fake provider."
+}
+
+function hasToolResult(parsedBody) {
+  return parsedBody?.messages?.some?.((message) => message.role === "tool" || message.role === "function") ?? false
+}
+
+function shouldCallBash(parsedBody) {
+  if (!scenario.startsWith("bash-")) return false
+  if (!parsedBody?.tools?.some?.((tool) => (tool.function?.name ?? tool.name) === "bash")) return false
+  return !hasToolResult(parsedBody)
 }
 
 const server = createServer(async (req, res) => {
@@ -92,6 +107,7 @@ const server = createServer(async (req, res) => {
 
   if (req.url?.endsWith("/chat/completions")) {
     const parsed = parsedBody ?? {}
+    const callBash = shouldCallBash(parsed)
     const text = responseText()
     if (parsed.stream) {
       res.writeHead(200, {
@@ -107,6 +123,45 @@ const server = createServer(async (req, res) => {
         choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
       })
       await delay(50)
+      if (callBash) {
+        writeSse(res, {
+          id: "chatcmpl-opentui-repro",
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: "test-model",
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call_opentui_repro_bash",
+                    type: "function",
+                    function: {
+                      name: "bash",
+                      arguments: JSON.stringify({ command: "echo opentui-tool-repro > opentui-tool-repro.txt" }),
+                    },
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        })
+        await delay(50)
+        writeSse(res, {
+          id: "chatcmpl-opentui-repro",
+          object: "chat.completion.chunk",
+          created: Math.floor(Date.now() / 1000),
+          model: "test-model",
+          choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+        })
+        res.write("data: [DONE]\n\n")
+        res.end()
+        return
+      }
+
       writeSse(res, {
         id: "chatcmpl-opentui-repro",
         object: "chat.completion.chunk",
@@ -212,7 +267,15 @@ const env = {
 
 const proc = pty.spawn(
   exe,
-  ["--model", "test/test-model", "--prompt", "start a CI repro session and answer briefly"],
+  [
+    "--model",
+    "test/test-model",
+    "--prompt",
+    scenario.startsWith("bash-")
+      ? "run a shell command through the bash tool, then summarize"
+      : "start a CI repro session and answer briefly",
+    ...(scenario === "bash-auto" ? ["--auto"] : []),
+  ],
   {
     name: "xterm-256color",
     cols: 120,
@@ -225,6 +288,10 @@ const proc = pty.spawn(
 proc.onData((data) => {
   appendOutput(data)
   process.stdout.write(data)
+  if (scenario === "bash-permission" && !permissionSubmitted && /Permission required|Allow once|Call tool bash/.test(output)) {
+    permissionSubmitted = true
+    setTimeout(() => proc.write("\r"), 250)
+  }
 })
 
 proc.onExit((event) => {
