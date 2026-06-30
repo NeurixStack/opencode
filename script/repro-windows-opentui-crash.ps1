@@ -1,8 +1,8 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$Version,
-  [int]$McpLoops = 30,
-  [int]$McpServers = 12,
+  [int]$McpLoops = 8,
+  [int]$McpServers = 80,
   [int]$StartupSeconds = 130
 )
 
@@ -157,12 +157,13 @@ $config = [ordered]@{
 Get-Content (Join-Path $mcpProject "opencode.json") | Write-Host
 
 for ($i = 1; $i -le $McpLoops; $i++) {
-  Invoke-Opencode -Label "mcp-list-$i" -Exe $exe -Args @("mcp", "list") -WorkingDirectory $mcpProject -TimeoutSeconds 45 -AllowNonZero
+  Invoke-Opencode -Label "mcp-list-$i" -Exe $exe -Args @("mcp", "list") -WorkingDirectory $mcpProject -TimeoutSeconds 90 -AllowNonZero
 }
 
 Invoke-Opencode -Label "empty-startup-tui" -Exe $exe -Args @() -WorkingDirectory $emptyProject -TimeoutSeconds $StartupSeconds -AllowTimeout -AllowNonZero
-Invoke-Opencode -Label "mini-demo-question" -Exe $exe -Args @("--mini", "--demo", "/question", "single") -WorkingDirectory $emptyProject -TimeoutSeconds 30 -AllowNonZero
-Invoke-Opencode -Label "mini-demo-permission" -Exe $exe -Args @("--mini", "--demo", "/permission", "bash") -WorkingDirectory $emptyProject -TimeoutSeconds 30 -AllowNonZero
+Invoke-Opencode -Label "mini-demo-question" -Exe $exe -Args @("--mini", "--demo", "--prompt", "/question single") -WorkingDirectory $emptyProject -TimeoutSeconds 30 -AllowTimeout -AllowNonZero
+Invoke-Opencode -Label "mini-demo-permission" -Exe $exe -Args @("--mini", "--demo", "--prompt", "/permission bash") -WorkingDirectory $emptyProject -TimeoutSeconds 30 -AllowTimeout -AllowNonZero
+Invoke-Opencode -Label "mini-demo-mix" -Exe $exe -Args @("--mini", "--demo", "--prompt", "/fmt mix") -WorkingDirectory $emptyProject -TimeoutSeconds 30 -AllowTimeout -AllowNonZero
 
 Write-Section "Result"
 Write-Host "No native crash signature detected for opencode-ai@$Version"
