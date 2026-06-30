@@ -119,12 +119,12 @@ const layer = Layer.effectDiscard(
         yield* add(CommandPlugin.Plugin)
         yield* add(SkillPlugin.Plugin)
         yield* add(ModelsDevPlugin)
+        yield* add(ConfigExternalPlugin.Plugin)
         yield* add(ConfigAgentPlugin.Plugin)
         yield* add(ConfigCommandPlugin.Plugin)
         yield* add(MCPCommandPlugin.Plugin)
         yield* add(ConfigSkillPlugin.Plugin)
         for (const item of ProviderPlugins) yield* add(item)
-        yield* add(ConfigExternalPlugin.Plugin)
         yield* add(ConfigProviderPlugin.Plugin)
         yield* add(VariantPlugin.Plugin)
         // Embedder-contributed plugins are added last so they layer over config.

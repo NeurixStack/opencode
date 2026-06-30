@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import { Client, type ClientOptions } from "@modelcontextprotocol/sdk/client/index.js"
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
+import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
 import {
   CallToolResultSchema,
   ListRootsRequestSchema,
@@ -113,6 +113,9 @@ export const connect = Effect.fnUntraced(function* (
   server: string,
   config: typeof ConfigMCP.Server.Type,
   directory: string,
+  // Only consumed by the remote transport; stdio servers have no auth concept. A provider with no
+  // stored token (and a no-op redirect) surfaces an UnauthorizedError, which we map to needs_auth.
+  authProvider?: OAuthClientProvider,
 ) {
   const transport: Transport = yield* Effect.gen(function* () {
     if (config.type === "local") {
@@ -132,6 +135,7 @@ export const connect = Effect.fnUntraced(function* (
     if (!URL.canParse(config.url)) return yield* new ConnectError({ server, message: `Invalid MCP URL for "${server}"` })
     return new StreamableHTTPClientTransport(new URL(config.url), {
       requestInit: config.headers ? { headers: config.headers } : undefined,
+      authProvider,
     })
   })
   const client = new Client(
@@ -275,8 +279,7 @@ export const connect = Effect.fnUntraced(function* (
     Effect.ignore,
   )
   const error = Cause.squash(exit.cause)
-  if (error instanceof UnauthorizedError || (error instanceof Error && error.message.includes("OAuth")))
-    return yield* new NeedsAuthError({ server })
+  if (error instanceof UnauthorizedError) return yield* new NeedsAuthError({ server })
   return yield* new ConnectError({ server, message: error instanceof Error ? error.message : String(error) })
 })
 

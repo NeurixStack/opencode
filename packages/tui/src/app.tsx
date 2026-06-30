@@ -76,6 +76,7 @@ import {
   useOpencodeKeymap,
 } from "./keymap"
 
+import type { OpenCodeClient } from "@opencode-ai/client"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2"
 import { DialogVariant } from "./component/dialog-variant"
 import { createTuiAttention } from "./attention"
@@ -135,7 +136,8 @@ const appBindingCommands = [
 
 export type TuiInput = {
   client: OpencodeClient
-  reload?: () => Promise<OpencodeClient>
+  api: OpenCodeClient
+  reload?: () => Promise<{ client: OpencodeClient; api: OpenCodeClient }>
   args: Args
   config: TuiConfig.Resolved
   onSnapshot?: () => Promise<string[]>
@@ -290,7 +292,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                   >
                                     <TuiConfigProvider config={input.config}>
                                       <PluginRuntimeProvider value={pluginRuntime}>
-                                        <SDKProvider client={input.client} reload={input.reload}>
+                                        <SDKProvider client={input.client} api={input.api} reload={input.reload}>
                                           <ProjectProvider>
                                             <SyncProvider>
                                               <DataProvider>
@@ -373,6 +375,34 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   const pluginRuntime = usePluginRuntime()
   const attention = createTuiAttention({ renderer, config: tuiConfig, kv })
   const clipboard = useClipboard()
+
+  // Toast once when an MCP server enters a failed or needs-auth state so the user knows to act,
+  // without having to open the status panel. Tracking the last alerted status avoids re-toasting
+  // the same problem on every refresh while still re-alerting if the state changes.
+  const mcpAlerted: Record<string, string> = {}
+  createEffect(() => {
+    for (const server of data.location.mcp.list() ?? []) {
+      const status = server.status
+      if (status.status !== "failed" && status.status !== "needs_auth") {
+        delete mcpAlerted[server.name]
+        continue
+      }
+      if (mcpAlerted[server.name] === status.status) continue
+      mcpAlerted[server.name] = status.status
+      if (status.status === "needs_auth")
+        toast.show({
+          variant: "warning",
+          title: "MCP server needs authentication",
+          message: `Connect "${server.name}" to use its tools.`,
+        })
+      else
+        toast.show({
+          variant: "error",
+          title: "MCP server failed to connect",
+          message: `${server.name}: ${status.error}`,
+        })
+    }
+  })
 
   const api = createTuiApi(
     createTuiApiAdapters({
@@ -718,7 +748,11 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         suggested: !connected(),
         slashName: "connect",
         run: () => {
-          dialog.replace(() => <DialogIntegration />)
+          dialog.replace(() => (
+            <DialogIntegration
+              onConnected={(providerID) => dialog.replace(() => <DialogModel providerID={providerID} />)}
+            />
+          ))
         },
         category: "Integration",
       },

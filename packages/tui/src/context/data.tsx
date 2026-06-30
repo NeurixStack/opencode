@@ -3,6 +3,7 @@ import type {
   CommandV2Info,
   IntegrationInfo,
   LocationRef,
+  McpServer,
   ModelV2Info,
   PermissionSavedInfo,
   PermissionV2Request,
@@ -30,6 +31,7 @@ type LocationData = {
   agent?: AgentV2Info[]
   command?: CommandV2Info[]
   integration?: IntegrationInfo[]
+  mcp?: McpServer[]
   model?: ModelV2Info[]
   provider?: ProviderV2Info[]
   reference?: ReferenceInfo[]
@@ -59,6 +61,14 @@ function locationKey(location: LocationRef) {
 
 function locationQuery(ref?: LocationRef) {
   return ref ? { directory: ref.directory, workspace: ref.workspaceID } : undefined
+}
+
+type Mutable<T> =
+  T extends ReadonlyArray<infer U> ? Mutable<U>[] : T extends object ? { -readonly [K in keyof T]: Mutable<T[K]> } : T
+
+function mutable<T>(value: T): Mutable<T> {
+  // oxlint-disable-next-line typescript-eslint/no-unsafe-type-assertion -- generated client data is readonly; the TUI store mutates cloned state.
+  return structuredClone(value) as Mutable<T>
 }
 
 export const { use: useData, provider: DataProvider } = createSimpleContext({
@@ -149,6 +159,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             result.location.model.refresh(event.location),
             result.location.provider.refresh(event.location),
           ])
+          break
+        case "agent.updated":
+          void result.location.agent.refresh(event.location)
           break
         case "session.next.agent.switched":
           if (store.session.info[event.data.sessionID])
@@ -288,13 +301,19 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.next.text.delta":
           message.update(event.data.sessionID, (draft, index) => {
-            const match = message.latestText(message.assistant(draft, index, event.data.assistantMessageID), event.data.textID)
+            const match = message.latestText(
+              message.assistant(draft, index, event.data.assistantMessageID),
+              event.data.textID,
+            )
             if (match) match.text += event.data.delta
           })
           break
         case "session.next.text.ended":
           message.update(event.data.sessionID, (draft, index) => {
-            const match = message.latestText(message.assistant(draft, index, event.data.assistantMessageID), event.data.textID)
+            const match = message.latestText(
+              message.assistant(draft, index, event.data.assistantMessageID),
+              event.data.textID,
+            )
             if (match) match.text = event.data.text
           })
           break
@@ -311,19 +330,28 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.next.tool.input.delta":
           message.update(event.data.sessionID, (draft, index) => {
-            const match = message.latestTool(message.assistant(draft, index, event.data.assistantMessageID), event.data.callID)
+            const match = message.latestTool(
+              message.assistant(draft, index, event.data.assistantMessageID),
+              event.data.callID,
+            )
             if (match?.state.status === "pending") match.state.input += event.data.delta
           })
           break
         case "session.next.tool.input.ended":
           message.update(event.data.sessionID, (draft, index) => {
-            const match = message.latestTool(message.assistant(draft, index, event.data.assistantMessageID), event.data.callID)
+            const match = message.latestTool(
+              message.assistant(draft, index, event.data.assistantMessageID),
+              event.data.callID,
+            )
             if (match?.state.status === "pending") match.state.input = event.data.text
           })
           break
         case "session.next.tool.called":
           message.update(event.data.sessionID, (draft, index) => {
-            const match = message.latestTool(message.assistant(draft, index, event.data.assistantMessageID), event.data.callID)
+            const match = message.latestTool(
+              message.assistant(draft, index, event.data.assistantMessageID),
+              event.data.callID,
+            )
             if (!match) return
             match.time.ran = event.data.timestamp
             match.provider = event.data.provider
@@ -332,7 +360,10 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.next.tool.progress":
           message.update(event.data.sessionID, (draft, index) => {
-            const match = message.latestTool(message.assistant(draft, index, event.data.assistantMessageID), event.data.callID)
+            const match = message.latestTool(
+              message.assistant(draft, index, event.data.assistantMessageID),
+              event.data.callID,
+            )
             if (match?.state.status !== "running") return
             match.state.structured = event.data.structured
             match.state.content = [...event.data.content]
@@ -340,7 +371,10 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.next.tool.success":
           message.update(event.data.sessionID, (draft, index) => {
-            const match = message.latestTool(message.assistant(draft, index, event.data.assistantMessageID), event.data.callID)
+            const match = message.latestTool(
+              message.assistant(draft, index, event.data.assistantMessageID),
+              event.data.callID,
+            )
             if (match?.state.status !== "running") return
             match.state = {
               status: "completed",
@@ -359,7 +393,10 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.next.tool.failed":
           message.update(event.data.sessionID, (draft, index) => {
-            const match = message.latestTool(message.assistant(draft, index, event.data.assistantMessageID), event.data.callID)
+            const match = message.latestTool(
+              message.assistant(draft, index, event.data.assistantMessageID),
+              event.data.callID,
+            )
             if (!match || (match.state.status !== "pending" && match.state.status !== "running")) return
             match.state = {
               status: "error",
@@ -494,6 +531,11 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             result.location.provider.refresh(event.location),
           ])
           break
+        // Authenticating an MCP integration reconnects its server, which emits mcp.status.changed,
+        // so the mcp list refreshes here rather than off integration.updated.
+        case "mcp.status.changed":
+          void result.location.mcp.refresh(event.location)
+          break
       }
     }
 
@@ -522,8 +564,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           return store.session.status[sessionID] ?? "idle"
         },
         async refresh(sessionID: string) {
-          const result = await sdk.client.v2.session.get({ sessionID }, { throwOnError: true })
-          setStore("session", "info", sessionID, result.data.data)
+          setStore("session", "info", sessionID, mutable(await sdk.api.session.get({ sessionID })))
         },
         message: {
           ids(sessionID: string) {
@@ -540,11 +581,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           async refresh(sessionID: string) {
             setStore("session", "message", sessionID, [])
             messageIndex.set(sessionID, new Map())
-            const response = await sdk.client.v2.session.messages(
-              { sessionID, limit: 200, order: "desc" },
-              { throwOnError: true },
-            )
-            const loaded = response.data.data.toReversed()
+            const loaded = mutable(
+              (await sdk.api.message.list({ sessionID, limit: 200, order: "desc" })).data,
+            ).toReversed()
             const live = store.session.message[sessionID] ?? []
             const liveByID = new Map(live.map((message) => [message.id, message]))
             const messages = [...loaded.map((message) => liveByID.get(message.id) ?? message), ...live]
@@ -559,8 +598,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.session.permission[sessionID]
           },
           async refresh(sessionID: string) {
-            const result = await sdk.client.v2.session.permission.list({ sessionID }, { throwOnError: true })
-            setStore("session", "permission", sessionID, result.data.data)
+            setStore("session", "permission", sessionID, mutable(await sdk.api.permission.list({ sessionID })))
           },
         },
         question: {
@@ -568,8 +606,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.session.question[sessionID]
           },
           async refresh(sessionID: string) {
-            const result = await sdk.client.v2.session.question.list({ sessionID }, { throwOnError: true })
-            setStore("session", "question", sessionID, result.data.data)
+            setStore("session", "question", sessionID, mutable(await sdk.api.question.list({ sessionID })))
           },
         },
       },
@@ -579,8 +616,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.project.permission[projectID]
           },
           async refresh(projectID: string) {
-            const result = await sdk.client.v2.permission.saved.list({ projectID }, { throwOnError: true })
-            setStore("project", "permission", projectID, result.data.data)
+            setStore("project", "permission", projectID, mutable(await sdk.api.permission.listSaved({ projectID })))
           },
         },
       },
@@ -592,13 +628,17 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           return store.shell[id]
         },
         async refresh(ref?: LocationRef) {
-          const result = await sdk.client.v2.shell.list({ location: locationQuery(ref) }, { throwOnError: true })
+          const result = await sdk.api.shell.list({ location: locationQuery(ref) })
           setStore(
             "shell",
             produce((draft) => {
-              for (const info of result.data.data) draft[info.id] = info
+              for (const info of mutable(result.data)) draft[info.id] = info
             }),
           )
+        },
+        async remove(id: string) {
+          await sdk.api.shell.remove({ id })
+          setStore("shell", id, undefined!)
         },
       },
       location: {
@@ -606,8 +646,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           return defaultLocation()
         },
         async refresh(ref?: LocationRef) {
-          const response = await sdk.client.v2.location.get({ location: locationQuery(ref) }, { throwOnError: true })
-          const location = response.data
+          const location = await sdk.api.location.get({ location: locationQuery(ref ?? defaultLocation()) })
           const key = locationKey(location)
           if (!store.location[key]) setStore("location", key, {})
           if (!ref) setDefaultLocation({ directory: location.directory, workspaceID: location.workspaceID })
@@ -617,9 +656,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.agent
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.agent.list({ location: locationQuery(ref) }, { throwOnError: true })
-            const key = locationKey(result.data.location)
-            setStore("location", key, { ...store.location[key], agent: result.data.data })
+            const result = await sdk.api.agent.list({ location: locationQuery(ref ?? defaultLocation()) })
+            const key = locationKey(result.location)
+            setStore("location", key, { ...store.location[key], agent: mutable(result.data) })
           },
         },
         command: {
@@ -627,9 +666,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.command
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.command.list({ location: locationQuery(ref) }, { throwOnError: true })
-            const key = locationKey(result.data.location)
-            setStore("location", key, { ...store.location[key], command: result.data.data })
+            const result = await sdk.api.command.list({ location: locationQuery(ref ?? defaultLocation()) })
+            const key = locationKey(result.location)
+            setStore("location", key, { ...store.location[key], command: mutable(result.data) })
           },
         },
         integration: {
@@ -637,12 +676,19 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.integration
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.integration.list(
-              { location: locationQuery(ref) },
-              { throwOnError: true },
-            )
+            const result = await sdk.api.integration.list({ location: locationQuery(ref ?? defaultLocation()) })
+            const key = locationKey(result.location)
+            setStore("location", key, { ...store.location[key], integration: mutable(result.data) })
+          },
+        },
+        mcp: {
+          list(location?: LocationRef) {
+            return store.location[locationKey(location ?? defaultLocation())]?.mcp
+          },
+          async refresh(ref?: LocationRef) {
+            const result = await sdk.client.v2.mcp.list({ location: locationQuery(ref) }, { throwOnError: true })
             const key = locationKey(result.data.location)
-            setStore("location", key, { ...store.location[key], integration: result.data.data })
+            setStore("location", key, { ...store.location[key], mcp: result.data.data })
           },
         },
         model: {
@@ -650,9 +696,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.model
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.model.list({ location: locationQuery(ref) }, { throwOnError: true })
-            const key = locationKey(result.data.location)
-            setStore("location", key, { ...store.location[key], model: result.data.data })
+            const result = await sdk.api.model.list({ location: locationQuery(ref ?? defaultLocation()) })
+            const key = locationKey(result.location)
+            setStore("location", key, { ...store.location[key], model: mutable(result.data) })
           },
         },
         provider: {
@@ -660,9 +706,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.provider
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.provider.list({ location: locationQuery(ref) }, { throwOnError: true })
-            const key = locationKey(result.data.location)
-            setStore("location", key, { ...store.location[key], provider: result.data.data })
+            const result = await sdk.api.provider.list({ location: locationQuery(ref ?? defaultLocation()) })
+            const key = locationKey(result.location)
+            setStore("location", key, { ...store.location[key], provider: mutable(result.data) })
           },
         },
         reference: {
@@ -670,9 +716,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.reference
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.reference.list({ location: locationQuery(ref) }, { throwOnError: true })
-            const key = locationKey(result.data.location)
-            setStore("location", key, { ...store.location[key], reference: result.data.data })
+            const result = await sdk.api.reference.list({ location: locationQuery(ref ?? defaultLocation()) })
+            const key = locationKey(result.location)
+            setStore("location", key, { ...store.location[key], reference: mutable(result.data) })
           },
         },
         skill: {
@@ -680,9 +726,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.location[locationKey(location ?? defaultLocation())]?.skill
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.client.v2.skill.list({ location: locationQuery(ref) }, { throwOnError: true })
-            const key = locationKey(result.data.location)
-            setStore("location", key, { ...store.location[key], skill: result.data.data })
+            const result = await sdk.api.skill.list({ location: locationQuery(ref ?? defaultLocation()) })
+            const key = locationKey(result.location)
+            setStore("location", key, { ...store.location[key], skill: mutable(result.data) })
           },
         },
       },
@@ -690,27 +736,35 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
 
     async function bootstrap() {
       const settled = await Promise.allSettled([
-        sdk.client.v2.session
-          .list({ limit: 50, order: "desc" }, { throwOnError: true })
+        sdk.api.session
+          .list({
+            limit: 50,
+            order: "desc",
+            directory: defaultLocation().directory,
+            workspace: defaultLocation().workspaceID,
+          })
           .then((response) =>
             setStore(
               "session",
               "info",
               produce((draft) => {
-                for (const session of response.data.data) draft[session.id] = session
+                for (const session of response.data) draft[session.id] = mutable(session)
               }),
             ),
           ),
-        sdk.client.v2.session.active({ throwOnError: true }).then((response) =>
-          setStore(
-            "session",
-            "status",
-            Object.fromEntries(Object.keys(response.data.data).map((sessionID) => [sessionID, "running" as const])),
+        sdk.api.session
+          .active()
+          .then((active) =>
+            setStore(
+              "session",
+              "status",
+              Object.fromEntries(Object.keys(active).map((sessionID) => [sessionID, "running" as const])),
+            ),
           ),
-        ),
         result.location.refresh(),
         result.location.agent.refresh(),
         result.location.integration.refresh(),
+        result.location.mcp.refresh(),
         result.location.model.refresh(),
         result.location.provider.refresh(),
         result.location.reference.refresh(),
