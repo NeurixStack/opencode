@@ -3220,7 +3220,10 @@ describe("ProviderTransform.variants", () => {
             url: "https://gateway.ai",
             npm: "@ai-sdk/gateway",
           },
-          reasoning_options: [{ type: "budget_tokens", min: 128, max: 32768 }],
+          reasoning_options: [
+            { type: "effort", values: ["minimal", "low", "medium", "high"] },
+            { type: "budget_tokens", min: 128, max: 32768 },
+          ],
         }),
       )
       expect(Object.keys(result)).toEqual(["high", "max"])
@@ -3769,7 +3772,10 @@ describe("ProviderTransform.variants", () => {
                 npm: provider.name,
               },
               reasoning_options: testCase.expectedMax
-                ? [{ type: "budget_tokens", max: testCase.expectedMax.thinkingConfig.thinkingBudget }]
+                ? [
+                    { type: "effort", values: ["minimal", "low", "medium", "high"] },
+                    { type: "budget_tokens", max: testCase.expectedMax.thinkingConfig.thinkingBudget },
+                  ]
                 : [{ type: "effort", values: testCase.efforts }],
             }),
           )
@@ -3864,6 +3870,19 @@ describe("ProviderTransform.variants", () => {
           thinking: { type: "adaptive", display: "summarized" },
           output_config: { effort: "max" },
         },
+      })
+    })
+
+    test("uses reasoning_options budget tokens for Gemini 2.5 variants", () => {
+      const result = ProviderTransform.variants(
+        sapModel("gemini-2.5-pro", [
+          { type: "effort", values: ["minimal", "low", "medium", "high"] },
+          { type: "budget_tokens", min: 128, max: 32768 },
+        ]),
+      )
+      expect(result).toEqual({
+        high: { modelParams: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16_000 } } },
+        max: { modelParams: { thinkingConfig: { includeThoughts: true, thinkingBudget: 32_768 } } },
       })
     })
   })
