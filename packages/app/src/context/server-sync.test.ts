@@ -1,6 +1,35 @@
 import { describe, expect, test } from "bun:test"
 import { canDisposeDirectory, pickDirectoriesToEvict } from "./global-sync/eviction"
-import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
+import type { Session } from "@opencode-ai/sdk/v2/client"
+import {
+  estimateRootSessionTotal,
+  loadRootSessionsWithFallback,
+  mergeRootSessionLoad,
+} from "./global-sync/session-load"
+
+function session(input: {
+  id: string
+  directory?: string
+  created?: number
+  updated?: number
+  parentID?: string
+  archived?: number
+}) {
+  return {
+    id: input.id,
+    directory: input.directory ?? "/repo",
+    projectID: "project",
+    title: input.id,
+    parentID: input.parentID,
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: {
+      created: input.created ?? 1_000,
+      updated: input.updated ?? input.created ?? 1_000,
+      archived: input.archived,
+    },
+  } as Session
+}
 
 describe("pickDirectoriesToEvict", () => {
   test("keeps pinned stores and evicts idle stores", () => {
@@ -60,6 +89,48 @@ describe("loadRootSessionsWithFallback", () => {
       { directory: "dir", roots: true, limit: 25 },
       { directory: "dir", roots: true },
     ])
+  })
+})
+
+describe("mergeRootSessionLoad", () => {
+  test("keeps sessions created while a stale list request was in flight", () => {
+    const result = mergeRootSessionLoad({
+      directory: "/repo",
+      loadedAt: 2_000,
+      listed: [],
+      current: [session({ id: "new", created: 2_100 })],
+      limit: 5,
+      permission: {},
+    })
+
+    expect(result.map((item) => item.id)).toEqual(["new"])
+  })
+
+  test("keeps newer live session data over stale list responses", () => {
+    const result = mergeRootSessionLoad({
+      directory: "/repo",
+      loadedAt: 2_000,
+      listed: [session({ id: "same", updated: 1_500 })],
+      current: [{ ...session({ id: "same", updated: 2_100 }), title: "new title" }],
+      limit: 5,
+      permission: {},
+    })
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.title).toBe("new title")
+  })
+
+  test("allows authoritative loads to remove old missing roots", () => {
+    const result = mergeRootSessionLoad({
+      directory: "/repo",
+      loadedAt: 2_000,
+      listed: [],
+      current: [session({ id: "old", updated: 1_500 })],
+      limit: 5,
+      permission: {},
+    })
+
+    expect(result).toEqual([])
   })
 })
 

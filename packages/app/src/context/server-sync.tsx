@@ -26,7 +26,11 @@ import {
 } from "./global-sync/bootstrap"
 import { createChildStoreManager } from "./global-sync/child-store"
 import { applyDirectoryEvent, applyGlobalEvent } from "./global-sync/event-reducer"
-import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
+import {
+  estimateRootSessionTotal,
+  loadRootSessionsWithFallback,
+  mergeRootSessionLoad,
+} from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
 import type { ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
@@ -273,6 +277,7 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
     }
 
     const limit = Math.max(retainedLimit + SESSION_RECENT_LIMIT, SESSION_RECENT_LIMIT)
+    const loadedAt = Date.now()
     const promise = queryClient
       .fetchQuery({
         ...queryOptionsApi.sessions(key),
@@ -283,13 +288,13 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
             list: (query) => serverSDK.client.session.list(query),
           })
             .then((x) => {
-              const nonArchived = (x.data ?? [])
-                .filter((s) => !!s?.id)
-                .filter((s) => !s.time?.archived)
-                .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+              const listed = (x.data ?? []).filter((s) => !!s?.id).filter((s) => !s.time?.archived)
               const limit = Math.max(store.limit, options?.limit ?? 0, sessionMeta.get(key)?.limit ?? 0)
-              const childSessions = store.session.filter((s) => !!s.parentID)
-              const next = trimSessions([...nonArchived, ...childSessions], {
+              const next = mergeRootSessionLoad({
+                directory,
+                loadedAt,
+                listed,
+                current: store.session,
                 limit,
                 permission: session.data.permission,
               })
@@ -297,11 +302,14 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
                 next.forEach(session.remember)
                 setStore(
                   "sessionTotal",
-                  estimateRootSessionTotal({
-                    count: nonArchived.length,
-                    limit: x.limit,
-                    limited: x.limited,
-                  }),
+                  Math.max(
+                    estimateRootSessionTotal({
+                      count: listed.length,
+                      limit: x.limit,
+                      limited: x.limited,
+                    }),
+                    next.filter((item) => !item.parentID).length,
+                  ),
                 )
                 setStore("session", reconcile(next, { key: "id" }))
               })
