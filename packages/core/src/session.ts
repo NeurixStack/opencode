@@ -1,7 +1,7 @@
 export * as SessionV2 from "./session"
 export * from "./session/schema"
 
-import { DateTime, Effect, Layer, Schema, Context, Stream, Scope } from "effect"
+import { DateTime, Effect, Exit, Layer, Schema, Context, Stream, Scope } from "effect"
 import { ListAnchor } from "@opencode-ai/schema/session"
 import { and, asc, desc, eq, gt, like, lt, or, type SQL } from "drizzle-orm"
 import { ProjectV2 } from "./project"
@@ -23,6 +23,7 @@ import { InstallationVersion } from "./installation/version"
 import { Slug } from "./util/slug"
 import { ProjectTable } from "./project/sql"
 import path from "path"
+import { fileURLToPath } from "url"
 import { fromRow } from "./session/info"
 import { SessionRunner } from "./session/runner/index"
 import { SessionStore } from "./session/store"
@@ -37,6 +38,7 @@ import { SessionCompaction } from "./session/compaction"
 import { SessionRevert } from "./session/revert"
 import { Revert } from "@opencode-ai/schema/revert"
 import { FSUtil } from "./fs-util"
+import { FileSystem } from "./filesystem"
 import { SessionDurable } from "@opencode-ai/schema/durable-event-manifest"
 import { SkillV2 } from "./skill"
 
@@ -419,7 +421,14 @@ export const layer = Layer.effect(
             // continues from the reverted boundary rather than stale post-boundary history.
             if (session.revert)
               yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
-            const prompt = resolvePrompt(input.prompt)
+            const hasFileURL = input.prompt.files?.some(
+              (file) => URL.canParse(file.uri) && new URL(file.uri).protocol === "file:",
+            )
+            const prompt = !input.prompt.files?.length
+              ? Prompt.make({ text: input.prompt.text, agents: input.prompt.agents })
+              : hasFileURL
+                ? yield* resolvePrompt(input.prompt).pipe(Effect.provide(locations.get(session.location)))
+                : resolveInlinePrompt(input.prompt)
             const messageID = input.id ?? SessionMessage.ID.create()
             const delivery = input.delivery ?? "steer"
             const expected = { sessionID: input.sessionID, messageID, prompt, delivery }
@@ -458,7 +467,9 @@ export const layer = Layer.effect(
           text: skill.content,
         })
         if (input.resume !== false)
-          yield* execution.resume(input.sessionID).pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
+          yield* execution
+            .resume(input.sessionID)
+            .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
       }),
       switchAgent: Effect.fn("V2Session.switchAgent")(function* (input) {
         yield* result.get(input.sessionID)
@@ -524,7 +535,9 @@ export const layer = Layer.effect(
           timestamp: yield* DateTime.now,
           text: input.text,
         })
-        yield* execution.resume(input.sessionID).pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
+        yield* execution
+          .resume(input.sessionID)
+          .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
       }),
       interrupt: Effect.fn("V2Session.interrupt")((sessionID) =>
         Effect.uninterruptible(execution.interrupt(sessionID)),
@@ -569,19 +582,231 @@ export const defaultLayer = layer.pipe(
   Layer.orDie,
 )
 
-const resolvePrompt = (input: PromptInput.Prompt) =>
-  Prompt.make({
-    text: input.text,
-    agents: input.agents,
-    files: input.files?.map((file) => {
-      const dataMime = file.uri.match(/^data:([^;,]+)[;,]/i)?.[1]
-      const target = URL.canParse(file.uri) ? new URL(file.uri).pathname : (file.name ?? file.uri)
-      return {
-        ...file,
-        mime: dataMime ?? (target.endsWith("/") ? "application/x-directory" : FSUtil.mimeType(target)),
-      }
-    }),
+const MAX_TEXT_ATTACHMENT_BYTES = 256 * 1024
+const MAX_DIRECTORY_ENTRIES = 200
+
+const textMime = (mime: string) =>
+  mime.startsWith("text/") ||
+  mime === "application/json" ||
+  mime === "application/xml" ||
+  mime === "application/yaml" ||
+  mime === "application/x-yaml" ||
+  mime === "application/toml" ||
+  mime === "application/x-toml" ||
+  mime.endsWith("+json") ||
+  mime.endsWith("+xml")
+
+const mediaMime = (mime: string) => mime.startsWith("image/") || mime === "application/pdf"
+
+const textExtensions = new Set([
+  ".c",
+  ".cc",
+  ".cpp",
+  ".css",
+  ".go",
+  ".html",
+  ".java",
+  ".js",
+  ".jsx",
+  ".json",
+  ".jsonc",
+  ".md",
+  ".mjs",
+  ".py",
+  ".rs",
+  ".sh",
+  ".sql",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".yaml",
+  ".yml",
+])
+
+const textFile = (filepath: string, mime: string) => textMime(mime) || textExtensions.has(path.extname(filepath))
+
+const dataMime = (uri: string) => uri.match(/^data:([^;,]+)[;,]/i)?.[1]?.toLowerCase()
+
+function decodeDataText(uri: string) {
+  const comma = uri.indexOf(",")
+  if (comma === -1) return ""
+  const header = uri.slice(0, comma).toLowerCase()
+  const data = uri.slice(comma + 1)
+  if (header.endsWith(";base64")) return Buffer.from(data, "base64").toString("utf8")
+  return decodeURIComponent(data)
+}
+
+function formatAttachmentText(input: { name?: string; uri: string; text: string; truncated?: boolean }) {
+  const title = input.name ?? input.uri
+  const suffix = input.truncated ? "\n[Attachment truncated]" : ""
+  return `<attachment name="${title}">\n${input.text}${suffix}\n</attachment>`
+}
+
+function selectedLines(text: string, url: URL) {
+  const start = url.searchParams.get("start")
+  if (start === null) return { text, truncated: text.length > MAX_TEXT_ATTACHMENT_BYTES }
+  const startLine = Math.max(parseInt(start), 1)
+  const end = url.searchParams.get("end")
+  const endLine = end === null ? startLine : Math.max(parseInt(end), startLine)
+  return {
+    text: text
+      .split("\n")
+      .slice(startLine - 1, endLine)
+      .join("\n"),
+    truncated: false,
+  }
+}
+
+function truncateAttachmentText(text: string, truncated: boolean) {
+  if (text.length <= MAX_TEXT_ATTACHMENT_BYTES) return { text, truncated }
+  return { text: text.slice(0, MAX_TEXT_ATTACHMENT_BYTES), truncated: true }
+}
+
+function attachmentError(input: { name?: string; uri: string; message: string }) {
+  return formatAttachmentText({
+    name: input.name,
+    uri: input.uri,
+    text: `[Unable to read attachment: ${input.message}]`,
   })
+}
+
+function resolveInlineFileAttachment(file: PromptInput.FileAttachment) {
+  const mime = dataMime(file.uri)
+  if (mime) {
+    if (textMime(mime)) {
+      return {
+        file: { ...file, mime },
+        text: formatAttachmentText({ name: file.name, uri: file.uri, text: decodeDataText(file.uri) }),
+      }
+    }
+    return { file: { ...file, mime } }
+  }
+  if (!URL.canParse(file.uri)) {
+    return {
+      file: { ...file, mime: "application/octet-stream" },
+      text: attachmentError({ name: file.name, uri: file.uri, message: "unsupported attachment URI" }),
+    }
+  }
+  const url = new URL(file.uri)
+  const target = url.pathname || file.name || file.uri
+  return { file: { ...file, mime: target.endsWith("/") ? "application/x-directory" : FSUtil.mimeType(target) } }
+}
+
+function resolveInlinePrompt(input: PromptInput.Prompt) {
+  const files = (input.files ?? []).map(resolveInlineFileAttachment)
+  return Prompt.make({
+    text: [input.text, ...files.flatMap((file) => (file.text ? [file.text] : []))].filter(Boolean).join("\n\n"),
+    agents: input.agents,
+    files: files.map((file) => file.file),
+  })
+}
+
+const resolveFileAttachment = Effect.fn("Session.resolveFileAttachment")(function* (file: PromptInput.FileAttachment) {
+  const mime = dataMime(file.uri)
+  if (mime) {
+    if (textMime(mime)) {
+      return {
+        file: { ...file, mime },
+        text: formatAttachmentText({ name: file.name, uri: file.uri, text: decodeDataText(file.uri) }),
+      }
+    }
+    return { file: { ...file, mime } }
+  }
+
+  if (!URL.canParse(file.uri)) {
+    return {
+      file: { ...file, mime: "application/octet-stream" },
+      text: attachmentError({ name: file.name, uri: file.uri, message: "unsupported attachment URI" }),
+    }
+  }
+
+  const url = new URL(file.uri)
+  if (url.protocol !== "file:") {
+    const target = url.pathname || file.name || file.uri
+    return { file: { ...file, mime: target.endsWith("/") ? "application/x-directory" : FSUtil.mimeType(target) } }
+  }
+
+  const location = yield* Location.Service
+  const filesystem = yield* FileSystem.Service
+  const filepath = fileURLToPath(url)
+  const relative = path.relative(location.directory, filepath)
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return {
+      file: { ...file, mime: FSUtil.mimeType(filepath) },
+      text: attachmentError({
+        name: file.name ?? filepath,
+        uri: file.uri,
+        message: "file is outside the session location",
+      }),
+    }
+  }
+
+  const target = RelativePath.make(relative.split(path.sep).join("/"))
+  const listed = yield* filesystem.list({ path: target }).pipe(Effect.exit)
+  if (Exit.isSuccess(listed)) {
+    const entries = listed.value
+    const visible = entries
+      .slice(0, MAX_DIRECTORY_ENTRIES)
+      .map((entry) => `${entry.path}${entry.type === "directory" ? "/" : ""}`)
+      .join("\n")
+    return {
+      file: { ...file, mime: "application/x-directory" },
+      text: formatAttachmentText({
+        name: file.name ?? filepath,
+        uri: file.uri,
+        text: visible || "[Directory is empty]",
+        truncated: entries.length > MAX_DIRECTORY_ENTRIES,
+      }),
+    }
+  }
+
+  const read = yield* filesystem.read({ path: target }).pipe(Effect.exit)
+  if (Exit.isFailure(read)) {
+    return {
+      file: { ...file, mime: FSUtil.mimeType(filepath) },
+      text: attachmentError({ name: file.name ?? filepath, uri: file.uri, message: "file not found" }),
+    }
+  }
+  const content = read.value
+
+  if (textFile(filepath, content.mime)) {
+    const selected = selectedLines(Buffer.from(content.content).toString("utf8"), url)
+    const truncated = truncateAttachmentText(selected.text, selected.truncated)
+    return {
+      file: { ...file, mime: "text/plain" },
+      text: formatAttachmentText({ name: file.name ?? filepath, uri: file.uri, ...truncated }),
+    }
+  }
+
+  if (mediaMime(content.mime)) {
+    return {
+      file: {
+        ...file,
+        uri: `data:${content.mime};base64,${Buffer.from(content.content).toString("base64")}`,
+        mime: content.mime,
+      },
+    }
+  }
+
+  return {
+    file: { ...file, mime: content.mime },
+    text: attachmentError({
+      name: file.name ?? filepath,
+      uri: file.uri,
+      message: `unsupported file type ${content.mime}`,
+    }),
+  }
+})
+
+const resolvePrompt = Effect.fn("Session.resolvePrompt")(function* (input: PromptInput.Prompt) {
+  const files = yield* Effect.forEach(input.files ?? [], resolveFileAttachment, { concurrency: "unbounded" })
+  return Prompt.make({
+    text: [input.text, ...files.flatMap((file) => (file.text ? [file.text] : []))].filter(Boolean).join("\n\n"),
+    agents: input.agents,
+    files: files.map((file) => file.file),
+  })
+})
 
 export const node = makeGlobalNode({
   service: Service,

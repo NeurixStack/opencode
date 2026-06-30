@@ -1,4 +1,8 @@
 import { describe, expect } from "bun:test"
+import { mkdir, mkdtemp, writeFile } from "fs/promises"
+import os from "os"
+import path from "path"
+import { pathToFileURL } from "url"
 import { DateTime, Effect, Fiber, Layer, Schema, Stream } from "effect"
 import { eq } from "drizzle-orm"
 import { Database } from "@opencode-ai/core/database/database"
@@ -88,6 +92,30 @@ const setup = Effect.gen(function* () {
     .pipe(Effect.orDie)
 })
 
+const setupSession = (input: { id: SessionV2.ID; directory: string }) =>
+  Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    yield* db
+      .insert(ProjectTable)
+      .values({ id: Project.ID.global, worktree: AbsolutePath.make(input.directory), sandboxes: [] })
+      .onConflictDoNothing()
+      .run()
+      .pipe(Effect.orDie)
+    yield* db
+      .insert(SessionTable)
+      .values({
+        id: input.id,
+        project_id: Project.ID.global,
+        slug: input.id,
+        directory: input.directory,
+        title: "test",
+        version: "test",
+      })
+      .onConflictDoNothing()
+      .run()
+      .pipe(Effect.orDie)
+  })
+
 const admitted = (id: SessionMessage.ID) => Database.Service.use(({ db }) => SessionInput.find(db, id))
 const admittedCount = Database.Service.use(({ db }) =>
   db
@@ -114,7 +142,11 @@ const eventCount = (type: string) =>
 
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
 const assistantRow = (id: SessionMessage.ID, seq: number) => {
-  const { id: _, type, ...data } = encodeMessage(
+  const {
+    id: _,
+    type,
+    ...data
+  } = encodeMessage(
     SessionMessage.Assistant.make({
       id,
       type: "assistant",
@@ -188,6 +220,85 @@ describe("SessionV2.prompt", () => {
         prompt: { text: "Fix the failing tests" },
         delivery: "steer",
       })
+    }),
+  )
+
+  it.effect("resolves tagged text files into durable prompt text", () =>
+    Effect.gen(function* () {
+      const dir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "opencode-prompt-")))
+      const file = path.join(dir, "src", "example.ts")
+      yield* Effect.promise(() => mkdir(path.dirname(file), { recursive: true }))
+      yield* Effect.promise(() => writeFile(file, ["one", "two", "three"].join("\n")))
+      const id = SessionV2.ID.make("ses_prompt_file")
+      yield* setupSession({ id, directory: dir })
+      const session = yield* SessionV2.Service
+
+      const message = yield* session.prompt({
+        sessionID: id,
+        prompt: {
+          text: "explain this",
+          files: [
+            {
+              uri: `${pathToFileURL(file).href}?start=2&end=3`,
+              name: "src/example.ts#2-3",
+              source: { start: 13, end: 29, text: "@src/example.ts#2-3" },
+            },
+          ],
+        },
+        resume: false,
+      })
+
+      expect(message.prompt.text).toContain("explain this")
+      expect(message.prompt.text).toContain('<attachment name="src/example.ts#2-3">')
+      expect(message.prompt.text).toContain("two\nthree")
+      expect(message.prompt.files?.[0]?.mime).toBe("text/plain")
+      expect(message.prompt.files?.[0]?.source?.text).toBe("@src/example.ts#2-3")
+    }),
+  )
+
+  it.effect("resolves tagged directories into durable prompt text", () =>
+    Effect.gen(function* () {
+      const dir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "opencode-prompt-dir-")))
+      yield* Effect.promise(() => mkdir(path.join(dir, "src", "nested"), { recursive: true }))
+      yield* Effect.promise(() => writeFile(path.join(dir, "src", "index.ts"), "export {}"))
+      const id = SessionV2.ID.make("ses_prompt_directory")
+      yield* setupSession({ id, directory: dir })
+      const session = yield* SessionV2.Service
+
+      const message = yield* session.prompt({
+        sessionID: id,
+        prompt: {
+          text: "inspect directory",
+          files: [{ uri: pathToFileURL(path.join(dir, "src")).href, name: "src/" }],
+        },
+        resume: false,
+      })
+
+      expect(message.prompt.text).toContain('<attachment name="src/">')
+      expect(message.prompt.text).toContain("index.ts")
+      expect(message.prompt.text).toContain("nested/")
+      expect(message.prompt.files?.[0]?.mime).toBe("application/x-directory")
+    }),
+  )
+
+  it.effect("materializes local media attachments as data urls", () =>
+    Effect.gen(function* () {
+      const dir = yield* Effect.promise(() => mkdtemp(path.join(os.tmpdir(), "opencode-prompt-image-")))
+      const file = path.join(dir, "pixel.png")
+      yield* Effect.promise(() => writeFile(file, Buffer.from("iVBORw0KGgo=", "base64")))
+      const id = SessionV2.ID.make("ses_prompt_media")
+      yield* setupSession({ id, directory: dir })
+      const session = yield* SessionV2.Service
+
+      const message = yield* session.prompt({
+        sessionID: id,
+        prompt: { text: "look", files: [{ uri: pathToFileURL(file).href, name: "pixel.png" }] },
+        resume: false,
+      })
+
+      expect(message.prompt.text).toBe("look")
+      expect(message.prompt.files?.[0]?.mime).toBe("image/png")
+      expect(message.prompt.files?.[0]?.uri.startsWith("data:image/png;base64,")).toBe(true)
     }),
   )
 
