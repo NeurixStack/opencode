@@ -8,7 +8,7 @@ import { useBindings, useCommandShortcut } from "../keymap"
 
 export type DialogPromptProps = {
   title: string
-  description?: () => JSX.Element
+  description?: JSX.Element | (() => JSX.Element)
   placeholder?: string
   value?: string
   busy?: boolean
@@ -24,6 +24,11 @@ export function DialogPrompt(props: DialogPromptProps) {
   const submitShortcut = useCommandShortcut("dialog.prompt.submit")
   const [textareaTarget, setTextareaTarget] = createSignal<TextareaRenderable>()
   let textarea: TextareaRenderable
+
+  const description = () => {
+    if (typeof props.description === "function") return props.description()
+    return props.description
+  }
 
   function confirm() {
     if (props.busy) return
@@ -83,7 +88,7 @@ export function DialogPrompt(props: DialogPromptProps) {
         </text>
       </box>
       <box gap={1}>
-        {props.description}
+        {description()}
         <textarea
           height={3}
           ref={(val: TextareaRenderable) => {
