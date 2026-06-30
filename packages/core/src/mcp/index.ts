@@ -268,7 +268,6 @@ export const layer = Layer.effect(
           Effect.all(
             [
               events.publish(McpEvent.ToolsChanged, { server: name }),
-              events.publish(McpEvent.PromptsChanged, { server: name }),
               events.publish(McpEvent.ResourcesChanged, { server: name }),
             ],
             { discard: true },
@@ -283,9 +282,6 @@ export const layer = Layer.effect(
             Effect.ignore,
           ),
         )
-      })
-      connection.onPromptsChanged(() => {
-        fork(events.publish(McpEvent.PromptsChanged, { server: name }).pipe(Effect.ignore))
       })
       connection.onResourcesChanged(() => {
         fork(events.publish(McpEvent.ResourcesChanged, { server: name }).pipe(Effect.ignore))

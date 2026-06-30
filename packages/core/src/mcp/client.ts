@@ -13,7 +13,6 @@ import {
   ListToolsResultSchema,
   type LoggingMessageNotification,
   LoggingMessageNotificationSchema,
-  PromptListChangedNotificationSchema,
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
   ToolSchema,
@@ -108,8 +107,6 @@ export interface Connection {
   readonly onLog: (callback: (message: LogMessage) => void) => void
   /** Registers a callback fired when the server announces its tool list changed; no-op if unsupported. */
   readonly onToolsChanged: (callback: () => void) => void
-  /** Registers a callback fired when the server announces its prompt list changed; no-op if unsupported. */
-  readonly onPromptsChanged: (callback: () => void) => void
   /** Registers a callback fired when the server announces its resource list changed; no-op if unsupported. */
   readonly onResourcesChanged: (callback: () => void) => void
 }
@@ -272,10 +269,6 @@ export const connect = Effect.fnUntraced(function* (
       onToolsChanged: (callback) => {
         if (!client.getServerCapabilities()?.tools?.listChanged) return
         client.setNotificationHandler(ToolListChangedNotificationSchema, async () => callback())
-      },
-      onPromptsChanged: (callback) => {
-        if (!client.getServerCapabilities()?.prompts?.listChanged) return
-        client.setNotificationHandler(PromptListChangedNotificationSchema, async () => callback())
       },
       onResourcesChanged: (callback) => {
         if (!client.getServerCapabilities()?.resources?.listChanged) return
