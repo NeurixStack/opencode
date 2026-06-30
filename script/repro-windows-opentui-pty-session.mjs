@@ -2,6 +2,7 @@ import { createRequire } from "node:module"
 import { createServer } from "node:http"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { setTimeout as delay } from "node:timers/promises"
 
 const require = createRequire(join(process.cwd(), "pty-harness.cjs"))
@@ -35,6 +36,66 @@ let exitSignal = undefined
 let permissionSubmitted = false
 let toolCallSent = false
 
+function writeMcpStubPackage() {
+  const stubDir = join(project, "mcp-stub-package")
+  const binDir = join(stubDir, "bin")
+  mkdirSync(binDir, { recursive: true })
+  writeFileSync(
+    join(stubDir, "package.json"),
+    JSON.stringify(
+      {
+        name: "opencode-mcp-stub",
+        version: "1.0.0",
+        type: "module",
+        bin: { "opencode-mcp-stub": "./bin/opencode-mcp-stub.mjs" },
+      },
+      null,
+      2,
+    ) + "\n",
+  )
+  writeFileSync(
+    join(binDir, "opencode-mcp-stub.mjs"),
+    `#!/usr/bin/env node
+const idArg = process.argv.indexOf("--id")
+const id = idArg === -1 ? "server" : process.argv[idArg + 1]
+let buffer = ""
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n")
+}
+function result(request, result) {
+  send({ jsonrpc: "2.0", id: request.id, result })
+}
+process.stdin.setEncoding("utf8")
+process.stdin.on("data", (chunk) => {
+  buffer += chunk
+  while (true) {
+    const index = buffer.indexOf("\\n")
+    if (index === -1) return
+    const line = buffer.slice(0, index).trim()
+    buffer = buffer.slice(index + 1)
+    if (!line) continue
+    const request = JSON.parse(line)
+    if (request.method === "initialize") {
+      result(request, { protocolVersion: request.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: id, version: "1.0.0" } })
+      continue
+    }
+    if (request.method === "tools/list") {
+      result(request, { tools: [{ name: "ping", description: "Return a deterministic response", inputSchema: { type: "object", properties: {}, additionalProperties: false } }] })
+      continue
+    }
+    if (request.method === "tools/call") {
+      result(request, { content: [{ type: "text", text: id + " pong" }] })
+      continue
+    }
+    if (request.id !== undefined) result(request, {})
+  }
+})
+setInterval(() => {}, 1000)
+`,
+  )
+  return pathToFileURL(stubDir).href
+}
+
 mkdirSync(project, { recursive: true })
 
 function appendOutput(text) {
@@ -59,6 +120,10 @@ function responseText() {
 
   if (scenario.startsWith("task-")) {
     return "The subagent task completed and returned control to the parent session."
+  }
+
+  if (scenario === "mcp-npx") {
+    return "The MCP npx spawn storm initialized and the session completed."
   }
 
   if (scenario === "markdown") {
@@ -233,6 +298,18 @@ const server = createServer(async (req, res) => {
 await new Promise((resolveListen) => server.listen(0, "127.0.0.1", resolveListen))
 const { port } = server.address()
 const baseURL = `http://127.0.0.1:${port}/v1`
+const mcpPackageUrl = scenario === "mcp-npx" ? writeMcpStubPackage() : undefined
+const mcpServers = {}
+if (mcpPackageUrl) {
+  for (let index = 1; index <= 12; index++) {
+    const id = `server${String(index).padStart(2, "0")}`
+    mcpServers[id] = {
+      type: "local",
+      command: ["npx", "-y", mcpPackageUrl, "--id", id],
+      timeout: 15000,
+    }
+  }
+}
 
 writeFileSync(
   join(project, "opencode.json"),
@@ -240,6 +317,7 @@ writeFileSync(
     {
       $schema: "https://opencode.ai/config.json",
       autoupdate: false,
+      ...(mcpPackageUrl ? { mcp: mcpServers } : {}),
       enabled_providers: ["test"],
       provider: {
         test: {
@@ -271,6 +349,7 @@ writeFileSync(
 )
 
 console.log(`scenario=${scenario}`)
+if (mcpPackageUrl) console.log(`mcp package=${mcpPackageUrl}`)
 console.log(`fake provider baseURL=${baseURL}`)
 console.log(`pty output log=${outputFile}`)
 console.log(`provider requests log=${requestsFile}`)
