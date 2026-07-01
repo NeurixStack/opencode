@@ -228,8 +228,6 @@ export async function createRuntimeLifecycle(input: LifecycleInput): Promise<Lif
     const { RunFooter } = await footerTask
     let closed = false
     let sigintRegistered = false
-    let simulation: { readonly url: string; readonly stop: () => void } | undefined
-
     const footer = new RunFooter(renderer, {
       directory: input.directory,
       findFiles: input.findFiles,
@@ -278,13 +276,6 @@ export async function createRuntimeLifecycle(input: LifecycleInput): Promise<Lif
       },
       onSubagentSelect: input.onSubagentSelect,
     })
-
-    if (process.env.OPENCODE_SIMULATION === "1" || process.env.OPENCODE_SIMULATION === "true") {
-      const { SimulationActions } = await import("@/testing/simulation/actions")
-      const { SimulationServer } = await import("@/testing/simulation/server")
-      simulation = SimulationServer.start(SimulationActions.createHarness(renderer))
-      if (simulation) process.stderr.write(`opencode simulation websocket: ${simulation.url}\n`)
-    }
 
     const sigint = () => {
       footer.requestExit()
@@ -346,8 +337,6 @@ export async function createRuntimeLifecycle(input: LifecycleInput): Promise<Lif
           await renderer.idle().catch(() => {})
         }
       } finally {
-        simulation?.stop()
-        simulation = undefined
         footer.close()
         await footer.idle().catch(() => {})
         footer.destroy()
