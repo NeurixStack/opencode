@@ -208,4 +208,5 @@ describe("persist localStorage resilience", () => {
   test("server global target cannot collide when scope and key contain colons", () => {
     expect(Persist.serverGlobal("a:b" as ServerScope, "c")).not.toEqual(Persist.serverGlobal("a" as ServerScope, "b:c"))
   })
+
 })

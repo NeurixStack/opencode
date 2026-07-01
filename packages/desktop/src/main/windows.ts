@@ -12,6 +12,7 @@ import { exportDebugLogs, write as writeLog } from "./logging"
 import { getStore } from "./store"
 import { PINCH_ZOOM_ENABLED_KEY, WINDOW_IDS_KEY } from "./store-keys"
 import { createUnresponsiveSampler } from "./unresponsive"
+import { nextWindowIDsAfterClosed } from "./windows-lifecycle"
 
 const root = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = join(root, "../renderer")
@@ -243,8 +244,14 @@ function persistWindowID(id: string) {
 }
 
 function removeWindowID(id: string) {
-  writeWindowIDs(readWindowIDs().filter((item) => item !== id))
-  rmSync(join(app.getPath("userData"), windowStateFile(id)), { force: true })
+  const next = nextWindowIDsAfterClosed({
+    ids: readWindowIDs(),
+    closed: id,
+    remaining: windowsByID.size,
+    appQuitting,
+  })
+  writeWindowIDs(next)
+  if (!next.includes(id)) rmSync(join(app.getPath("userData"), windowStateFile(id)), { force: true })
 }
 
 function windowStateFile(id: string) {
