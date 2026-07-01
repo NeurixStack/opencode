@@ -118,7 +118,6 @@ export function createSessionRows(sessionID: Accessor<string>) {
   const subscriptions = [
     data.on("session.next.prompted", message),
     data.on("session.next.context.updated", message),
-    data.on("session.next.synthetic", message),
     data.on("session.next.shell.started", message),
     data.on("session.next.agent.switched", message),
     data.on("session.next.model.switched", message),
@@ -158,6 +157,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
 
 export function reduceSessionRows(messages: SessionMessage[]) {
   return messages.reduce<SessionRow[]>((rows, message) => {
+    if (message.type === "synthetic") return rows
     if (message.type !== "assistant") {
       completePrevious(rows)
       rows.push({ type: "message", messageID: message.id })

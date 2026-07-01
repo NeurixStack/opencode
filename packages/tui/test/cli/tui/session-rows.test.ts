@@ -62,6 +62,25 @@ test("keeps non-exploration tools as individual part rows", () => {
   ])
 })
 
+test("skips synthetic context messages", () => {
+  const messages: SessionMessage[] = [
+    { type: "user", id: "user-1", text: "Run background shell", time: { created: 0 } },
+    assistant("assistant-1", [{ type: "tool", id: "shell-1", name: "shell", state: pending(), time: { created: 1 } }]),
+    {
+      type: "synthetic",
+      id: "synthetic-1",
+      sessionID: "ses_1",
+      text: "Shell command completed.\n\nOutput:\nok",
+      time: { created: 2 },
+    },
+  ]
+
+  expect(reduceSessionRows(messages)).toEqual([
+    { type: "message", messageID: "user-1" },
+    { type: "part", ref: { messageID: "assistant-1", partID: "shell-1" } },
+  ])
+})
+
 test("groups across empty assistant reasoning parts", () => {
   const messages: SessionMessage[] = [
     assistant("assistant-1", [
