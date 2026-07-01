@@ -241,6 +241,13 @@ export function Session() {
   const sdk = useSDK()
   const editor = useEditorContext()
   const rows = createSessionRows(() => route.sessionID)
+  const [optimisticPrompts, setOptimisticPrompts] = createSignal<SessionMessageUser[]>([])
+  const visibleOptimisticPrompts = createMemo(() => {
+    const ids = new Set(messageIDs())
+    return optimisticPrompts().filter((message) => !ids.has(message.id))
+  })
+
+  createEffect(on(() => route.sessionID, () => setOptimisticPrompts([])))
 
   createEffect(
     on(descendantSessionIDs, (sessionIDs) => {
@@ -920,6 +927,13 @@ export function Session() {
                     />
                   )}
                 </For>
+                <For each={visibleOptimisticPrompts()}>
+                  {(message) => (
+                    <box marginTop={1} flexShrink={0}>
+                      <UserMessage message={message} optimistic={true} />
+                    </box>
+                  )}
+                </For>
                 <Show when={session()?.revert?.messageID}>
                   <RevertMessage
                     count={
@@ -960,7 +974,12 @@ export function Session() {
                         visible={true}
                         ref={bind}
                         disabled={false}
-                        onSubmit={() => {
+                        onSubmit={(message) => {
+                          if (message)
+                            setOptimisticPrompts((messages) => [
+                              ...messages.filter((item) => item.id !== message.id),
+                              message,
+                            ])
                           toBottom()
                         }}
                         sessionID={route.sessionID}
@@ -1317,7 +1336,7 @@ function RevertMessage(props: {
   )
 }
 
-function UserMessage(props: { message: SessionMessageUser }) {
+function UserMessage(props: { message: SessionMessageUser; optimistic?: boolean }) {
   const ctx = use()
   const local = useLocal()
   const files = createMemo(() => props.message.files ?? [])
@@ -1343,6 +1362,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
             setHover(false)
           }}
           onMouseUp={() => {
+            if (props.optimistic) return
             if (renderer.getSelection()?.getSelectedText()) return
             dialog.replace(() => <DialogMessage messageID={props.message.id} sessionID={ctx.sessionID} />)
           }}
@@ -1353,6 +1373,9 @@ function UserMessage(props: { message: SessionMessageUser }) {
           flexShrink={0}
         >
           <text fg={theme.text}>{props.message.text}</text>
+          <Show when={props.optimistic}>
+            <text fg={theme.textMuted}>optimistic prompt</text>
+          </Show>
           <Show when={files().length}>
             <box
               flexDirection="row"

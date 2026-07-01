@@ -37,7 +37,7 @@ import { usePromptStash } from "../../prompt/stash"
 import { DialogStash } from "../dialog-stash"
 import { type AutocompleteRef, Autocomplete } from "./autocomplete"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
-import type { AssistantMessage, FilePart, SessionV2Info, UserMessage } from "@opencode-ai/sdk/v2"
+import type { AssistantMessage, FilePart, SessionMessageUser, SessionV2Info, UserMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "../../util/locale"
 import { errorMessage } from "../../util/error"
 import { createColors, createFrames } from "../../ui/spinner"
@@ -62,7 +62,7 @@ export type PromptProps = {
   sessionID?: string
   visible?: boolean
   disabled?: boolean
-  onSubmit?: () => void
+  onSubmit?: (message?: SessionMessageUser) => void
   ref?: (ref: PromptRef | undefined) => void
   hint?: JSX.Element
   right?: JSX.Element
@@ -1077,6 +1077,7 @@ export function Prompt(props: PromptProps) {
           ]
         : []
 
+    let submittedUserMessage: SessionMessageUser | undefined
     if (store.mode === "shell") {
       move.startSubmit()
       void sdk.client.session.shell({
@@ -1152,7 +1153,7 @@ export function Prompt(props: PromptProps) {
           return false
         }
       }
-      const error = await sdk.api.session
+      const admitted = await sdk.api.session
         .prompt({
           sessionID,
           prompt: {
@@ -1189,14 +1190,22 @@ export function Prompt(props: PromptProps) {
           },
         })
         .then(
-          () => undefined,
-          (error) => error,
+          (result) => result,
+          (error) => {
+            toast.show({ title: "Failed to send prompt", message: errorMessage(error), variant: "error" })
+            return undefined
+          },
         )
-      if (error) {
-        toast.show({ title: "Failed to send prompt", message: errorMessage(error), variant: "error" })
-        return false
-      }
+      if (!admitted) return false
       if (editorParts.length > 0) editor.markSelectionSent()
+      submittedUserMessage = {
+        id: admitted.id,
+        type: "user",
+        text: admitted.prompt.text,
+        files: admitted.prompt.files ? [...admitted.prompt.files] : undefined,
+        agents: admitted.prompt.agents ? [...admitted.prompt.agents] : undefined,
+        time: { created: admitted.timeCreated },
+      }
     }
     history.append({
       ...store.prompt,
@@ -1208,7 +1217,7 @@ export function Prompt(props: PromptProps) {
       parts: [],
     })
     setStore("extmarkToPartIndex", new Map())
-    props.onSubmit?.()
+    props.onSubmit?.(submittedUserMessage)
 
     // temporary hack to make sure the message is sent
     if (!props.sessionID) {
