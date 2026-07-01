@@ -3069,7 +3069,7 @@ describe("ProviderTransform.variants", () => {
     )
     expect(Object.keys(result)).toEqual(["high", "max"])
     expect(result.high).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 16000 } })
-    expect(result.max).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 32768 } })
+    expect(result.max).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 31999 } })
   })
 
   test("reasoning_options ignore toggle-only models", () => {
@@ -3304,7 +3304,7 @@ describe("ProviderTransform.variants", () => {
       )
       expect(result).toEqual({
         high: { reasoning: { max_tokens: 16_000 } },
-        max: { reasoning: { max_tokens: 63_999 } },
+        max: { reasoning: { max_tokens: 31_999 } },
       })
     })
   })
@@ -3361,7 +3361,7 @@ describe("ProviderTransform.variants", () => {
       )
       expect(Object.keys(result)).toEqual(["high", "max"])
       expect(result.high).toEqual({ thinking: { type: "enabled", budgetTokens: 16_000 } })
-      expect(result.max).toEqual({ thinking: { type: "enabled", budgetTokens: 32_768 } })
+      expect(result.max).toEqual({ thinking: { type: "enabled", budgetTokens: 31_999 } })
     })
 
     test("uses reasoning_options budget tokens for Google variants", () => {
@@ -3379,7 +3379,7 @@ describe("ProviderTransform.variants", () => {
       )
       expect(Object.keys(result)).toEqual(["high", "max"])
       expect(result.high).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 16_000 } })
-      expect(result.max).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 32_768 } })
+      expect(result.max).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 31_999 } })
     })
 
     test("uses reasoning_options effort for Google thinkingConfig variants", () => {
@@ -3873,7 +3873,7 @@ describe("ProviderTransform.variants", () => {
           apiId: "gemini-2.5-pro",
           efforts: ["high", "max"],
           expectedHigh: { thinkingConfig: { includeThoughts: true, thinkingBudget: 16_000 } },
-          expectedMax: { thinkingConfig: { includeThoughts: true, thinkingBudget: 32_768 } },
+          expectedMax: { thinkingConfig: { includeThoughts: true, thinkingBudget: 31_999 } },
         },
         {
           apiId: "gemini-2.5-flash",

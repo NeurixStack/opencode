@@ -611,9 +611,9 @@ function reasoningOption<T extends ReasoningOption["type"]>(
 function reasoningBudgetVariants(
   budget: ReasoningBudgetOption,
   make: (budgetTokens: number) => Record<string, any>,
-  output: number,
+  model: Provider.Model,
 ) {
-  const max = Math.max(1, Math.min(budget.max ?? 31_999, (output || OUTPUT_TOKEN_MAX) - 1))
+  const max = Math.max(1, Math.min(budget.max ?? 31_999, maxOutputTokens(model) - 1))
   const min = Math.min(budget.min ?? 1, max)
   return {
     high: make(Math.max(min, Math.min(16_000, max))),
@@ -758,35 +758,35 @@ function reasoningOptionVariants(model: Provider.Model): Record<string, Record<s
 
   switch (model.api.npm) {
     case "@openrouter/ai-sdk-provider":
-      return reasoningBudgetVariants(budget, (max_tokens) => ({ reasoning: { max_tokens } }), model.limit.output)
+      return reasoningBudgetVariants(budget, (max_tokens) => ({ reasoning: { max_tokens } }), model)
 
     case "@ai-sdk/gateway":
       if (idIncludes(model, "anthropic")) {
         return reasoningBudgetVariants(
           budget,
           (budgetTokens) => ({ thinking: { type: "enabled", budgetTokens } }),
-          model.limit.output,
+          model,
         )
       }
       if (idIncludes(model, "google")) {
         return reasoningBudgetVariants(
           budget,
           (thinkingBudget) => ({ thinkingConfig: { includeThoughts: true, thinkingBudget } }),
-          model.limit.output,
+          model,
         )
       }
       break
 
     case "@ai-sdk/anthropic":
     case "@ai-sdk/google-vertex/anthropic":
-      return reasoningBudgetVariants(budget, (budgetTokens) => ({ thinking: { type: "enabled", budgetTokens } }), model.limit.output)
+      return reasoningBudgetVariants(budget, (budgetTokens) => ({ thinking: { type: "enabled", budgetTokens } }), model)
 
     case "@ai-sdk/amazon-bedrock":
       if (model.api.id.includes("anthropic")) {
         return reasoningBudgetVariants(
           budget,
           (budgetTokens) => ({ reasoningConfig: { type: "enabled", budgetTokens } }),
-          model.limit.output,
+          model,
         )
       }
       break
@@ -796,13 +796,13 @@ function reasoningOptionVariants(model: Provider.Model): Record<string, Record<s
       return reasoningBudgetVariants(
         budget,
         (thinkingBudget) => ({ thinkingConfig: { includeThoughts: true, thinkingBudget } }),
-        model.limit.output,
+        model,
       )
 
     case "@jerome-benoit/sap-ai-provider-v2":
       if (model.api.id.includes("anthropic")) {
         return wrapInSapModelParams(
-          reasoningBudgetVariants(budget, (budget_tokens) => ({ thinking: { type: "enabled", budget_tokens } }), model.limit.output),
+          reasoningBudgetVariants(budget, (budget_tokens) => ({ thinking: { type: "enabled", budget_tokens } }), model),
         )
       }
       break
