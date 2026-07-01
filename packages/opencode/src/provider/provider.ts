@@ -1186,11 +1186,37 @@ function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
   return result
 }
 
+type ReasoningOption = NonNullable<Model["reasoning_options"]>[number]
+
 function reasoningOptions(model: ModelsDev.Model): Model["reasoning_options"] {
-  return model.reasoning_options?.map((option) => {
-    if (option.type === "effort") return { ...option, values: [...option.values] }
-    return { ...option }
+  if (!Array.isArray(model.reasoning_options)) return undefined
+  const normalized = model.reasoning_options.flatMap((option) => {
+    const normalized = normalizeReasoningOption(option)
+    return normalized ? [normalized] : []
   })
+  return normalized.length > 0 || model.reasoning_options.length === 0 ? normalized : undefined
+}
+
+function normalizeReasoningOption(option: unknown): ReasoningOption | undefined {
+  if (!isRecord(option) || typeof option.type !== "string") return undefined
+  if (option.type === "effort") {
+    if (!Array.isArray(option.values)) return undefined
+    return {
+      type: "effort",
+      values: option.values.filter((value): value is string | null => value === null || typeof value === "string"),
+    }
+  }
+  if (option.type === "toggle") return { type: "toggle" }
+  if (option.type === "budget_tokens") {
+    const min = typeof option.min === "number" && Number.isFinite(option.min) ? option.min : undefined
+    const max = typeof option.max === "number" && Number.isFinite(option.max) ? option.max : undefined
+    return {
+      type: "budget_tokens",
+      ...(min === undefined ? {} : { min }),
+      ...(max === undefined ? {} : { max }),
+    }
+  }
+  return undefined
 }
 
 function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model): Model {

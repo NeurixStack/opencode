@@ -1450,6 +1450,55 @@ test("models.dev normalization preserves reasoning options for variant generatio
   expect(model.variants!.xhigh).toEqual({ reasoningEffort: "xhigh" })
 })
 
+test("models.dev normalization ignores unknown reasoning options and passes new effort strings", () => {
+  const provider = {
+    id: "custom",
+    name: "Custom",
+    env: [],
+    npm: "@ai-sdk/openai-compatible",
+    models: {
+      reasoner: {
+        id: "reasoner",
+        name: "Reasoner",
+        reasoning: true,
+        reasoning_options: [
+          { type: "future_control", values: ["turbo"] },
+          { type: "effort", values: ["turbo", 123, null] },
+          { type: "budget_tokens", min: "1024", max: 16_000 },
+          "invalid",
+        ],
+        cost: { input: 1, output: 2 },
+        limit: { context: 128_000, output: 32_000 },
+      },
+      changed: {
+        id: "changed",
+        name: "Changed",
+        reasoning: true,
+        reasoning_options: { type: "effort", values: ["turbo"] },
+        cost: { input: 1, output: 2 },
+        limit: { context: 128_000, output: 32_000 },
+      },
+      future: {
+        id: "future",
+        name: "Future",
+        reasoning: true,
+        reasoning_options: [{ type: "future_control", values: ["turbo"] }],
+        cost: { input: 1, output: 2 },
+        limit: { context: 128_000, output: 32_000 },
+      },
+    },
+  } as unknown as ModelsDev.Provider
+
+  const models = Provider.fromModelsDevProvider(provider).models
+  expect(models.reasoner.reasoning_options).toEqual([
+    { type: "effort", values: ["turbo", null] },
+    { type: "budget_tokens", max: 16_000 },
+  ])
+  expect(models.reasoner.variants).toEqual({ turbo: { reasoningEffort: "turbo" } })
+  expect(models.changed.reasoning_options).toBeUndefined()
+  expect(models.future.reasoning_options).toBeUndefined()
+})
+
 it.instance("model variants are generated for reasoning models", () =>
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")
