@@ -50,20 +50,17 @@ export function createRoutes(password?: string) {
 }
 
 export function createEmbeddedRoutes(sdkPlugins?: SdkPlugins.Store) {
-  return makeRoutes(ServerAuth.Config.layer({ username: "opencode", password: Option.none() }), sdkPlugins)
+  return makeRoutes(ServerAuth.Config.configLayer({ username: "opencode", password: Option.none() }), sdkPlugins)
 }
 
 function makeRoutes<AuthError, AuthServices>(
   auth: Layer.Layer<ServerAuth.Config, AuthError, AuthServices>,
   sdkPlugins?: SdkPlugins.Store,
 ) {
-  const pluginRuntimeCell = PluginRuntime.makeCell()
   const serviceLayer = AppNodeBuilder.build(
     applicationServices,
     [
       [SessionExecution.node, SessionExecutionLocal.node],
-      [PluginRuntime.node, PluginRuntime.layerWithCell(pluginRuntimeCell)],
-      [PluginRuntime.providerNode, PluginRuntime.providerLayerWithCell(pluginRuntimeCell)],
       ...(sdkPlugins ? [[SdkPlugins.node, SdkPlugins.layerWithStore(sdkPlugins)] as const] : []),
     ],
   )

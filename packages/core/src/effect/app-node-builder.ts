@@ -1,16 +1,21 @@
 import { buildLocationServiceMap } from "../location-services"
 import { LocationServiceMap } from "../location-service-map"
+import { PluginRuntime } from "../plugin/runtime"
 import { LayerNode } from "./layer-node"
 import { makeGlobalNode } from "./app-node"
 
 export function build<A, E>(root: LayerNode.Node<A, E, any>, replacements: LayerNode.Replacements = []) {
-  let allReplacements = replacements
+  const bridge = PluginRuntime.makeBridge()
+  let allReplacements = replacements.concat([
+    [PluginRuntime.node, PluginRuntime.nodeWithBridge(bridge)],
+    [PluginRuntime.providerNode, PluginRuntime.providerNodeWithBridge(bridge)],
+  ])
 
   // Only build the location service map if it's actually needed
-  if (LayerNode.hasUnbound(root, LocationServiceMap.node) && !hasReplacement(replacements, LocationServiceMap.node)) {
-    const locationMap = buildLocationServiceMap(replacements)
+  if (LayerNode.hasUnbound(root, LocationServiceMap.node) && !hasReplacement(allReplacements, LocationServiceMap.node)) {
+    const locationMap = buildLocationServiceMap(allReplacements)
     const locationMapNode = makeGlobalNode({ service: LocationServiceMap.Service, layer: locationMap, deps: [] })
-    allReplacements = replacements.concat([[LocationServiceMap.node, locationMapNode]])
+    allReplacements = allReplacements.concat([[LocationServiceMap.node, locationMapNode]])
   }
 
   return LayerNode.compile(root, allReplacements)

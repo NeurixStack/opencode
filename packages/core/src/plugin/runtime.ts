@@ -1,6 +1,6 @@
 export * as PluginRuntime from "./runtime"
 
-import { Context, Effect, Layer } from "effect"
+import { Context, Deferred, Effect, Layer } from "effect"
 import { AgentV2 } from "../agent"
 import { makeGlobalNode } from "../effect/app-node"
 import { Job } from "../job"
@@ -25,51 +25,44 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/PluginRuntime") {}
 
-export interface Cell {
-  runtime?: Interface
+export interface Bridge {
+  runtime: Deferred.Deferred<Interface>
 }
 
-export const makeCell = (): Cell => ({})
+export const makeBridge = (): Bridge => ({ runtime: Deferred.makeUnsafe<Interface>() })
 
-const unavailable = <A, E, R>() => Effect.die("Plugin runtime is unavailable") as Effect.Effect<A, E, R>
-const require = <A, E, R>(cell: Cell, f: (runtime: Interface) => Effect.Effect<A, E, R>) =>
-  Effect.suspend(() => {
-    const runtime = cell.runtime
-    if (runtime === undefined) return unavailable<A, E, R>()
-    return f(runtime)
-  })
+const require = <A, E, R>(bridge: Bridge, f: (runtime: Interface) => Effect.Effect<A, E, R>) =>
+  Effect.suspend(() => Deferred.await(bridge.runtime).pipe(Effect.flatMap(f)))
 
-const defaultCell = makeCell()
-
-export const layerWithCell = (cell: Cell) =>
+export const layerWithBridge = (bridge: Bridge) =>
   Layer.succeed(
     Service,
     Service.of({
       session: {
-        get: (sessionID) => require(cell, (runtime) => runtime.session.get(sessionID)),
-        create: (input) => require(cell, (runtime) => runtime.session.create(input)),
-        messages: (input) => require(cell, (runtime) => runtime.session.messages(input)),
-        prompt: (input) => require(cell, (runtime) => runtime.session.prompt(input)),
-        resume: (sessionID) => require(cell, (runtime) => runtime.session.resume(sessionID)),
-        interrupt: (sessionID) => require(cell, (runtime) => runtime.session.interrupt(sessionID)),
-        synthetic: (input) => require(cell, (runtime) => runtime.session.synthetic(input)),
+        get: (sessionID) => require(bridge, (runtime) => runtime.session.get(sessionID)),
+        create: (input) => require(bridge, (runtime) => runtime.session.create(input)),
+        messages: (input) => require(bridge, (runtime) => runtime.session.messages(input)),
+        prompt: (input) => require(bridge, (runtime) => runtime.session.prompt(input)),
+        resume: (sessionID) => require(bridge, (runtime) => runtime.session.resume(sessionID)),
+        interrupt: (sessionID) => require(bridge, (runtime) => runtime.session.interrupt(sessionID)),
+        synthetic: (input) => require(bridge, (runtime) => runtime.session.synthetic(input)),
       },
       job: {
-        start: (input) => require(cell, (runtime) => runtime.job.start(input)),
-        wait: (input) => require(cell, (runtime) => runtime.job.wait(input)),
-        block: (input) => require(cell, (runtime) => runtime.job.block(input)),
-        background: (id) => require(cell, (runtime) => runtime.job.background(id)),
-        cancel: (id) => require(cell, (runtime) => runtime.job.cancel(id)),
+        start: (input) => require(bridge, (runtime) => runtime.job.start(input)),
+        wait: (input) => require(bridge, (runtime) => runtime.job.wait(input)),
+        block: (input) => require(bridge, (runtime) => runtime.job.block(input)),
+        background: (id) => require(bridge, (runtime) => runtime.job.background(id)),
+        cancel: (id) => require(bridge, (runtime) => runtime.job.cancel(id)),
       },
       location: {
         agent: {
-          list: (ref) => require(cell, (runtime) => runtime.location.agent.list(ref)),
+          list: (ref) => require(bridge, (runtime) => runtime.location.agent.list(ref)),
         },
       },
     }),
   )
 
-export const providerLayerWithCell = (cell: Cell) =>
+export const providerLayerWithBridge = (bridge: Bridge) =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const sessions = yield* SessionV2.Service
@@ -96,22 +89,34 @@ export const providerLayerWithCell = (cell: Cell) =>
           },
         },
       }
-      cell.runtime = runtime
+      yield* Deferred.succeed(bridge.runtime, runtime)
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
-          if (cell.runtime === runtime) cell.runtime = undefined
+          bridge.runtime = Deferred.makeUnsafe<Interface>()
         }),
       )
     }),
   )
 
-export const layer = layerWithCell(defaultCell)
-export const providerLayer = providerLayerWithCell(defaultCell)
+const unsafeBridge = makeBridge()
+
+export const layer = layerWithBridge(unsafeBridge)
+export const providerLayer = providerLayerWithBridge(unsafeBridge)
 
 export const node = makeGlobalNode({ service: Service, layer, deps: [] })
+
+export const nodeWithBridge = (bridge: Bridge) =>
+  makeGlobalNode({ service: Service, layer: layerWithBridge(bridge), deps: [] })
 
 export const providerNode = makeGlobalNode({
   name: "plugin-runtime-provider",
   layer: providerLayer,
   deps: [node, SessionV2.node, Job.node, LocationServiceMap.node],
 })
+
+export const providerNodeWithBridge = (bridge: Bridge) =>
+  makeGlobalNode({
+    name: "plugin-runtime-provider",
+    layer: providerLayerWithBridge(bridge),
+    deps: [node, SessionV2.node, Job.node, LocationServiceMap.node],
+  })
