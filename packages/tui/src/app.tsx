@@ -230,6 +230,17 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       renderer.once("destroy", () => Deferred.doneUnsafe(shutdown, Effect.void))
       const pluginRuntime = createPluginRuntime()
 
+      const simulation = yield* Effect.promise(async () => {
+        if (process.env.OPENCODE_SIMULATION !== "1" && process.env.OPENCODE_SIMULATION !== "true") return
+        const { SimulationActions } = await import("./simulation/actions")
+        const { SimulationServer } = await import("./simulation/server")
+        return SimulationServer.start(SimulationActions.createHarness(renderer))
+      })
+      if (simulation) {
+        process.stderr.write(`opencode simulation websocket: ${simulation.url}\n`)
+        yield* Effect.addFinalizer(() => Effect.sync(() => simulation.stop()))
+      }
+
       yield* Effect.tryPromise(async () => {
         // Prewarm palette before ThemeProvider mounts so `system` theme avoids a first-paint fallback flash.
         void renderer.getPalette({ size: 16 }).catch(() => undefined)
