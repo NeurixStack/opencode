@@ -1645,6 +1645,39 @@ it.instance(
 )
 
 it.instance(
+  "custom config reasoning model without variants uses fallback variants",
+  Effect.gen(function* () {
+    const providers = yield* list
+    const model = providers[ProviderV2.ID.make("custom-reasoning-fallback")].models["reasoning-model"]
+    expect(model.reasoning_options).toBeUndefined()
+    expect(model.variants).toEqual({
+      low: { reasoningEffort: "low" },
+      medium: { reasoningEffort: "medium" },
+      high: { reasoningEffort: "high" },
+    })
+  }),
+  {
+    config: {
+      provider: {
+        "custom-reasoning-fallback": {
+          name: "Custom Reasoning Fallback",
+          npm: "@ai-sdk/openai-compatible",
+          env: [],
+          models: {
+            "reasoning-model": {
+              name: "Reasoning Model",
+              reasoning: true,
+              limit: { context: 128000, output: 16000 },
+            },
+          },
+          options: { apiKey: "test-key" },
+        },
+      },
+    },
+  },
+)
+
+it.instance(
   "custom model with variants enabled and disabled",
   Effect.gen(function* () {
     const providers = yield* list

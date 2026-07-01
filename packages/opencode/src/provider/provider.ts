@@ -1439,6 +1439,7 @@ const layer = Layer.effect(
           }
 
           for (const [modelID, model] of Object.entries(provider.models ?? {})) {
+            const catalogModel = existing?.models[model.id ?? modelID]
             const existingModel = parsed.models[model.id ?? modelID]
             const apiID = model.id ?? existingModel?.api.id ?? modelID
             const apiNpm =
@@ -1491,7 +1492,10 @@ const layer = Layer.effect(
                     ? { field: "reasoning_content" }
                     : false),
               },
-              reasoning_options: existingModel?.reasoning_options,
+              // Config models don't define reasoning_options. Inherit them only
+              // when the config model is explicitly based on a catalog model;
+              // pure custom models keep undefined so legacy heuristics still run.
+              reasoning_options: catalogModel?.reasoning_options,
               cost: {
                 input: model?.cost?.input ?? existingModel?.cost?.input ?? 0,
                 output: model?.cost?.output ?? existingModel?.cost?.output ?? 0,
