@@ -3072,6 +3072,25 @@ describe("ProviderTransform.variants", () => {
     expect(result.max).toEqual({ thinkingConfig: { includeThoughts: true, thinkingBudget: 31999 } })
   })
 
+  test("reasoning_options budget tokens keep high and max distinct below the default cap", () => {
+    const result = ProviderTransform.variants(
+      createMockModel({
+        id: "google/gemini-small-budget",
+        providerID: "google",
+        api: {
+          id: "gemini-small-budget",
+          url: "https://generativelanguage.googleapis.com",
+          npm: "@ai-sdk/google",
+        },
+        reasoning_options: [{ type: "budget_tokens", min: 128, max: 8000 }],
+      }),
+    )
+    expect(result).toEqual({
+      high: { thinkingConfig: { includeThoughts: true, thinkingBudget: 4000 } },
+      max: { thinkingConfig: { includeThoughts: true, thinkingBudget: 8000 } },
+    })
+  })
+
   test("reasoning_options ignore toggle-only models", () => {
     const result = ProviderTransform.variants(
       createMockModel({

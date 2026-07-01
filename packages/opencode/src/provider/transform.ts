@@ -615,8 +615,9 @@ function reasoningBudgetVariants(
 ) {
   const max = Math.max(1, Math.min(budget.max ?? 31_999, maxOutputTokens(model) - 1))
   const min = Math.min(budget.min ?? 1, max)
+  const high = Math.max(min, max > 16_000 ? 16_000 : Math.ceil(max / 2))
   return {
-    high: make(Math.max(min, Math.min(16_000, max))),
+    high: make(high),
     max: make(max),
   }
 }
