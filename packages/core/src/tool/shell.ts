@@ -125,7 +125,7 @@ export const Plugin = {
                 : "Command cancelled"
           return runtime.session.synthetic({
             sessionID,
-            text: `<shell id="${callID}" state="${state}" command="${command}">\n${text}\n</shell>`,
+            text: `Shell command ${state}.\n\nCommand:\n${command}\n\n${state === "completed" ? "Output" : "Details"}:\n${text}`,
           })
         }),
         Effect.forkIn(scope, { startImmediately: true }),
