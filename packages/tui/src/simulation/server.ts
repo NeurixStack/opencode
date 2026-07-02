@@ -118,7 +118,11 @@ async function handle(harness: Harness, request: JsonRpcRequest) {
   throw new Error(`Unknown simulation method: ${request.method}`)
 }
 
-function serve(harness: Harness, port = DefaultPort, attempts = MaxPortAttempts): Bun.Server {
+function serve(
+  harness: Harness,
+  port = DefaultPort,
+  attempts = MaxPortAttempts,
+): Bun.Server<{ readonly simulation: true }> {
   try {
     return Bun.serve<{ readonly simulation: true }>({
       hostname: "127.0.0.1",

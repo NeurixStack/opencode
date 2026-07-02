@@ -1,5 +1,11 @@
 import type { CliRenderer, Renderable } from "@opentui/core"
-import { createMockKeys, createMockMouse } from "@opentui/core/testing"
+import {
+  createMockKeys,
+  createMockMouse,
+  type MockInput,
+  type MockMouse,
+  type TestRendererSetup,
+} from "@opentui/core/testing"
 import { SimulationTrace } from "./trace"
 
 export interface KeyModifiers {
@@ -33,6 +39,8 @@ export interface Element {
 
 export interface Harness {
   readonly renderer: CliRenderer
+  readonly mockInput: MockInput
+  readonly mockMouse: MockMouse
   readonly renderOnce: () => Promise<void>
   readonly screen: () => string
 }
@@ -66,14 +74,28 @@ function hit(renderer: CliRenderer, renderable: Renderable) {
   return renderer.hitTest(x, y) === renderable.num
 }
 
-export function createHarness(renderer: CliRenderer): Harness {
+/**
+ * Builds the harness the simulation server drives.
+ *
+ * When the renderer came from `createTestRenderer` (fake renderer), pass its
+ * `TestRendererSetup` so the harness uses the supported testing APIs. Without
+ * it (visible terminal renderer) the harness falls back to `requestRender` +
+ * `idle` and reading the private `currentRenderBuffer`.
+ */
+export function createHarness(renderer: CliRenderer, setup?: TestRendererSetup): Harness {
   return {
     renderer,
-    renderOnce: async () => {
-      renderer.requestRender()
-      await renderer.idle()
-    },
-    screen: () => decoder.decode((Reflect.get(renderer, "currentRenderBuffer") as RenderBuffer).getRealCharBytes(true)),
+    mockInput: setup?.mockInput ?? createMockKeys(renderer),
+    mockMouse: setup?.mockMouse ?? createMockMouse(renderer),
+    renderOnce:
+      setup?.renderOnce ??
+      (async () => {
+        renderer.requestRender()
+        await renderer.idle()
+      }),
+    screen:
+      setup?.captureCharFrame ??
+      (() => decoder.decode((Reflect.get(renderer, "currentRenderBuffer") as RenderBuffer).getRealCharBytes(true))),
   }
 }
 
@@ -131,27 +153,25 @@ export function state(harness: Harness) {
 }
 
 export async function execute(harness: Harness, action: Action) {
-  const mockInput = createMockKeys(harness.renderer)
-  const mockMouse = createMockMouse(harness.renderer)
   SimulationTrace.add("ui.action", { action })
   switch (action.type) {
     case "typeText":
-      await mockInput.typeText(action.text)
+      await harness.mockInput.typeText(action.text)
       break
     case "pressKey":
-      mockInput.pressKey(action.key, action.modifiers)
+      harness.mockInput.pressKey(action.key, action.modifiers)
       break
     case "pressEnter":
-      mockInput.pressEnter()
+      harness.mockInput.pressEnter()
       break
     case "pressArrow":
-      mockInput.pressArrow(action.direction)
+      harness.mockInput.pressArrow(action.direction)
       break
     case "focus":
       all(harness.renderer.root).find((item) => item.num === action.target)?.focus()
       break
     case "click":
-      await mockMouse.click(action.x, action.y)
+      await harness.mockMouse.click(action.x, action.y)
       break
   }
   await harness.renderOnce()
