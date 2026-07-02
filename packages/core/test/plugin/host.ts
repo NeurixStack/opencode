@@ -61,6 +61,7 @@ export function host(overrides: Overrides = {}): PluginContext {
       create: () => Effect.die("unused session.create"),
       get: () => Effect.die("unused session.get"),
       prompt: () => Effect.die("unused session.prompt"),
+      command: () => Effect.die("unused session.command"),
       interrupt: () => Effect.die("unused session.interrupt"),
     },
   }
@@ -279,7 +280,11 @@ function agentInfo(value: AgentV2.Info) {
   return {
     ...value,
     model: value.model && { ...value.model },
-    request: { headers: { ...value.request.headers }, body: { ...value.request.body } },
+    request: {
+      settings: { ...value.request.settings },
+      headers: { ...value.request.headers },
+      body: { ...value.request.body },
+    },
     permissions: value.permissions.map((permission) => ({ ...permission })),
   }
 }
@@ -288,7 +293,11 @@ function providerInfo(value: ProviderV2.MutableInfo) {
   return {
     ...value,
     api: { ...value.api, settings: value.api.settings && { ...value.api.settings } },
-    request: { headers: { ...value.request.headers }, body: { ...value.request.body } },
+    request: {
+      settings: { ...value.request.settings },
+      headers: { ...value.request.headers },
+      body: { ...value.request.body },
+    },
   }
 }
 
@@ -303,11 +312,13 @@ function modelInfo(value: ModelV2.Info | ModelV2.MutableInfo) {
     },
     request: {
       ...value.request,
+      settings: { ...value.request.settings },
       headers: { ...value.request.headers },
       body: { ...value.request.body },
     },
     variants: value.variants.map((variant) => ({
       ...variant,
+      settings: { ...variant.settings },
       headers: { ...variant.headers },
       body: { ...variant.body },
     })),

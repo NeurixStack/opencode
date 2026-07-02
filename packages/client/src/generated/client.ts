@@ -23,6 +23,8 @@ import type {
   SessionRenameOutput,
   SessionPromptInput,
   SessionPromptOutput,
+  SessionCommandInput,
+  SessionCommandOutput,
   SessionSkillInput,
   SessionSkillOutput,
   SessionSyntheticInput,
@@ -39,6 +41,12 @@ import type {
   SessionRevertCommitOutput,
   SessionContextInput,
   SessionContextOutput,
+  SessionListContextEntriesInput,
+  SessionListContextEntriesOutput,
+  SessionPutContextEntryInput,
+  SessionPutContextEntryOutput,
+  SessionRemoveContextEntryInput,
+  SessionRemoveContextEntryOutput,
   SessionHistoryInput,
   SessionHistoryOutput,
   SessionEventsInput,
@@ -53,6 +61,8 @@ import type {
   MessageListOutput,
   ModelListInput,
   ModelListOutput,
+  ModelDefaultInput,
+  ModelDefaultOutput,
   GenerateTextInput,
   GenerateTextOutput,
   ProviderListInput,
@@ -451,6 +461,28 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
+      command: (input: SessionCommandInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionCommandOutput }>(
+          {
+            method: "POST",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/command`,
+            body: {
+              id: input["id"],
+              command: input["command"],
+              arguments: input["arguments"],
+              agent: input["agent"],
+              model: input["model"],
+              files: input["files"],
+              agents: input["agents"],
+              delivery: input["delivery"],
+              resume: input["resume"],
+            },
+            successStatus: 200,
+            declaredStatuses: [409, 404, 500, 400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
       skill: (input: SessionSkillInput, requestOptions?: RequestOptions) =>
         request<SessionSkillOutput>(
           {
@@ -542,6 +574,40 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
+      listContextEntries: (input: SessionListContextEntriesInput, requestOptions?: RequestOptions) =>
+        request<{ readonly data: SessionListContextEntriesOutput }>(
+          {
+            method: "GET",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/context-entry`,
+            successStatus: 200,
+            declaredStatuses: [404, 400, 401],
+            empty: false,
+          },
+          requestOptions,
+        ).then((value) => value.data),
+      putContextEntry: (input: SessionPutContextEntryInput, requestOptions?: RequestOptions) =>
+        request<SessionPutContextEntryOutput>(
+          {
+            method: "PUT",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/context-entry/${encodeURIComponent(input.key)}`,
+            body: { value: input["value"] },
+            successStatus: 204,
+            declaredStatuses: [404, 400, 401],
+            empty: true,
+          },
+          requestOptions,
+        ),
+      removeContextEntry: (input: SessionRemoveContextEntryInput, requestOptions?: RequestOptions) =>
+        request<SessionRemoveContextEntryOutput>(
+          {
+            method: "DELETE",
+            path: `/api/session/${encodeURIComponent(input.sessionID)}/context-entry/${encodeURIComponent(input.key)}`,
+            successStatus: 204,
+            declaredStatuses: [404, 400, 401],
+            empty: true,
+          },
+          requestOptions,
+        ),
       history: (input: SessionHistoryInput, requestOptions?: RequestOptions) =>
         request<SessionHistoryOutput>(
           {
@@ -620,6 +686,18 @@ export function make(options: ClientOptions) {
           {
             method: "GET",
             path: `/api/model`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [503, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      default: (input?: ModelDefaultInput, requestOptions?: RequestOptions) =>
+        request<ModelDefaultOutput>(
+          {
+            method: "GET",
+            path: `/api/model/default`,
             query: { location: input?.["location"] },
             successStatus: 200,
             declaredStatuses: [503, 401, 400],

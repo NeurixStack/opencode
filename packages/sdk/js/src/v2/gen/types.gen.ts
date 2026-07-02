@@ -24,6 +24,7 @@ export type Event =
   | EventSessionNextForked
   | EventSessionNextPrompted
   | EventSessionNextPromptAdmitted
+  | EventSessionNextExecutionSettled
   | EventSessionNextContextUpdated
   | EventSessionNextSynthetic
   | EventSessionNextSkillActivated
@@ -63,6 +64,7 @@ export type Event =
   | EventPermissionV2Replied
   | EventPluginAdded
   | EventProjectDirectoriesUpdated
+  | EventCommandUpdated
   | EventSkillUpdated
   | EventFileWatcherUpdated
   | EventPtyCreated
@@ -925,6 +927,16 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "session.next.execution.settled"
+        properties: {
+          timestamp: number
+          sessionID: string
+          outcome: "success" | "failure" | "interrupted"
+          error?: SessionErrorUnknown
+        }
+      }
+    | {
+        id: string
         type: "session.next.context.updated"
         properties: {
           timestamp: number
@@ -942,6 +954,9 @@ export type GlobalEvent = {
           messageID: string
           text: string
           description?: string
+          metadata?: {
+            [key: string]: unknown
+          }
         }
       }
     | {
@@ -1354,6 +1369,13 @@ export type GlobalEvent = {
         type: "project.directories.updated"
         properties: {
           projectID: string
+        }
+      }
+    | {
+        id: string
+        type: "command.updated"
+        properties: {
+          [key: string]: unknown
         }
       }
     | {
@@ -2826,6 +2848,18 @@ export type ConflictError = {
   resource?: string
 }
 
+export type CommandNotFoundError = {
+  _tag: "CommandNotFoundError"
+  command: string
+  message: string
+}
+
+export type CommandEvaluationError = {
+  _tag: "CommandEvaluationError"
+  command: string
+  message: string
+}
+
 export type SkillNotFoundError = {
   _tag: "SkillNotFoundError"
   skill: string
@@ -3007,6 +3041,7 @@ export type V2Event =
   | SessionNextForked
   | SessionNextPrompted
   | SessionNextPromptAdmitted
+  | SessionNextExecutionSettled
   | SessionNextContextUpdated
   | SessionNextSynthetic
   | SessionNextSkillActivated
@@ -3046,6 +3081,7 @@ export type V2Event =
   | PermissionV2Replied
   | PluginAdded
   | ProjectDirectoriesUpdated
+  | CommandUpdated
   | SkillUpdated
   | FileWatcherUpdated
   | PtyCreated
@@ -3618,6 +3654,9 @@ export type SyncEventSessionNextSynthetic = {
       messageID: string
       text: string
       description?: string
+      metadata?: {
+        [key: string]: unknown
+      }
     }
   }
 }
@@ -4091,7 +4130,12 @@ export type LocationInfo = {
   }
 }
 
+export type ProviderSettings = {
+  [key: string]: unknown
+}
+
 export type ProviderRequest = {
+  settings: ProviderSettings
   headers: {
     [key: string]: string
   }
@@ -4404,6 +4448,13 @@ export type SessionMessage =
   | SessionMessageAssistant
   | SessionMessageCompaction
 
+export type SessionContextEntryKey = string
+
+export type SessionContextEntryInfo = {
+  key: SessionContextEntryKey
+  value: unknown
+}
+
 export type SessionNextAgentSwitched = {
   id: string
   metadata?: {
@@ -4583,6 +4634,9 @@ export type SessionNextSynthetic = {
     messageID: string
     text: string
     description?: string
+    metadata?: {
+      [key: string]: unknown
+    }
   }
 }
 
@@ -5120,6 +5174,7 @@ export type ModelV2Info = {
   api: ModelApi
   capabilities: ModelCapabilities
   request: {
+    settings: ProviderSettings
     headers: {
       [key: string]: string
     }
@@ -5130,6 +5185,7 @@ export type ModelV2Info = {
   }
   variants: Array<{
     id: string
+    settings: ProviderSettings
     headers: {
       [key: string]: string
     }
@@ -5581,6 +5637,26 @@ export type MessagePartRemoved = {
   }
 }
 
+export type SessionNextExecutionSettled = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.next.execution.settled"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    timestamp: number
+    sessionID: string
+    outcome: "success" | "failure" | "interrupted"
+    error?: SessionErrorUnknown
+  }
+}
+
 export type SessionNextTextDelta = {
   id: string
   metadata?: {
@@ -5872,6 +5948,23 @@ export type ProjectDirectoriesUpdated = {
   location?: LocationRef
   data: {
     projectID: string
+  }
+}
+
+export type CommandUpdated = {
+  id: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "command.updated"
+  durable?: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    [key: string]: unknown
   }
 }
 
@@ -6786,6 +6879,17 @@ export type EventSessionNextPromptAdmitted = {
   }
 }
 
+export type EventSessionNextExecutionSettled = {
+  id: string
+  type: "session.next.execution.settled"
+  properties: {
+    timestamp: number
+    sessionID: string
+    outcome: "success" | "failure" | "interrupted"
+    error?: SessionErrorUnknown
+  }
+}
+
 export type EventSessionNextContextUpdated = {
   id: string
   type: "session.next.context.updated"
@@ -6806,6 +6910,9 @@ export type EventSessionNextSynthetic = {
     messageID: string
     text: string
     description?: string
+    metadata?: {
+      [key: string]: unknown
+    }
   }
 }
 
@@ -7255,6 +7362,14 @@ export type EventProjectDirectoriesUpdated = {
   type: "project.directories.updated"
   properties: {
     projectID: string
+  }
+}
+
+export type EventCommandUpdated = {
+  id: string
+  type: "command.updated"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -12245,6 +12360,61 @@ export type V2SessionPromptResponses = {
 
 export type V2SessionPromptResponse = V2SessionPromptResponses[keyof V2SessionPromptResponses]
 
+export type V2SessionCommandData = {
+  body: {
+    id?: string
+    command: string
+    arguments?: string
+    agent?: string
+    model?: ModelRef
+    files?: Array<PromptInputFileAttachment>
+    agents?: Array<PromptAgentAttachment>
+    delivery?: "steer" | "queue"
+    resume?: boolean
+  }
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/command"
+}
+
+export type V2SessionCommandErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError | CommandNotFoundError
+   */
+  404: CommandNotFoundError | SessionNotFoundError
+  /**
+   * ConflictError
+   */
+  409: ConflictError
+  /**
+   * CommandEvaluationError
+   */
+  500: CommandEvaluationError
+}
+
+export type V2SessionCommandError = V2SessionCommandErrors[keyof V2SessionCommandErrors]
+
+export type V2SessionCommandResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: SessionInputAdmitted
+  }
+}
+
+export type V2SessionCommandResponse = V2SessionCommandResponses[keyof V2SessionCommandResponses]
+
 export type V2SessionSkillData = {
   body: {
     id?: string
@@ -12283,6 +12453,47 @@ export type V2SessionSkillResponses = {
 }
 
 export type V2SessionSkillResponse = V2SessionSkillResponses[keyof V2SessionSkillResponses]
+
+export type V2SessionSyntheticData = {
+  body: {
+    text: string
+    description?: string
+    metadata?: {
+      [key: string]: unknown
+    }
+  }
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/synthetic"
+}
+
+export type V2SessionSyntheticErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionSyntheticError = V2SessionSyntheticErrors[keyof V2SessionSyntheticErrors]
+
+export type V2SessionSyntheticResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionSyntheticResponse = V2SessionSyntheticResponses[keyof V2SessionSyntheticResponses]
 
 export type V2SessionCompactData = {
   body?: never
@@ -12540,6 +12751,121 @@ export type V2SessionContextResponses = {
 }
 
 export type V2SessionContextResponse = V2SessionContextResponses[keyof V2SessionContextResponses]
+
+export type V2SessionContextEntryListData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/session/{sessionID}/context-entry"
+}
+
+export type V2SessionContextEntryListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionContextEntryListError = V2SessionContextEntryListErrors[keyof V2SessionContextEntryListErrors]
+
+export type V2SessionContextEntryListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    data: Array<SessionContextEntryInfo>
+  }
+}
+
+export type V2SessionContextEntryListResponse =
+  V2SessionContextEntryListResponses[keyof V2SessionContextEntryListResponses]
+
+export type V2SessionContextEntryRemoveData = {
+  body?: never
+  path: {
+    sessionID: string
+    key: SessionContextEntryKey
+  }
+  query?: never
+  url: "/api/session/{sessionID}/context-entry/{key}"
+}
+
+export type V2SessionContextEntryRemoveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionContextEntryRemoveError =
+  V2SessionContextEntryRemoveErrors[keyof V2SessionContextEntryRemoveErrors]
+
+export type V2SessionContextEntryRemoveResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionContextEntryRemoveResponse =
+  V2SessionContextEntryRemoveResponses[keyof V2SessionContextEntryRemoveResponses]
+
+export type V2SessionContextEntryPutData = {
+  body: {
+    value: unknown
+  }
+  path: {
+    sessionID: string
+    key: SessionContextEntryKey
+  }
+  query?: never
+  url: "/api/session/{sessionID}/context-entry/{key}"
+}
+
+export type V2SessionContextEntryPutErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * SessionNotFoundError
+   */
+  404: SessionNotFoundError
+}
+
+export type V2SessionContextEntryPutError = V2SessionContextEntryPutErrors[keyof V2SessionContextEntryPutErrors]
+
+export type V2SessionContextEntryPutResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SessionContextEntryPutResponse =
+  V2SessionContextEntryPutResponses[keyof V2SessionContextEntryPutResponses]
 
 export type V2SessionHistoryData = {
   body?: never
@@ -12814,6 +13140,47 @@ export type V2ModelListResponses = {
 }
 
 export type V2ModelListResponse = V2ModelListResponses[keyof V2ModelListResponses]
+
+export type V2ModelDefaultData = {
+  body?: never
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+  }
+  url: "/api/model/default"
+}
+
+export type V2ModelDefaultErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableError
+}
+
+export type V2ModelDefaultError = V2ModelDefaultErrors[keyof V2ModelDefaultErrors]
+
+export type V2ModelDefaultResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: ModelV2Info
+  }
+}
+
+export type V2ModelDefaultResponse = V2ModelDefaultResponses[keyof V2ModelDefaultResponses]
 
 export type V2GenerateTextData = {
   body: {

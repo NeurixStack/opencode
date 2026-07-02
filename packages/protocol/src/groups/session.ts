@@ -2,6 +2,7 @@ import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { SessionInput } from "@opencode-ai/schema/session-input"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { Session } from "@opencode-ai/schema/session"
+import { SessionContextEntry } from "@opencode-ai/schema/session-context-entry"
 import { Project } from "@opencode-ai/schema/project"
 import { AbsolutePath, NonNegativeInt, PositiveInt, RelativePath, statics } from "@opencode-ai/schema/schema"
 import { Workspace } from "@opencode-ai/schema/workspace"
@@ -9,6 +10,8 @@ import { Context, Effect, Encoding, Result, Schema, Struct } from "effect"
 import { HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import {
   ConflictError,
+  CommandEvaluationError,
+  CommandNotFoundError,
   InvalidCursorError,
   InvalidRequestError,
   MessageNotFoundError,
@@ -258,6 +261,32 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
         ),
     )
     .add(
+      HttpApiEndpoint.post("session.command", "/api/session/:sessionID/command", {
+        params: { sessionID: Session.ID },
+        payload: Schema.Struct({
+          id: SessionMessage.ID.pipe(Schema.optional),
+          command: Schema.String,
+          arguments: Schema.String.pipe(Schema.optional),
+          agent: Schema.String.pipe(Schema.optional),
+          model: Model.Ref.pipe(Schema.optional),
+          files: PromptInput.Prompt.fields.files,
+          agents: PromptInput.Prompt.fields.agents,
+          delivery: SessionInput.Delivery.pipe(Schema.optional),
+          resume: Schema.Boolean.pipe(Schema.optional),
+        }),
+        success: Schema.Struct({ data: SessionInput.Admitted }),
+        error: [ConflictError, SessionNotFoundError, CommandNotFoundError, CommandEvaluationError],
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.command",
+            summary: "Run command",
+            description: "Resolve a slash command into prompt input, admit it durably, and schedule execution unless resume is false.",
+          }),
+        ),
+    )
+    .add(
       HttpApiEndpoint.post("session.skill", "/api/session/:sessionID/skill", {
         params: { sessionID: Session.ID },
         payload: Schema.Struct({
@@ -375,6 +404,53 @@ export const makeSessionGroup = <I extends HttpApiMiddleware.AnyId, S>(sessionLo
             identifier: "v2.session.context",
             summary: "Get session context",
             description: "Retrieve the active context messages for a session (all messages after the last compaction).",
+          }),
+        ),
+    )
+    .add(
+      HttpApiEndpoint.get("session.context.entry.list", "/api/session/:sessionID/context-entry", {
+        params: { sessionID: Session.ID },
+        success: Schema.Struct({ data: Schema.Array(SessionContextEntry.Info) }),
+        error: SessionNotFoundError,
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.context.entry.list",
+            summary: "List context entries",
+            description: "List API-managed context entries attached to the session's system context.",
+          }),
+        ),
+    )
+    .add(
+      HttpApiEndpoint.put("session.context.entry.put", "/api/session/:sessionID/context-entry/:key", {
+        params: { sessionID: Session.ID, key: SessionContextEntry.Key },
+        payload: Schema.Struct({ value: Schema.Json }),
+        success: HttpApiSchema.NoContent,
+        error: SessionNotFoundError,
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.context.entry.put",
+            summary: "Put context entry",
+            description:
+              "Attach or replace one durable context entry. The value is rendered into the session's system context; changes announce as updates at the next turn boundary.",
+          }),
+        ),
+    )
+    .add(
+      HttpApiEndpoint.delete("session.context.entry.remove", "/api/session/:sessionID/context-entry/:key", {
+        params: { sessionID: Session.ID, key: SessionContextEntry.Key },
+        success: HttpApiSchema.NoContent,
+        error: SessionNotFoundError,
+      })
+        .middleware(sessionLocationMiddleware)
+        .annotateMerge(
+          OpenApi.annotations({
+            identifier: "v2.session.context.entry.remove",
+            summary: "Remove context entry",
+            description: "Remove one context entry; the removal is announced to the model at the next turn boundary.",
           }),
         ),
     )

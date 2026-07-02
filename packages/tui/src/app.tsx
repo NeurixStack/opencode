@@ -8,7 +8,7 @@ import { ClipboardProvider, useClipboard } from "./context/clipboard"
 import { ExitProvider, useExit } from "./context/exit"
 import { EpilogueProvider } from "./context/epilogue"
 import * as Selection from "./util/selection"
-import { createCliRenderer, MouseButton } from "@opentui/core"
+import { createCliRenderer, MouseButton, type CliRendererConfig } from "@opentui/core"
 import { RouteProvider, useRoute } from "./context/route"
 import {
   Switch,
@@ -184,8 +184,8 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
     Effect.gen(function* () {
       const renderer = yield* Effect.acquireRelease(
         Effect.tryPromise({
-          try: () =>
-            createCliRenderer({
+          try: async () => {
+            const options = {
               externalOutputMode: "passthrough",
               targetFps: 60,
               gatherStats: false,
@@ -197,7 +197,15 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
               consoleOptions: {
                 keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
               },
-            }),
+            } satisfies CliRendererConfig
+
+            if (process.env.OPENCODE_SIMULATION === "1" || process.env.OPENCODE_SIMULATION === "true") {
+              const { Simulation } = await import("./simulation/simulation")
+              return Simulation.createSimulation(options)
+            }
+
+            return createCliRenderer(options)
+          },
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         }),
         (renderer) =>
@@ -1116,6 +1124,34 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     return render({ params: route.data.data })
   })
 
+  // Suppress the full-screen reconnecting overlay for transient disconnects (initial startup, host
+  // reload, sub-second event-stream blips). After the first successful connect, show it only once the
+  // connection has been lost for a full second; before the first connect give a longer grace period so
+  // startup never flashes it, but a server that dies before ever connecting still surfaces instead of
+  // leaving a silent empty app. Hide it immediately the moment status leaves "connecting".
+  const [showReconnecting, setShowReconnecting] = createSignal(false)
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined
+  createEffect(() => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = undefined
+    }
+    if (sdk.connection.status() !== "connecting") {
+      setShowReconnecting(false)
+      return
+    }
+    reconnectTimer = setTimeout(
+      () => {
+        reconnectTimer = undefined
+        setShowReconnecting(true)
+      },
+      sdk.connection.connectedOnce() ? 1000 : 5000,
+    ).unref()
+  })
+  onCleanup(() => {
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+  })
+
   return (
     <box
       width={dimensions().width}
@@ -1161,7 +1197,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
       <Show when={!startup.skipInitialLoading}>
         <StartupLoading ready={ready} />
       </Show>
-      <Show when={sdk.connection.status() === "connecting"}>
+      <Show when={showReconnecting()}>
         <Reconnecting attempt={sdk.connection.attempt()} error={sdk.connection.error()} />
       </Show>
     </box>

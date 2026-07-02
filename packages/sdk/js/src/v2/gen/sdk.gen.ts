@@ -142,7 +142,9 @@ import type {
   ProjectListResponses,
   ProjectUpdateErrors,
   ProjectUpdateResponses,
+  PromptAgentAttachment,
   PromptInput,
+  PromptInputFileAttachment,
   ProviderAuthErrors,
   ProviderAuthResponses,
   ProviderListErrors,
@@ -181,6 +183,7 @@ import type {
   SessionChildrenResponses,
   SessionCommandErrors,
   SessionCommandResponses,
+  SessionContextEntryKey,
   SessionCreateErrors,
   SessionCreateResponses,
   SessionDeleteErrors,
@@ -301,6 +304,8 @@ import type {
   V2LocationGetResponses,
   V2McpListErrors,
   V2McpListResponses,
+  V2ModelDefaultErrors,
+  V2ModelDefaultResponses,
   V2ModelListErrors,
   V2ModelListResponses,
   V2PermissionRequestListErrors,
@@ -347,8 +352,16 @@ import type {
   V2SessionActiveResponses,
   V2SessionBackgroundErrors,
   V2SessionBackgroundResponses,
+  V2SessionCommandErrors,
+  V2SessionCommandResponses,
   V2SessionCompactErrors,
   V2SessionCompactResponses,
+  V2SessionContextEntryListErrors,
+  V2SessionContextEntryListResponses,
+  V2SessionContextEntryPutErrors,
+  V2SessionContextEntryPutResponses,
+  V2SessionContextEntryRemoveErrors,
+  V2SessionContextEntryRemoveResponses,
   V2SessionContextErrors,
   V2SessionContextResponses,
   V2SessionCreateErrors,
@@ -399,6 +412,8 @@ import type {
   V2SessionSwitchAgentResponses,
   V2SessionSwitchModelErrors,
   V2SessionSwitchModelResponses,
+  V2SessionSyntheticErrors,
+  V2SessionSyntheticResponses,
   V2SessionWaitErrors,
   V2SessionWaitResponses,
   V2ShellCreateErrors,
@@ -5220,6 +5235,113 @@ export class Revert extends HeyApiClient {
   }
 }
 
+export class Entry extends HeyApiClient {
+  /**
+   * List context entries
+   *
+   * List API-managed context entries attached to the session's system context.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).get<
+      V2SessionContextEntryListResponses,
+      V2SessionContextEntryListErrors,
+      ThrowOnError
+    >({
+      url: "/api/session/{sessionID}/context-entry",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Remove context entry
+   *
+   * Remove one context entry; the removal is announced to the model at the next turn boundary.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      key: SessionContextEntryKey
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "key" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).delete<
+      V2SessionContextEntryRemoveResponses,
+      V2SessionContextEntryRemoveErrors,
+      ThrowOnError
+    >({
+      url: "/api/session/{sessionID}/context-entry/{key}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Put context entry
+   *
+   * Attach or replace one durable context entry. The value is rendered into the session's system context; changes announce as updates at the next turn boundary.
+   */
+  public put<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      key: SessionContextEntryKey
+      value?: unknown
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "path", key: "key" },
+            { in: "body", key: "value" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).put<
+      V2SessionContextEntryPutResponses,
+      V2SessionContextEntryPutErrors,
+      ThrowOnError
+    >({
+      url: "/api/session/{sessionID}/context-entry/{key}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+}
+
+export class Context extends HeyApiClient {
+  private _entry?: Entry
+  get entry(): Entry {
+    return (this._entry ??= new Entry({ client: this.client }))
+  }
+}
+
 export class Permission2 extends HeyApiClient {
   /**
    * List session permission requests
@@ -5778,6 +5900,57 @@ export class Session3 extends HeyApiClient {
   }
 
   /**
+   * Run command
+   *
+   * Resolve a slash command into prompt input, admit it durably, and schedule execution unless resume is false.
+   */
+  public command<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      id?: string
+      command?: string
+      arguments?: string
+      agent?: string
+      model?: ModelRef
+      files?: Array<PromptInputFileAttachment>
+      agents?: Array<PromptAgentAttachment>
+      delivery?: "steer" | "queue"
+      resume?: boolean
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "body", key: "id" },
+            { in: "body", key: "command" },
+            { in: "body", key: "arguments" },
+            { in: "body", key: "agent" },
+            { in: "body", key: "model" },
+            { in: "body", key: "files" },
+            { in: "body", key: "agents" },
+            { in: "body", key: "delivery" },
+            { in: "body", key: "resume" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<V2SessionCommandResponses, V2SessionCommandErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}/command",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
    * Activate skill
    *
    * Activate a skill for a session by appending a skill message and resuming execution.
@@ -5806,6 +5979,47 @@ export class Session3 extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<V2SessionSkillResponses, V2SessionSkillErrors, ThrowOnError>({
       url: "/api/session/{sessionID}/skill",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Add synthetic message
+   *
+   * Append a synthetic message to a session and resume execution.
+   */
+  public synthetic<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      text?: string
+      description?: string
+      metadata?: {
+        [key: string]: unknown
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "body", key: "text" },
+            { in: "body", key: "description" },
+            { in: "body", key: "metadata" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<V2SessionSyntheticResponses, V2SessionSyntheticErrors, ThrowOnError>({
+      url: "/api/session/{sessionID}/synthetic",
       ...options,
       ...params,
       headers: {
@@ -6044,6 +6258,11 @@ export class Session3 extends HeyApiClient {
     return (this._revert ??= new Revert({ client: this.client }))
   }
 
+  private _context?: Context
+  get context2(): Context {
+    return (this._context ??= new Context({ client: this.client }))
+  }
+
   private _permission?: Permission2
   get permission(): Permission2 {
     return (this._permission ??= new Permission2({ client: this.client }))
@@ -6073,6 +6292,28 @@ export class Model extends HeyApiClient {
     const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "location" }] }])
     return (options?.client ?? this.client).get<V2ModelListResponses, V2ModelListErrors, ThrowOnError>({
       url: "/api/model",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get default model
+   *
+   * Retrieve the model used when a session has no explicit model selection.
+   */
+  public default<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "location" }] }])
+    return (options?.client ?? this.client).get<V2ModelDefaultResponses, V2ModelDefaultErrors, ThrowOnError>({
+      url: "/api/model/default",
       ...options,
       ...params,
     })

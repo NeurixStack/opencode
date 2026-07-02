@@ -1,10 +1,13 @@
 import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionContextEntry } from "@opencode-ai/core/session/context-entry"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
 import { SessionsCursor } from "@opencode-ai/protocol/groups/session"
 import {
   ConflictError,
+  CommandEvaluationError,
+  CommandNotFoundError,
   InvalidCursorError,
   MessageNotFoundError,
   ServiceUnavailableError,
@@ -216,47 +219,105 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         }),
       )
       .handle(
+        "session.command",
+        Effect.fn(function* (ctx) {
+          return {
+            data: yield* session
+              .command({
+                sessionID: ctx.params.sessionID,
+                id: ctx.payload.id,
+                command: ctx.payload.command,
+                arguments: ctx.payload.arguments,
+                agent: ctx.payload.agent,
+                model: ctx.payload.model,
+                files: ctx.payload.files,
+                agents: ctx.payload.agents,
+                delivery: ctx.payload.delivery,
+                resume: ctx.payload.resume,
+              })
+              .pipe(
+                Effect.catchTag("Session.NotFoundError", (error) =>
+                  Effect.fail(
+                    new SessionNotFoundError({
+                      sessionID: error.sessionID,
+                      message: `Session not found: ${error.sessionID}`,
+                    }),
+                  ),
+                ),
+                Effect.catchTag("Command.NotFoundError", (error) =>
+                  Effect.fail(
+                    new CommandNotFoundError({
+                      command: error.command,
+                      message: error.message,
+                    }),
+                  ),
+                ),
+                Effect.catchTag("Command.EvaluationError", (error) =>
+                  Effect.fail(
+                    new CommandEvaluationError({
+                      command: error.command,
+                      message: error.message,
+                    }),
+                  ),
+                ),
+                Effect.catchTag("Session.PromptConflictError", (error) =>
+                  Effect.fail(
+                    new ConflictError({
+                      message: `Prompt message ID conflicts with an existing durable record: ${error.messageID}`,
+                      resource: error.messageID,
+                    }),
+                  ),
+                ),
+              ),
+          }
+        }),
+      )
+      .handle(
         "session.skill",
         Effect.fn(function* (ctx) {
-          yield* session.skill({
-            sessionID: ctx.params.sessionID,
-            id: ctx.payload.id,
-            skill: ctx.payload.skill,
-            resume: ctx.payload.resume,
-          }).pipe(
-            Effect.catchTag("Session.NotFoundError", (error) =>
-              Effect.fail(
-                new SessionNotFoundError({
-                  sessionID: error.sessionID,
-                  message: `Session not found: ${error.sessionID}`,
-                }),
+          yield* session
+            .skill({
+              sessionID: ctx.params.sessionID,
+              id: ctx.payload.id,
+              skill: ctx.payload.skill,
+              resume: ctx.payload.resume,
+            })
+            .pipe(
+              Effect.catchTag("Session.NotFoundError", (error) =>
+                Effect.fail(
+                  new SessionNotFoundError({
+                    sessionID: error.sessionID,
+                    message: `Session not found: ${error.sessionID}`,
+                  }),
+                ),
               ),
-            ),
-            Effect.catchTag("Session.SkillNotFoundError", (error) =>
-              Effect.fail(new SkillNotFoundError({ skill: error.skill, message: `Skill not found: ${error.skill}` })),
-            ),
-          )
+              Effect.catchTag("Session.SkillNotFoundError", (error) =>
+                Effect.fail(new SkillNotFoundError({ skill: error.skill, message: `Skill not found: ${error.skill}` })),
+              ),
+            )
           return HttpApiSchema.NoContent.make()
         }),
       )
       .handle(
         "session.synthetic",
         Effect.fn(function* (ctx) {
-          yield* session.synthetic({
-            sessionID: ctx.params.sessionID,
-            text: ctx.payload.text,
-            description: ctx.payload.description,
-            metadata: ctx.payload.metadata,
-          }).pipe(
-            Effect.catchTag("Session.NotFoundError", (error) =>
-              Effect.fail(
-                new SessionNotFoundError({
-                  sessionID: error.sessionID,
-                  message: `Session not found: ${error.sessionID}`,
-                }),
+          yield* session
+            .synthetic({
+              sessionID: ctx.params.sessionID,
+              text: ctx.payload.text,
+              description: ctx.payload.description,
+              metadata: ctx.payload.metadata,
+            })
+            .pipe(
+              Effect.catchTag("Session.NotFoundError", (error) =>
+                Effect.fail(
+                  new SessionNotFoundError({
+                    sessionID: error.sessionID,
+                    message: `Session not found: ${error.sessionID}`,
+                  }),
+                ),
               ),
-            ),
-          )
+            )
           return HttpApiSchema.NoContent.make()
         }),
       )
@@ -460,6 +521,29 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
               }),
             ),
           }
+        }),
+      )
+      .handle(
+        "session.context.entry.list",
+        Effect.fn(function* (ctx) {
+          const contextEntries = yield* SessionContextEntry.Service
+          return { data: yield* contextEntries.list(ctx.params.sessionID) }
+        }),
+      )
+      .handle(
+        "session.context.entry.put",
+        Effect.fn(function* (ctx) {
+          const contextEntries = yield* SessionContextEntry.Service
+          yield* contextEntries.put({ sessionID: ctx.params.sessionID, key: ctx.params.key, value: ctx.payload.value })
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
+        "session.context.entry.remove",
+        Effect.fn(function* (ctx) {
+          const contextEntries = yield* SessionContextEntry.Service
+          yield* contextEntries.remove({ sessionID: ctx.params.sessionID, key: ctx.params.key })
+          return HttpApiSchema.NoContent.make()
         }),
       )
       .handle(

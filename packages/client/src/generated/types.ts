@@ -50,6 +50,22 @@ export type ConflictError = {
 export const isConflictError = (value: unknown): value is ConflictError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "ConflictError"
 
+export type CommandNotFoundError = {
+  readonly _tag: "CommandNotFoundError"
+  readonly command: string
+  readonly message: string
+}
+export const isCommandNotFoundError = (value: unknown): value is CommandNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "CommandNotFoundError"
+
+export type CommandEvaluationError = {
+  readonly _tag: "CommandEvaluationError"
+  readonly command: string
+  readonly message: string
+}
+export const isCommandEvaluationError = (value: unknown): value is CommandEvaluationError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "CommandEvaluationError"
+
 export type SkillNotFoundError = {
   readonly _tag: "SkillNotFoundError"
   readonly skill: string
@@ -151,6 +167,7 @@ export type AgentListOutput = {
     readonly id: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
     readonly request: {
+      readonly settings: { readonly [x: string]: JsonValue }
       readonly headers: { readonly [x: string]: string }
       readonly body: { readonly [x: string]: JsonValue }
     }
@@ -563,6 +580,206 @@ export type SessionPromptOutput = {
   }
 }["data"]
 
+export type SessionCommandInput = {
+  readonly sessionID: { readonly sessionID: string }["sessionID"]
+  readonly id?: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["id"]
+  readonly command: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["command"]
+  readonly arguments?: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["arguments"]
+  readonly agent?: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["agent"]
+  readonly model?: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["model"]
+  readonly files?: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["files"]
+  readonly agents?: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["agents"]
+  readonly delivery?: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["delivery"]
+  readonly resume?: {
+    readonly id?: string | null
+    readonly command: string
+    readonly arguments?: string | null
+    readonly agent?: string | null
+    readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string } | null
+    readonly files?: ReadonlyArray<{
+      readonly uri: string
+      readonly name?: string
+      readonly description?: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly agents?: ReadonlyArray<{
+      readonly name: string
+      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+    }>
+    readonly delivery?: "steer" | "queue" | null
+    readonly resume?: boolean | null
+  }["resume"]
+}
+
+export type SessionCommandOutput = {
+  readonly data: {
+    readonly admittedSeq: number
+    readonly id: string
+    readonly sessionID: string
+    readonly prompt: {
+      readonly text: string
+      readonly files?: ReadonlyArray<{
+        readonly uri: string
+        readonly mime: string
+        readonly name?: string
+        readonly description?: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+      readonly agents?: ReadonlyArray<{
+        readonly name: string
+        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      }>
+    }
+    readonly delivery: "steer" | "queue"
+    readonly timeCreated: number
+    readonly promotedSeq?: number
+  }
+}["data"]
+
 export type SessionSkillInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
   readonly id?: {
@@ -808,6 +1025,27 @@ export type SessionContextOutput = {
       }
   >
 }["data"]
+
+export type SessionListContextEntriesInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type SessionListContextEntriesOutput = {
+  readonly data: ReadonlyArray<{ readonly key: string; readonly value: JsonValue }>
+}["data"]
+
+export type SessionPutContextEntryInput = {
+  readonly sessionID: { readonly sessionID: string; readonly key: string }["sessionID"]
+  readonly key: { readonly sessionID: string; readonly key: string }["key"]
+  readonly value: { readonly value: JsonValue }["value"]
+}
+
+export type SessionPutContextEntryOutput = void
+
+export type SessionRemoveContextEntryInput = {
+  readonly sessionID: { readonly sessionID: string; readonly key: string }["sessionID"]
+  readonly key: { readonly sessionID: string; readonly key: string }["key"]
+}
+
+export type SessionRemoveContextEntryOutput = void
 
 export type SessionHistoryInput = {
   readonly sessionID: { readonly sessionID: string }["sessionID"]
@@ -2197,12 +2435,14 @@ export type ModelListOutput = {
       readonly output: ReadonlyArray<string>
     }
     readonly request: {
+      readonly settings: { readonly [x: string]: JsonValue }
       readonly headers: { readonly [x: string]: string }
       readonly body: { readonly [x: string]: JsonValue }
       readonly variant?: string
     }
     readonly variants: ReadonlyArray<{
       readonly id: string
+      readonly settings: { readonly [x: string]: JsonValue }
       readonly headers: { readonly [x: string]: string }
       readonly body: { readonly [x: string]: JsonValue }
     }>
@@ -2217,6 +2457,67 @@ export type ModelListOutput = {
     readonly enabled: boolean
     readonly limit: { readonly context: number; readonly input?: number; readonly output: number }
   }>
+}
+
+export type ModelDefaultInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type ModelDefaultOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly id: string
+    readonly providerID: string
+    readonly family?: string
+    readonly name: string
+    readonly api:
+      | {
+          readonly id: string
+          readonly type: "aisdk"
+          readonly package: string
+          readonly url?: string
+          readonly settings?: { readonly [x: string]: JsonValue }
+        }
+      | {
+          readonly id: string
+          readonly type: "native"
+          readonly url?: string
+          readonly settings: { readonly [x: string]: JsonValue }
+        }
+    readonly capabilities: {
+      readonly tools: boolean
+      readonly input: ReadonlyArray<string>
+      readonly output: ReadonlyArray<string>
+    }
+    readonly request: {
+      readonly settings: { readonly [x: string]: JsonValue }
+      readonly headers: { readonly [x: string]: string }
+      readonly body: { readonly [x: string]: JsonValue }
+      readonly variant?: string
+    }
+    readonly variants: ReadonlyArray<{
+      readonly id: string
+      readonly settings: { readonly [x: string]: JsonValue }
+      readonly headers: { readonly [x: string]: string }
+      readonly body: { readonly [x: string]: JsonValue }
+    }>
+    readonly time: { readonly released: number }
+    readonly cost: ReadonlyArray<{
+      readonly tier?: { readonly type: "context"; readonly size: number }
+      readonly input: number
+      readonly output: number
+      readonly cache: { readonly read: number; readonly write: number }
+    }>
+    readonly status: "alpha" | "beta" | "deprecated" | "active"
+    readonly enabled: boolean
+    readonly limit: { readonly context: number; readonly input?: number; readonly output: number }
+  } | null
 }
 
 export type GenerateTextInput = {
@@ -2261,6 +2562,7 @@ export type ProviderListOutput = {
         }
       | { readonly type: "native"; readonly url?: string; readonly settings: { readonly [x: string]: JsonValue } }
     readonly request: {
+      readonly settings: { readonly [x: string]: JsonValue }
       readonly headers: { readonly [x: string]: string }
       readonly body: { readonly [x: string]: JsonValue }
     }
@@ -2294,6 +2596,7 @@ export type ProviderGetOutput = {
         }
       | { readonly type: "native"; readonly url?: string; readonly settings: { readonly [x: string]: JsonValue } }
     readonly request: {
+      readonly settings: { readonly [x: string]: JsonValue }
       readonly headers: { readonly [x: string]: string }
       readonly body: { readonly [x: string]: JsonValue }
     }
@@ -3537,6 +3840,19 @@ export type EventSubscribeOutput =
   | {
       readonly id: string
       readonly metadata?: { readonly [x: string]: unknown }
+      readonly type: "session.next.execution.settled"
+      readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+      readonly location?: { readonly directory: string; readonly workspaceID?: string }
+      readonly data: {
+        readonly timestamp: number
+        readonly sessionID: string
+        readonly outcome: "success" | "failure" | "interrupted"
+        readonly error?: { readonly type: "unknown"; readonly message: string }
+      }
+    }
+  | {
+      readonly id: string
+      readonly metadata?: { readonly [x: string]: unknown }
       readonly type: "session.next.context.updated"
       readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
       readonly location?: { readonly directory: string; readonly workspaceID?: string }
@@ -4019,6 +4335,14 @@ export type EventSubscribeOutput =
       readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
       readonly location?: { readonly directory: string; readonly workspaceID?: string }
       readonly data: { readonly projectID: string }
+    }
+  | {
+      readonly id: string
+      readonly metadata?: { readonly [x: string]: unknown }
+      readonly type: "command.updated"
+      readonly durable?: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+      readonly location?: { readonly directory: string; readonly workspaceID?: string }
+      readonly data: {}
     }
   | {
       readonly id: string
