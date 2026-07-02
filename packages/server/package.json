@@ -5,10 +5,19 @@
   "private": true,
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anomalyco/opencode.git",
+    "directory": "packages/server"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     "./*": "./src/*.ts"
   },
   "scripts": {
+    "build:publish": "bun tsc -p tsconfig.publish.json",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {

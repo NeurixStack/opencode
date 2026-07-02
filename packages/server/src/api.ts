@@ -1,6 +1,5 @@
 import { makeDefaultApi } from "@opencode-ai/protocol/api"
-import { LocationMiddleware } from "./location"
-import { SessionLocationMiddleware } from "./middleware/session-location"
+import { LocationMiddleware, SessionLocationMiddleware } from "./middleware/location.js"
 
 export const Api = makeDefaultApi({
   locationMiddleware: LocationMiddleware,

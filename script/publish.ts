@@ -41,6 +41,9 @@ await $`bun ./packages/schema/script/publish.ts`
 console.log("\n=== protocol ===\n")
 await $`bun ./packages/protocol/script/publish.ts`
 
+console.log("\n=== server ===\n")
+await $`bun ./packages/server/script/publish.ts`
+
 console.log("\n=== cli ===\n")
 await $`bun ./packages/cli/script/publish.ts`
 
