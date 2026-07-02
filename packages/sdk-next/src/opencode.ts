@@ -9,10 +9,12 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http"
 
 export interface Options {
   /**
-   * Replaces the ConfigProvider this host's layers read while they are built,
-   * for example the OPENCODE_DB database placement. The default provider
-   * snapshots the process environment on first use, so per-host configuration
-   * must come through this seam rather than env mutation. Compose with
+   * Replaces the ConfigProvider read while this host's process-global layers
+   * are built, for example the OPENCODE_DB database placement. The default
+   * provider snapshots the process environment on first use, so per-host
+   * configuration must come through this seam rather than env mutation.
+   * Location-scoped layers build lazily outside host construction and still
+   * read the process default. Compose with
    * ConfigProvider.orElse(ConfigProvider.fromEnv()) to keep environment
    * fallback.
    */
@@ -22,10 +24,9 @@ export interface Options {
 export const create = Effect.fn("OpenCode.create")(function* (options?: Options) {
   const scope = yield* Scope.Scope
   const memoMap = yield* Layer.makeMemoMap
+  const configLayer = options?.configProvider === undefined ? undefined : ConfigProvider.layer(options.configProvider)
   const withConfig = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
-    options?.configProvider === undefined
-      ? layer
-      : layer.pipe(Layer.provide(ConfigProvider.layer(options.configProvider)))
+    configLayer === undefined ? layer : layer.pipe(Layer.provide(configLayer))
   const context = yield* Layer.buildWithMemoMap(
     withConfig(AppNodeBuilder.build(LayerNode.group([ApplicationTools.node, PermissionSaved.node]))),
     memoMap,
@@ -64,6 +65,6 @@ export type Interface = Effect.Success<ReturnType<typeof create>>
 
 export class Service extends Context.Service<Service, Interface>()("@opencode-ai/sdk-next/OpenCode") {}
 
-export const layer = Layer.effect(Service, create())
-
 export const layerWith = (options: Options) => Layer.effect(Service, create(options))
+
+export const layer = layerWith({})
