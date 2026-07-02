@@ -48,26 +48,21 @@ const prepareOnce = Effect.fnUntraced(function* (
   )
   if (!stored) return yield* insertInitial(db, sessionID, value)
 
-  const snapshot = yield* Schema.decodeUnknownEffect(SystemContext.Snapshot)(stored.snapshot).pipe(
+  const applied = yield* Schema.decodeUnknownEffect(SystemContext.Applied)(stored.snapshot).pipe(
     Effect.mapError((error) => new ContextSnapshotDecodeError({ sessionID, details: String(error) })),
   )
-  const replacementSeq = compaction !== undefined && compaction.seq > stored.baseline_seq ? compaction.seq : undefined
-  const result = replacementSeq
-    ? yield* SystemContext.replace(value, snapshot)
-    : yield* SystemContext.reconcile(value, snapshot)
-  if (result._tag === "Unchanged" || result._tag === "ReplacementBlocked") {
-    return { baseline: stored.baseline, baselineSeq: stored.baseline_seq }
+  if (compaction !== undefined && compaction.seq > stored.baseline_seq) {
+    const generation = yield* SystemContext.rebaseline(value, applied)
+    yield* replace(db, sessionID, compaction.seq, generation)
+    return { baseline: generation.text, baselineSeq: compaction.seq }
   }
-  if (result._tag === "ReplacementReady") {
-    const baselineSeq = replacementSeq ?? (yield* EventV2.latestSequence(db, sessionID))
-    yield* replace(db, sessionID, baselineSeq, result.generation)
-    return { baseline: result.generation.baseline, baselineSeq }
-  }
+  const result = yield* SystemContext.reconcile(value, applied)
+  if (result._tag === "Unchanged") return { baseline: stored.baseline, baselineSeq: stored.baseline_seq }
 
   yield* events.publish(
     SessionEvent.ContextUpdated,
     { sessionID, messageID: SessionMessage.ID.create(), timestamp: yield* DateTime.now, text: result.text },
-    { commit: () => advance(db, sessionID, result.snapshot).pipe(Effect.orDie) },
+    { commit: () => advance(db, sessionID, result.applied).pipe(Effect.orDie) },
   )
   return { baseline: stored.baseline, baselineSeq: stored.baseline_seq }
 })
@@ -88,7 +83,7 @@ const insertInitial = Effect.fnUntraced(function* (
 ) {
   const generation = yield* SystemContext.initialize(value)
   const baselineSeq = yield* insert(db, sessionID, generation)
-  return { baseline: generation.baseline, baselineSeq }
+  return { baseline: generation.text, baselineSeq }
 })
 
 const exists = Effect.fn("SessionContextEpoch.exists")(function* (db: DatabaseService, sessionID: SessionSchema.ID) {
@@ -125,15 +120,15 @@ export const reset = Effect.fn("SessionContextEpoch.reset")(function* (
 const insert = Effect.fnUntraced(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
-  generation: SystemContext.Generation,
+  generation: SystemContext.Baseline,
 ) {
   const baselineSeq = yield* EventV2.latestSequence(db, sessionID)
   yield* db
     .insert(SessionContextEpochTable)
     .values({
       session_id: sessionID,
-      baseline: generation.baseline,
-      snapshot: generation.snapshot,
+      baseline: generation.text,
+      snapshot: generation.applied,
       baseline_seq: baselineSeq,
     })
     .run()
@@ -145,13 +140,13 @@ const replace = Effect.fnUntraced(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
   baselineSeq: number,
-  generation: SystemContext.Generation,
+  generation: SystemContext.Baseline,
 ) {
   const updated = yield* db
     .update(SessionContextEpochTable)
     .set({
-      baseline: generation.baseline,
-      snapshot: generation.snapshot,
+      baseline: generation.text,
+      snapshot: generation.applied,
       baseline_seq: baselineSeq,
     })
     .where(eq(SessionContextEpochTable.session_id, sessionID))
@@ -164,11 +159,11 @@ const replace = Effect.fnUntraced(function* (
 const advance = Effect.fnUntraced(function* (
   db: DatabaseService,
   sessionID: SessionSchema.ID,
-  snapshot: SystemContext.Snapshot,
+  applied: SystemContext.Applied,
 ) {
   const updated = yield* db
     .update(SessionContextEpochTable)
-    .set({ snapshot })
+    .set({ snapshot: applied })
     .where(eq(SessionContextEpochTable.session_id, sessionID))
     .returning({ sessionID: SessionContextEpochTable.session_id })
     .get()
