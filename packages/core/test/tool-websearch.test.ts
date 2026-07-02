@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { Effect, Layer, Schema } from "effect"
+import { ConfigProvider, Effect, Layer, Schema } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -44,6 +44,57 @@ describe("WebSearchTool provider selection", () => {
 
   test("prefers Exa when only its explicit flag is enabled", () => {
     expect(WebSearchTool.selectProvider(sessionID, { enableExa: true, enableParallel: false })).toBe("exa")
+  })
+})
+
+const readDefaultConfig = (env: Record<string, string>) =>
+  Effect.provide(
+    WebSearchTool.ConfigService,
+    WebSearchTool.defaultConfigLayer.pipe(Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env)))),
+  )
+
+describe("WebSearchTool default config", () => {
+  test("decodes an empty environment to defaults", async () => {
+    expect(await Effect.runPromise(readDefaultConfig({}))).toEqual({
+      provider: undefined,
+      enableExa: false,
+      enableParallel: false,
+      exaApiKey: undefined,
+      parallelApiKey: undefined,
+    })
+  })
+
+  test("decodes provider, truthy flags, and credentials from the active ConfigProvider", async () => {
+    expect(
+      await Effect.runPromise(
+        readDefaultConfig({
+          OPENCODE_WEBSEARCH_PROVIDER: "parallel",
+          OPENCODE_ENABLE_EXA: "1",
+          OPENCODE_EXPERIMENTAL_PARALLEL: "true",
+          EXA_API_KEY: "exa-key",
+          PARALLEL_API_KEY: "parallel-key",
+        }),
+      ),
+    ).toEqual({
+      provider: "parallel",
+      enableExa: true,
+      enableParallel: true,
+      exaApiKey: "exa-key",
+      parallelApiKey: "parallel-key",
+    })
+  })
+
+  test("keeps the legacy lenient truthiness grammar", async () => {
+    const decoded = await Effect.runPromise(
+      readDefaultConfig({ OPENCODE_ENABLE_EXA: "TRUE", OPENCODE_ENABLE_PARALLEL: "banana" }),
+    )
+    expect(decoded.enableExa).toBe(true)
+    expect(decoded.enableParallel).toBe(false)
+  })
+
+  test("ignores an invalid provider instead of failing the Location layer", async () => {
+    const decoded = await Effect.runPromise(readDefaultConfig({ OPENCODE_WEBSEARCH_PROVIDER: "bing" }))
+    expect(decoded.provider).toBeUndefined()
   })
 })
 

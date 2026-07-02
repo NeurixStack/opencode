@@ -4,17 +4,36 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { SdkPlugins } from "@opencode-ai/core/plugin/sdk"
 import { createEmbeddedRoutes } from "@opencode-ai/server/routes"
-import { Context, Effect, Layer, Scope } from "effect"
+import { ConfigProvider, Context, Effect, Layer, Scope } from "effect"
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http"
 
-export const create = Effect.fn("OpenCode.create")(function* () {
+export interface Options {
+  /**
+   * Replaces the ConfigProvider read while this host's process-global layers
+   * are built, for example the OPENCODE_DB database placement. The default
+   * provider snapshots the process environment on first use, so per-host
+   * configuration must come through this seam rather than env mutation.
+   * Location-scoped layers build lazily outside host construction and still
+   * read the process default. Compose with
+   * ConfigProvider.orElse(ConfigProvider.fromEnv()) to keep environment
+   * fallback.
+   */
+  readonly configProvider?: ConfigProvider.ConfigProvider
+}
+
+export const create = Effect.fn("OpenCode.create")(function* (options?: Options) {
   const scope = yield* Scope.Scope
   const memoMap = yield* Layer.makeMemoMap
+  const configLayer = options?.configProvider === undefined ? undefined : ConfigProvider.layer(options.configProvider)
+  const withConfig = <A, E, R>(layer: Layer.Layer<A, E, R>) =>
+    configLayer === undefined ? layer : layer.pipe(Layer.provide(configLayer))
   const sdkPlugins = SdkPlugins.makeStore()
   const context = yield* Layer.buildWithMemoMap(
-    AppNodeBuilder.build(LayerNode.group([PermissionSaved.node, SdkPlugins.node]), [
-      [SdkPlugins.node, SdkPlugins.layerWithStore(sdkPlugins)],
-    ]),
+    withConfig(
+      AppNodeBuilder.build(LayerNode.group([PermissionSaved.node, SdkPlugins.node]), [
+        [SdkPlugins.node, SdkPlugins.layerWithStore(sdkPlugins)],
+      ]),
+    ),
     memoMap,
     scope,
   )
@@ -23,9 +42,11 @@ export const create = Effect.fn("OpenCode.create")(function* () {
   const web = yield* Effect.acquireRelease(
     Effect.sync(() =>
       HttpRouter.toWebHandler(
-        createEmbeddedRoutes(sdkPlugins).pipe(
-          HttpRouter.provideRequest(Layer.succeed(PermissionSaved.Service, permissions)),
-          Layer.provide(HttpServer.layerServices),
+        withConfig(
+          createEmbeddedRoutes(sdkPlugins).pipe(
+            HttpRouter.provideRequest(Layer.succeed(PermissionSaved.Service, permissions)),
+            Layer.provide(HttpServer.layerServices),
+          ),
         ),
         { disableLogger: true, memoMap },
       ),
@@ -56,4 +77,6 @@ export type Interface = Effect.Success<ReturnType<typeof create>>
 
 export class Service extends Context.Service<Service, Interface>()("@opencode-ai/sdk-next/OpenCode") {}
 
-export const layer = Layer.effect(Service, create())
+export const layerWith = (options: Options) => Layer.effect(Service, create(options))
+
+export const layer = layerWith({})

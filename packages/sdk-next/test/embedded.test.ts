@@ -1,11 +1,14 @@
 import { expect } from "bun:test"
-import { Flag } from "@opencode-ai/core/flag/flag"
-import { Deferred, Effect, Latch, Layer, Option, Schema, Stream } from "effect"
+import { ConfigProvider, Deferred, Effect, Latch, Layer, Option, Schema, Stream } from "effect"
+import { join } from "node:path"
 import { testEffect } from "../../core/test/lib/effect"
 import { tmpdir } from "../../core/test/fixture/tmpdir"
 import type { OpenCodeEvent } from "../src"
 
-Flag.OPENCODE_DB = ":memory:"
+// Database placement resolves through Effect Config when a host's layers are
+// built. The default ConfigProvider snapshots process.env on first use, so
+// this must run before the first Config read in the process.
+process.env.OPENCODE_DB = ":memory:"
 
 const it = testEffect(Layer.empty)
 type Sdk = typeof import("../src")
@@ -203,4 +206,20 @@ it.live("embedded client is available as a Layer service", () =>
       expect(created.id).toBe(id)
     }).pipe(Effect.provide(fixture.sdk.OpenCode.layer))
   }),
+)
+
+it.live("a host ConfigProvider chooses this host's database placement", () =>
+  withEmbedded("opencode-embedded-config-", (fixture) =>
+    Effect.gen(function* () {
+      // The process env pins OPENCODE_DB to ":memory:" above, so a database
+      // materializing at this path proves the host read the provider instead.
+      const file = join(fixture.directory, "seam.sqlite")
+      const opencode = yield* fixture.sdk.OpenCode.create({
+        configProvider: ConfigProvider.fromUnknown({ OPENCODE_DB: file }),
+      })
+      const created = yield* opencode.sessions.create({ location: location(fixture) })
+      expect(created.id).toBeTruthy()
+      expect(yield* Effect.promise(() => Bun.file(file).exists())).toBe(true)
+    }),
+  ),
 )
