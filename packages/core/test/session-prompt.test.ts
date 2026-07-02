@@ -499,6 +499,60 @@ describe("SessionV2.prompt", () => {
     }),
   )
 
+  it.effect("reconciles an exact retry after promotion captured attachment resolutions", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const { db } = yield* Database.Service
+      const uri = "file:///project/notes.md"
+      const prompt = Prompt.make({
+        text: "Look at this",
+        files: [{ uri, mime: "text/plain", name: "notes.md" }],
+      })
+
+      yield* session.prompt({ id: messageID, sessionID, prompt, resume: false })
+      yield* SessionInput.promoteSteers(db, events, sessionID, Number.MAX_SAFE_INTEGER, () =>
+        Effect.succeed([{ uri, resolved: '<attached-file path="notes.md">\ncontent\n</attached-file>' }]),
+      )
+
+      // The projected message snapshots the resolution; the admitted prompt stays original.
+      expect(yield* session.messages({ sessionID })).toMatchObject([
+        { type: "user", files: [{ uri, resolved: expect.stringContaining("attached-file") }] },
+      ])
+      const retried = yield* session.prompt({ id: messageID, sessionID, prompt, resume: false })
+      expect(retried).toMatchObject({ id: messageID, prompt: { files: [{ uri }] } })
+    }),
+  )
+
+  it.effect("reconciles an exact retry of a legacy prompt whose event carried resolutions", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      const events = yield* EventV2.Service
+      const uri = "file:///project/notes.md"
+      // Mime must match admission-time `resolvePrompt` normalization for the retry to be exact.
+      const prompt = Prompt.make({
+        text: "Look at this",
+        files: [{ uri, mime: "text/markdown", name: "notes.md" }],
+      })
+      yield* events.publish(SessionEvent.Prompted, {
+        sessionID,
+        messageID,
+        timestamp: yield* DateTime.now,
+        prompt,
+        delivery: "steer",
+        resolutions: [{ uri, resolved: '<attached-file path="notes.md">\ncontent\n</attached-file>' }],
+      })
+
+      // Lazy synthesis must build the inbox record from the original prompt, not the resolved message.
+      const retried = yield* session.prompt({ id: messageID, sessionID, prompt, resume: false })
+
+      expect(retried).toMatchObject({ id: messageID, prompt: { files: [{ uri }] } })
+      expect(yield* admitted(messageID)).toHaveProperty("promotedSeq")
+    }),
+  )
+
   it.effect("returns an exact retry of a legacy projected prompt", () =>
     Effect.gen(function* () {
       yield* setup
