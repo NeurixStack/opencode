@@ -4,6 +4,8 @@ import { createSessionLineage } from "@/pages/session/session-lineage"
 
 type Lineage = { session: { id: string; directory: string } }
 
+const lineageOf = (id: string): Lineage => ({ session: { id, directory: `/dir/${id}` } })
+
 // Fake sync lineage store: peek reads a reactive cache, resolve returns a
 // deferred promise the test settles or fails explicitly. The lineage memo is
 // live (read below), so it recomputes eagerly on cache/status writes — throws
@@ -25,11 +27,14 @@ function createFixture(initial: Record<string, Lineage> = {}) {
       },
     },
     settle(id: string) {
-      setCache({ ...cache(), [id]: { session: { id, directory: `/dir/${id}` } } })
+      setCache({ ...cache(), [id]: lineageOf(id) })
       deferred.get(id)?.resolve(undefined)
     },
     fail(id: string, error: unknown) {
       deferred.get(id)?.reject(error)
+      // The real store does not cache failures: the inflight request entry is
+      // dropped on rejection so the next resolve retries (server-session.ts).
+      deferred.delete(id)
     },
     remove(id: string) {
       const next = { ...cache() }
@@ -39,12 +44,12 @@ function createFixture(initial: Record<string, Lineage> = {}) {
   }
 }
 
+// Two microtask ticks: one for the resolve promise handed back by the fixture,
+// one for the .then/.catch chain inside createSessionLineage.
 const flush = async () => {
   await Promise.resolve()
   await Promise.resolve()
 }
-
-const lineageOf = (id: string): Lineage => ({ session: { id, directory: `/dir/${id}` } })
 
 test("resolves an uncached session and exposes its lineage", async () => {
   await createRoot(async (dispose) => {
@@ -136,6 +141,64 @@ test("returning to a pruned session re-resolves instead of throwing not found", 
     expect(fixture.resolves).toEqual(["ses_a", "ses_b", "ses_a"])
 
     fixture.settle("ses_a")
+    await flush()
+    expect(current()?.session.id).toBe("ses_a")
+
+    dispose()
+  })
+})
+
+// A resolution that fails while its session is unfocused must not leave a
+// poisoned status behind: revisiting that session retries cleanly instead of
+// rethrowing the stale failure before the retry can start.
+test("revisiting a session whose resolution failed while unfocused retries cleanly", async () => {
+  await createRoot(async (dispose) => {
+    const fixture = createFixture()
+    const [id, setId] = createSignal("ses_a")
+    const current = createSessionLineage(id, () => fixture.lineage)
+
+    await flush()
+    setId("ses_b")
+    fixture.fail("ses_a", new Error("resolve failed"))
+    await flush()
+
+    expect(() => {
+      setId("ses_a")
+      current()
+    }).not.toThrow()
+    expect(fixture.resolves).toEqual(["ses_a", "ses_b", "ses_a"])
+
+    fixture.settle("ses_a")
+    await flush()
+    expect(current()?.session.id).toBe("ses_a")
+
+    dispose()
+  })
+})
+
+// The lineage accessor is reactive: replacing the sync store (for example after
+// the server context is rebuilt) must gate out the old store's status and
+// re-resolve against the new one instead of fabricating a not-found.
+test("re-resolves against a replaced lineage store", async () => {
+  await createRoot(async (dispose) => {
+    const first = createFixture()
+    const second = createFixture()
+    const [store, setStore] = createSignal(first.lineage)
+    const current = createSessionLineage(() => "ses_a", store)
+
+    await flush()
+    first.settle("ses_a")
+    await flush()
+    expect(current()?.session.id).toBe("ses_a")
+
+    expect(() => {
+      setStore(second.lineage)
+      current()
+    }).not.toThrow()
+    await flush()
+    expect(second.resolves).toEqual(["ses_a"])
+
+    second.settle("ses_a")
     await flush()
     expect(current()?.session.id).toBe("ses_a")
 

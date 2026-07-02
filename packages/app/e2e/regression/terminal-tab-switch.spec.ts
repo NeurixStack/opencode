@@ -10,6 +10,9 @@ const sessionB = "ses_terminal_tab_b"
 const titleA = "Alpha session"
 const titleB = "Beta session"
 const ptyID = "pty_tab_switch"
+const server = `http://${process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"}:${process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"}`
+// Marks the terminal DOM node so a remount (fresh node) is detectable.
+const PROBE = "original"
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -17,8 +20,7 @@ test.use({ viewport: { width: 1440, height: 900 } })
 // workspace must keep the terminal mounted and its PTY connection open instead
 // of tearing it down and reconnecting.
 test("keeps the terminal session alive when switching session tabs in a workspace", async ({ page }) => {
-  const connections: string[] = []
-  await setup(page, connections)
+  const connections = await setup(page)
 
   await page.goto(sessionHref(sessionA))
   await expectSessionTitle(page, titleA)
@@ -27,34 +29,38 @@ test("keeps the terminal session alive when switching session tabs in a workspac
   const terminal = page.locator('[data-component="terminal"]')
   await expect(terminal).toBeVisible()
   await expect.poll(() => connections.length).toBe(1)
-  await terminal.evaluate((el) => {
-    ;(el as HTMLElement & { __e2eProbe?: string }).__e2eProbe = "original"
-  })
+  await writeProbe(page)
 
   await switchTab(page, titleB)
   await expectSessionTitle(page, titleB)
   await expect(terminal).toBeVisible()
-  expect(await probe(page)).toBe("original")
+  expect(await readProbe(page)).toBe(PROBE)
   expect(connections.length).toBe(1)
 
   await switchTab(page, titleA)
   await expectSessionTitle(page, titleA)
   await expect(terminal).toBeVisible()
-  expect(await probe(page)).toBe("original")
+  expect(await readProbe(page)).toBe(PROBE)
   expect(connections.length).toBe(1)
 })
+
+type Probed = HTMLElement & { __e2eProbe?: string }
 
 async function switchTab(page: Page, title: string) {
   await page.locator("[data-titlebar-tab-slot]", { hasText: title }).click()
 }
 
-async function probe(page: Page) {
-  return page
-    .locator('[data-component="terminal"]')
-    .evaluate((el) => (el as HTMLElement & { __e2eProbe?: string }).__e2eProbe)
+async function writeProbe(page: Page) {
+  await page.locator('[data-component="terminal"]').evaluate((el, probe) => {
+    ;(el as Probed).__e2eProbe = probe
+  }, PROBE)
 }
 
-async function setup(page: Page, connections: string[]) {
+async function readProbe(page: Page) {
+  return page.locator('[data-component="terminal"]').evaluate((el) => (el as Probed).__e2eProbe)
+}
+
+async function setup(page: Page) {
   await mockOpenCodeServer(page, {
     directory,
     project: {
@@ -97,11 +103,11 @@ async function setup(page: Page, connections: string[]) {
       body: JSON.stringify({ ticket: "e2e-ticket" }),
     }),
   )
+  const connections: string[] = []
   await page.routeWebSocket(new RegExp(`/pty/${ptyID}/connect`), (ws) => {
     connections.push(ws.url())
   })
 
-  const server = `http://${process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"}:${process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"}`
   await page.addInitScript(
     ({ directory, server, sessions }) => {
       localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
@@ -119,6 +125,7 @@ async function setup(page: Page, connections: string[]) {
     },
     { directory, server, sessions: [sessionA, sessionB] },
   )
+  return connections
 }
 
 function session(id: string, title: string, created: number) {
@@ -134,6 +141,5 @@ function session(id: string, title: string, created: number) {
 }
 
 function sessionHref(sessionID: string) {
-  const server = `http://${process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"}:${process.env.PLAYWRIGHT_SERVER_PORT ?? "4096"}`
   return `/server/${base64Encode(server)}/session/${sessionID}`
 }

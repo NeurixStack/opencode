@@ -84,7 +84,7 @@ import { Identifier } from "@/utils/id"
 import { diffs as list } from "@/utils/diffs"
 import { Persist, persisted } from "@/utils/persist"
 import { extractPromptFromParts } from "@/utils/prompt"
-import { formatServerError, isSessionNotFoundError } from "@/utils/server-errors"
+import { formatServerError, isLocalSessionNotFoundError, isSessionNotFoundError } from "@/utils/server-errors"
 import { legacySessionHref, requireServerKey, sessionHref } from "@/utils/session-route"
 import { useUsageExceededDialogs } from "./session/usage-exceeded-dialogs"
 import { createSessionOwnership } from "./session/session-ownership"
@@ -103,10 +103,6 @@ const sessionViewState = () => ({
   mobileTab: "session" as "session" | "changes",
   changes: "git" as ChangeMode,
 })
-
-function isLocalSessionNotFoundError(error: unknown, sessionID: string) {
-  return error instanceof Error && error.message === `Session not found: ${sessionID}`
-}
 
 function isCurrentSessionNotFoundError(error: unknown, sessionID: string | undefined) {
   if (!sessionID) return false
@@ -144,18 +140,17 @@ export function SessionPage() {
   )
 }
 
-export function TargetSessionRoute() {
+// Rendered under app.tsx's TargetSessionRoute, which owns the per-server keyed
+// remount around the server-scoped providers. Nothing here may key on the
+// session ID: session tabs on the same server share this route instance, and
+// workspace-scoped state (terminal, directory providers) lives below.
+export function TargetSessionRouteContent() {
   const params = useParams<{ serverKey: string; id: string }>()
   return (
     <SessionRouteErrorBoundary
       sessionID={params.id}
       fallback={(error) => (
-        <SessionRouteFallback
-          error={error}
-          sessionID={params.id}
-          serverKey={requireServerKey(params.serverKey)}
-          padded
-        />
+        <SessionRouteFallback error={error} sessionID={params.id} serverKey={requireServerKey(params.serverKey)} />
       )}
     >
       <ResolvedTargetSessionRoute />
@@ -163,17 +158,12 @@ export function TargetSessionRoute() {
   )
 }
 
-function SessionRouteFallback(props: {
-  error: unknown
-  sessionID?: string
-  serverKey?: ServerConnection.Key
-  padded?: boolean
-}) {
+function SessionRouteFallback(props: { error: unknown; sessionID: string; serverKey: ServerConnection.Key }) {
   const settings = useSettings()
   return (
     <Show when={settings.general.newLayoutDesigns()} fallback={<ErrorPage error={props.error} />}>
-      <SessionRouteFrame padded={props.padded}>
-        <SessionPanelFrame newLayout raised={!!props.sessionID}>
+      <SessionRouteFrame padded>
+        <SessionPanelFrame newLayout raised>
           <SessionErrorFallback error={props.error} sessionID={props.sessionID} serverKey={props.serverKey} />
         </SessionPanelFrame>
       </SessionRouteFrame>
@@ -248,6 +238,10 @@ function ResolvedTargetSessionRoute() {
 
   return (
     <TargetServerScopedProviders directory={directory} sessionID={() => params.id}>
+      {/* Non-keyed: closes only while the target's directory is unknown (uncached
+          lineage mid-resolution), which tears down the workspace subtree including
+          the terminal. Same-workspace tab switches keep it open because warm
+          targets resolve synchronously from the sync cache. */}
       <Show when={directory()}>
         <Show
           when={settings.general.newLayoutDesigns()}
@@ -264,6 +258,9 @@ function ResolvedTargetSessionRoute() {
   )
 }
 
+// Owns the workspace-identity remount. Must not include the session ID in the
+// key: SessionPage handles session changes reactively, and remounting here
+// destroys workspace-scoped state (terminal PTYs, file/prompt providers).
 function TargetSessionPage() {
   const sdk = useSDK()
   const serverSDK = useServerSDK()

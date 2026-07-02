@@ -7,9 +7,10 @@ import type { JSX } from "solid-js"
 // WebSockets) that has to survive switching tabs within the same workspace.
 // Remount boundaries live elsewhere: app.tsx keys the route per server around
 // the server-scoped providers, and TargetSessionPage re-keys per workspace.
-// Kept free of app contexts (and JSX) so these semantics are directly testable.
+// Context-free so these semantics are directly unit-testable, and JSX-free so
+// bun test can import it without the Solid JSX transform.
 export function SessionRouteErrorBoundary(props: {
-  sessionID: string | undefined
+  sessionID: string
   fallback: (error: unknown) => JSX.Element
   children: JSX.Element
 }) {
