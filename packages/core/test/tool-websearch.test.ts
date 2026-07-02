@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
-import { ConfigProvider, Effect, Exit, Layer, Schema } from "effect"
+import { ConfigProvider, Effect, Layer, Schema } from "effect"
 import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -48,12 +48,9 @@ describe("WebSearchTool provider selection", () => {
 })
 
 const readDefaultConfig = (env: Record<string, string>) =>
-  Effect.gen(function* () {
-    return yield* WebSearchTool.ConfigService
-  }).pipe(
-    Effect.provide(
-      WebSearchTool.defaultConfigLayer.pipe(Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env)))),
-    ),
+  Effect.provide(
+    WebSearchTool.ConfigService,
+    WebSearchTool.defaultConfigLayer.pipe(Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env)))),
   )
 
 describe("WebSearchTool default config", () => {
@@ -87,9 +84,17 @@ describe("WebSearchTool default config", () => {
     })
   })
 
-  test("fails on an invalid provider instead of silently ignoring it", async () => {
-    const exit = await Effect.runPromiseExit(readDefaultConfig({ OPENCODE_WEBSEARCH_PROVIDER: "bing" }))
-    expect(Exit.isFailure(exit)).toBe(true)
+  test("keeps the legacy lenient truthiness grammar", async () => {
+    const decoded = await Effect.runPromise(
+      readDefaultConfig({ OPENCODE_ENABLE_EXA: "TRUE", OPENCODE_ENABLE_PARALLEL: "banana" }),
+    )
+    expect(decoded.enableExa).toBe(true)
+    expect(decoded.enableParallel).toBe(false)
+  })
+
+  test("ignores an invalid provider instead of failing the Location layer", async () => {
+    const decoded = await Effect.runPromise(readDefaultConfig({ OPENCODE_WEBSEARCH_PROVIDER: "bing" }))
+    expect(decoded.provider).toBeUndefined()
   })
 })
 

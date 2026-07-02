@@ -18,6 +18,9 @@ const preserveExerciseDatabase = !!process.env.OPENCODE_HTTPAPI_EXERCISE_DB
 export const exerciseDatabasePath =
   process.env.OPENCODE_HTTPAPI_EXERCISE_DB ??
   path.join(process.env.TMPDIR ?? "/tmp", `opencode-httpapi-exercise-${process.pid}.db`)
+// Must run before the first Effect Config read anywhere in the process: the
+// default ConfigProvider snapshots process.env on first use, so a Config read
+// during an earlier module import would freeze the wrong database path.
 process.env.OPENCODE_DB = exerciseDatabasePath
 
 export const original = {

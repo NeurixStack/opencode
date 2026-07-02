@@ -1,9 +1,23 @@
 import { Config } from "effect"
 
-export function truthy(key: string) {
-  const value = process.env[key]?.toLowerCase()
-  return value === "true" || value === "1"
+function truthyValue(value: string) {
+  const lower = value.toLowerCase()
+  return lower === "true" || lower === "1"
 }
+
+export function truthy(key: string) {
+  const value = process.env[key]
+  return value !== undefined && truthyValue(value)
+}
+
+/**
+ * The `truthy` grammar read through Effect Config, so layer builds can be
+ * steered by a ConfigProvider. Missing or malformed values are false, exactly
+ * like `truthy`; strict boolean decoding would turn a stray env value into a
+ * startup defect.
+ */
+export const truthyConfig = (name: string) =>
+  Config.string(name).pipe(Config.map(truthyValue), Config.withDefault(false))
 
 const copy = process.env["OPENCODE_EXPERIMENTAL_DISABLE_COPY_ON_SELECT"]
 const fff = process.env["OPENCODE_DISABLE_FFF"]

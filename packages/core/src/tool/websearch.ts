@@ -1,10 +1,11 @@
 export * as WebSearchTool from "./websearch"
 
 import { ToolFailure } from "@opencode-ai/llm"
-import { Config, Context, Duration, Effect, Layer, Option, Redacted, Schema } from "effect"
+import { Config, Context, Duration, Effect, Layer, Schema } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { makeLocationNode } from "../effect/app-node"
 import { LayerNodePlatform } from "../effect/app-node-platform"
+import { truthyConfig } from "../flag/flag"
 import { InstallationVersion } from "../installation/version"
 import { PositiveInt } from "../schema"
 import { PermissionV2 } from "../permission"
@@ -68,30 +69,36 @@ export interface Config {
 
 export class ConfigService extends Context.Service<ConfigService, Config>()("@opencode/v2/WebSearchConfig") {}
 
-const flag = (name: string) => Config.boolean(name).pipe(Config.withDefault(false))
-
 /**
  * Isolates the retained product environment contract from the generic tool
  * implementation. Reads through Effect `Config` when the layer is built, so
  * tests can override values with a `ConfigProvider` instead of mutating
- * `process.env`. Malformed values fail the layer instead of silently
- * disabling a provider the user asked for.
+ * `process.env`. Parsing keeps the legacy lenient grammar: missing or
+ * malformed values disable rather than fail, because this layer builds at
+ * Location boot where a defect would surface as opaque session failures.
  */
 export const defaultConfigLayer = Layer.effect(
   ConfigService,
   Effect.gen(function* () {
-    const provider = yield* Config.option(Config.literals(["exa", "parallel"], "OPENCODE_WEBSEARCH_PROVIDER"))
-    const exaApiKey = yield* Config.option(Config.redacted("EXA_API_KEY"))
-    const parallelApiKey = yield* Config.option(Config.redacted("PARALLEL_API_KEY"))
+    const env = yield* Config.all({
+      provider: Config.string("OPENCODE_WEBSEARCH_PROVIDER").pipe(Config.withDefault(undefined)),
+      experimental: truthyConfig("OPENCODE_EXPERIMENTAL"),
+      enableExa: truthyConfig("OPENCODE_ENABLE_EXA"),
+      experimentalExa: truthyConfig("OPENCODE_EXPERIMENTAL_EXA"),
+      enableParallel: truthyConfig("OPENCODE_ENABLE_PARALLEL"),
+      experimentalParallel: truthyConfig("OPENCODE_EXPERIMENTAL_PARALLEL"),
+      exaApiKey: Config.string("EXA_API_KEY").pipe(Config.withDefault(undefined)),
+      parallelApiKey: Config.string("PARALLEL_API_KEY").pipe(Config.withDefault(undefined)),
+    })
+    const provider = env.provider !== undefined && Schema.is(Provider)(env.provider) ? env.provider : undefined
+    if (env.provider !== undefined && provider === undefined)
+      yield* Effect.logWarning("ignoring invalid OPENCODE_WEBSEARCH_PROVIDER", { value: env.provider })
     return ConfigService.of({
-      provider: Option.getOrUndefined(provider),
-      enableExa:
-        (yield* flag("OPENCODE_EXPERIMENTAL")) ||
-        (yield* flag("OPENCODE_ENABLE_EXA")) ||
-        (yield* flag("OPENCODE_EXPERIMENTAL_EXA")),
-      enableParallel: (yield* flag("OPENCODE_ENABLE_PARALLEL")) || (yield* flag("OPENCODE_EXPERIMENTAL_PARALLEL")),
-      exaApiKey: Option.getOrUndefined(Option.map(exaApiKey, Redacted.value)),
-      parallelApiKey: Option.getOrUndefined(Option.map(parallelApiKey, Redacted.value)),
+      provider,
+      enableExa: env.experimental || env.enableExa || env.experimentalExa,
+      enableParallel: env.enableParallel || env.experimentalParallel,
+      exaApiKey: env.exaApiKey,
+      parallelApiKey: env.parallelApiKey,
     })
   }),
 ).pipe(Layer.orDie)

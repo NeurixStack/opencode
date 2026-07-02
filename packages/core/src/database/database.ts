@@ -2,9 +2,9 @@ export * as Database from "./database"
 
 import { EffectDrizzleSqlite } from "@opencode-ai/effect-drizzle-sqlite"
 import { layer as sqliteLayer } from "#sqlite"
-import { Config, Context, Effect, Layer, Option } from "effect"
+import { Config, Context, Effect, Layer } from "effect"
 import { Global } from "../global"
-import { truthy } from "../flag/flag"
+import { truthy, truthyConfig } from "../flag/flag"
 import { isAbsolute, join } from "path"
 import { DatabaseMigration } from "./migration"
 import { InstallationChannel } from "../installation/version"
@@ -61,12 +61,14 @@ export function path() {
 
 // Placement is resolved through Effect Config when the layer is built, not at
 // module import, so tests and tooling can override it with a ConfigProvider.
+// truthyConfig shares the `truthy` grammar so this layer and the V1 `path()`
+// helper always agree on the same environment.
 const configuredLayer = Layer.unwrap(
   Effect.gen(function* () {
-    const file = yield* Config.option(Config.string("OPENCODE_DB"))
-    const disableChannelDb = yield* Config.boolean("OPENCODE_DISABLE_CHANNEL_DB").pipe(Config.withDefault(false))
-    return layerFromPath(resolvePath({ file: Option.getOrUndefined(file), disableChannelDb }))
-  }).pipe(Effect.orDie),
-)
+    const file = yield* Config.string("OPENCODE_DB").pipe(Config.withDefault(undefined))
+    const disableChannelDb = yield* truthyConfig("OPENCODE_DISABLE_CHANNEL_DB")
+    return layerFromPath(resolvePath({ file, disableChannelDb }))
+  }),
+).pipe(Layer.orDie)
 
 export const node = makeGlobalNode({ service: Service, layer: configuredLayer, deps: [] })
