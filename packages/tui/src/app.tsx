@@ -180,25 +180,31 @@ function isVersionGreater(left: string, right: string) {
 export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   const global = yield* Global.Service
   const exit = { epilogue: undefined as string | undefined, reason: undefined as unknown }
-  const simulationEnabled = process.env.OPENCODE_SIMULATION === "1" || process.env.OPENCODE_SIMULATION === "true"
   const result = yield* Effect.scoped(
     Effect.gen(function* () {
-      let renderer = yield* Effect.acquireRelease(
+      const renderer = yield* Effect.acquireRelease(
         Effect.tryPromise({
-          try: () =>
-            createCliRenderer({
-              externalOutputMode: "passthrough",
-              targetFps: 60,
-              gatherStats: false,
-              exitOnCtrlC: false,
-              useKittyKeyboard: {},
-              autoFocus: false,
-              openConsoleOnError: false,
-              useMouse: !Flag.OPENCODE_DISABLE_MOUSE && input.config.mouse,
-              consoleOptions: {
-                keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
-              },
-            }),
+          try: async () => {
+            const createVisibleRenderer = () =>
+              createCliRenderer({
+                externalOutputMode: "passthrough",
+                targetFps: 60,
+                gatherStats: false,
+                exitOnCtrlC: false,
+                useKittyKeyboard: {},
+                autoFocus: false,
+                openConsoleOnError: false,
+                useMouse: !Flag.OPENCODE_DISABLE_MOUSE && input.config.mouse,
+                consoleOptions: {
+                  keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
+                },
+              })
+            if (process.env.OPENCODE_SIMULATION === "1" || process.env.OPENCODE_SIMULATION === "true") {
+              const { Simulation } = await import("./simulation/simulation")
+              return Simulation.createSimulation(createVisibleRenderer)
+            }
+            return createVisibleRenderer()
+          },
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         }),
         (renderer) =>
@@ -206,28 +212,6 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
             destroyRenderer(renderer)
           }),
       )
-
-      if (simulationEnabled) {
-        if (process.env.OPENCODE_SIMULATION_RENDERER === "fake") {
-          const { SimulationRenderer } = yield* Effect.promise(() => import("./simulation/renderer"))
-          destroyRenderer(renderer)
-          renderer = yield* Effect.acquireRelease(
-            Effect.promise(() => SimulationRenderer.create()),
-            (fake) => Effect.sync(() => destroyRenderer(fake)),
-          )
-        }
-        const target = renderer
-        const simulation = yield* Effect.promise(async () => {
-          const { SimulationActions } = await import("./simulation/actions")
-          const { SimulationServer } = await import("./simulation/server")
-          return SimulationServer.start(SimulationActions.createHarness(target))
-        })
-        if (simulation) {
-          process.stderr.write(`opencode simulation websocket: ${simulation.url}\n`)
-          yield* Effect.addFinalizer(() => Effect.sync(() => simulation.stop()))
-        }
-      }
-
       win32DisableProcessedInput()
       const keymap = createDefaultOpenTuiKeymap(renderer)
       yield* Effect.acquireRelease(
