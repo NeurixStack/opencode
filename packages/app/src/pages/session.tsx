@@ -88,7 +88,6 @@ import { formatServerError, isLocalSessionNotFoundError, isSessionNotFoundError 
 import { legacySessionHref, requireServerKey, sessionHref } from "@/utils/session-route"
 import { useUsageExceededDialogs } from "./session/usage-exceeded-dialogs"
 import { createSessionOwnership } from "./session/session-ownership"
-import { SessionRouteErrorBoundary } from "./session/route-boundary"
 import { createSessionLineage } from "./session/session-lineage"
 
 type FollowupItem = FollowupDraft & { id: string }
@@ -147,27 +146,32 @@ export function SessionPage() {
 export function TargetSessionRouteContent() {
   const params = useParams<{ serverKey: string; id: string }>()
   return (
-    <SessionRouteErrorBoundary
-      sessionID={params.id}
-      fallback={(error) => (
-        <SessionRouteFallback error={error} sessionID={params.id} serverKey={requireServerKey(params.serverKey)} />
-      )}
-    >
+    <SessionRouteErrorBoundary sessionID={params.id} serverKey={requireServerKey(params.serverKey)} padded>
       <ResolvedTargetSessionRoute />
     </SessionRouteErrorBoundary>
   )
 }
 
-function SessionRouteFallback(props: { error: unknown; sessionID: string; serverKey: ServerConnection.Key }) {
+function SessionRouteErrorBoundary(
+  props: ParentProps<{ sessionID?: string; serverKey?: ServerConnection.Key; padded?: boolean }>,
+) {
   const settings = useSettings()
   return (
-    <Show when={settings.general.newLayoutDesigns()} fallback={<ErrorPage error={props.error} />}>
-      <SessionRouteFrame padded>
-        <SessionPanelFrame newLayout raised>
-          <SessionErrorFallback error={props.error} sessionID={props.sessionID} serverKey={props.serverKey} />
-        </SessionPanelFrame>
-      </SessionRouteFrame>
-    </Show>
+    <ErrorBoundary
+      fallback={(error) =>
+        settings.general.newLayoutDesigns() ? (
+          <SessionRouteFrame padded={props.padded}>
+            <SessionPanelFrame newLayout raised={!!props.sessionID}>
+              <SessionErrorFallback error={error} sessionID={props.sessionID} serverKey={props.serverKey} />
+            </SessionPanelFrame>
+          </SessionRouteFrame>
+        ) : (
+          <ErrorPage error={error} />
+        )
+      }
+    >
+      {props.children}
+    </ErrorBoundary>
   )
 }
 
@@ -382,6 +386,7 @@ export default function Page() {
   })
 
   const workspaceTabs = createMemo(() => layout.tabs(workspaceKey))
+  const sessionPanelKey = createMemo(() => (params.id ? `${serverSDK().scope}\0${params.id}` : undefined))
 
   createEffect(
     on(
@@ -2013,13 +2018,19 @@ export default function Page() {
             width: sessionPanelWidth(),
           }}
         >
-          <SessionPanelFrame newLayout={settings.general.newLayoutDesigns()} raised={!!params.id}>
-            {settings.general.newLayoutDesigns() ? (
-              <ErrorBoundary fallback={sessionErrorFallback}>{sessionPanelContent()}</ErrorBoundary>
-            ) : (
-              sessionPanelContent()
-            )}
-          </SessionPanelFrame>
+          {settings.general.newLayoutDesigns() ? (
+            <Show when={sessionPanelKey()} keyed>
+              {(_) => (
+                <SessionPanelFrame newLayout raised={!!params.id}>
+                  <ErrorBoundary fallback={sessionErrorFallback}>{sessionPanelContent()}</ErrorBoundary>
+                </SessionPanelFrame>
+              )}
+            </Show>
+          ) : (
+            <SessionPanelFrame newLayout={false} raised={!!params.id}>
+              {sessionPanelContent()}
+            </SessionPanelFrame>
+          )}
 
           <Show when={desktopReviewOpen()}>
             <div onPointerDown={() => size.start()}>
