@@ -210,7 +210,12 @@ export async function handler(
       )
       logger.debug("REQUEST URL: " + reqUrl)
       logger.debug("REQUEST: " + reqBody.substring(0, 300) + "...")
-      const res = await fetchWith429Retry(reqUrl, {
+      const isGatewayProvider = providerInfo.id.startsWith("console.") || providerInfo.id.startsWith("console-go.")
+      // The inference gateway runs failover, retry, and shared cooldown handling
+      // internally and answers 429 with an authoritative Retry-After, so its
+      // verdict is final. Only direct vendor calls get the console-side 429 retry.
+      const fetcher = isGatewayProvider ? fetch : fetchWith429Retry
+      const res = await fetcher(reqUrl, {
         method: "POST",
         headers: (() => {
           const headers = new Headers(input.request.headers)
@@ -242,7 +247,7 @@ export async function handler(
         signal: input.request.signal,
       })
 
-      if (providerInfo.id.startsWith("console.") || providerInfo.id.startsWith("console-go.")) {
+      if (isGatewayProvider) {
         const resEndpointId = res.headers.get("x-opencode-endpoint-id")
         const resEndpointModelId = res.headers.get("x-opencode-upstream-model-id")
         if (resEndpointId && resEndpointModelId)
