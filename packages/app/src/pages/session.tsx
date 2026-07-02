@@ -89,6 +89,7 @@ import { formatServerError, isSessionNotFoundError } from "@/utils/server-errors
 import { legacySessionHref, requireServerKey, sessionHref } from "@/utils/session-route"
 import { useUsageExceededDialogs } from "./session/usage-exceeded-dialogs"
 import { createSessionOwnership } from "./session/session-ownership"
+import { SessionRouteBoundary } from "./session/route-boundary"
 
 type FollowupItem = FollowupDraft & { id: string }
 type FollowupEdit = Pick<FollowupItem, "id" | "prompt" | "context">
@@ -146,34 +147,38 @@ export function SessionPage() {
 export function TargetSessionRoute() {
   const params = useParams<{ serverKey: string; id: string }>()
   return (
-    <Show when={`${params.serverKey}\0${params.id}`} keyed>
-      <SessionRouteErrorBoundary sessionID={params.id} serverKey={requireServerKey(params.serverKey)} padded>
-        <ResolvedTargetSessionRoute />
-      </SessionRouteErrorBoundary>
-    </Show>
+    <SessionRouteBoundary
+      serverKey={params.serverKey}
+      sessionID={params.id}
+      fallback={(error) => (
+        <SessionRouteFallback
+          error={error}
+          sessionID={params.id}
+          serverKey={requireServerKey(params.serverKey)}
+          padded
+        />
+      )}
+    >
+      <ResolvedTargetSessionRoute />
+    </SessionRouteBoundary>
   )
 }
 
-function SessionRouteErrorBoundary(
-  props: ParentProps<{ sessionID?: string; serverKey?: ServerConnection.Key; padded?: boolean }>,
-) {
+function SessionRouteFallback(props: {
+  error: unknown
+  sessionID?: string
+  serverKey?: ServerConnection.Key
+  padded?: boolean
+}) {
   const settings = useSettings()
   return (
-    <ErrorBoundary
-      fallback={(error) =>
-        settings.general.newLayoutDesigns() ? (
-          <SessionRouteFrame padded={props.padded}>
-            <SessionPanelFrame newLayout raised={!!props.sessionID}>
-              <SessionErrorFallback error={error} sessionID={props.sessionID} serverKey={props.serverKey} />
-            </SessionPanelFrame>
-          </SessionRouteFrame>
-        ) : (
-          <ErrorPage error={error} />
-        )
-      }
-    >
-      {props.children}
-    </ErrorBoundary>
+    <Show when={settings.general.newLayoutDesigns()} fallback={<ErrorPage error={props.error} />}>
+      <SessionRouteFrame padded={props.padded}>
+        <SessionPanelFrame newLayout raised={!!props.sessionID}>
+          <SessionErrorFallback error={props.error} sessionID={props.sessionID} serverKey={props.serverKey} />
+        </SessionPanelFrame>
+      </SessionRouteFrame>
+    </Show>
   )
 }
 
