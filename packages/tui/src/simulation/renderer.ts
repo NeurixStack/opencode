@@ -1,4 +1,4 @@
-import type { CliRenderer } from "@opentui/core"
+import type { CliRenderer, CliRendererConfig } from "@opentui/core"
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing"
 
 const setups = new WeakMap<CliRenderer, TestRendererSetup>()
@@ -9,8 +9,9 @@ const setups = new WeakMap<CliRenderer, TestRendererSetup>()
  * kept module-side (keyed by renderer) so the harness can use the supported
  * testing APIs without app code carrying it around.
  */
-export async function create(): Promise<CliRenderer> {
+export async function create(options: CliRendererConfig): Promise<CliRenderer> {
   const setup = await createTestRenderer({
+    ...options,
     width: Number(process.env.OPENCODE_SIMULATION_TUI_WIDTH) || 100,
     height: Number(process.env.OPENCODE_SIMULATION_TUI_HEIGHT) || 40,
   })

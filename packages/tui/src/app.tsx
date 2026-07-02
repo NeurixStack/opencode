@@ -8,7 +8,7 @@ import { ClipboardProvider, useClipboard } from "./context/clipboard"
 import { ExitProvider, useExit } from "./context/exit"
 import { EpilogueProvider } from "./context/epilogue"
 import * as Selection from "./util/selection"
-import { createCliRenderer, MouseButton } from "@opentui/core"
+import { createCliRenderer, MouseButton, type CliRendererConfig } from "@opentui/core"
 import { RouteProvider, useRoute } from "./context/route"
 import {
   Switch,
@@ -185,12 +185,7 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
       const renderer = yield* Effect.acquireRelease(
         Effect.tryPromise({
           try: async () => {
-            if (process.env.OPENCODE_SIMULATION === "1" || process.env.OPENCODE_SIMULATION === "true") {
-              const { Simulation } = await import("./simulation/simulation")
-              return Simulation.createSimulation()
-            }
-
-            return createCliRenderer({
+            const options = {
               externalOutputMode: "passthrough",
               targetFps: 60,
               gatherStats: false,
@@ -202,7 +197,14 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
               consoleOptions: {
                 keyBindings: [{ name: "y", ctrl: true, action: "copy-selection" }],
               },
-            })
+            } satisfies CliRendererConfig
+
+            if (process.env.OPENCODE_SIMULATION === "1" || process.env.OPENCODE_SIMULATION === "true") {
+              const { Simulation } = await import("./simulation/simulation")
+              return Simulation.createSimulation(options)
+            }
+
+            return createCliRenderer(options)
           },
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         }),
