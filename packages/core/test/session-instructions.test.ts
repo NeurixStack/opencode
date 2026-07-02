@@ -28,13 +28,21 @@ import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { SessionV2 } from "@opencode-ai/core/session"
-import { toLLMMessages } from "@opencode-ai/core/session/runner/to-llm-message"
+import { toLLMMessages as lowerLLMMessages } from "@opencode-ai/core/session/runner/to-llm-message"
 import { ToolHooks } from "@opencode-ai/core/tool/hooks"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { tempLocationLayer } from "./fixture/location"
 import { testEffect } from "./lib/effect"
 import { settleTool, testModel } from "./lib/tool"
+
+const noopReader = ReadToolFileSystem.Service.of({
+  inspect: () => Effect.die("unused"),
+  read: () => Effect.die("unused"),
+  list: () => Effect.die("unused"),
+})
+const toLLMMessages = (messages: readonly SessionMessage.Message[], model: Model) =>
+  Effect.runSync(lowerLLMMessages(messages, model, noopReader))
 
 const projects = Layer.succeed(
   ProjectV2.Service,

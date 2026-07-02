@@ -1,17 +1,44 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 import { Message, Model } from "@opencode-ai/llm"
 import * as OpenAIChat from "@opencode-ai/llm/protocols/openai-chat"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { AgentAttachment, FileAttachment } from "@opencode-ai/core/session/prompt"
-import { toLLMMessages } from "@opencode-ai/core/session/runner/to-llm-message"
+import { toLLMMessages as lowerLLMMessages } from "@opencode-ai/core/session/runner/to-llm-message"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { DateTime } from "effect"
+import { FileSystem } from "@opencode-ai/core/filesystem"
+import { RelativePath } from "@opencode-ai/core/schema"
+import { ReadToolFileSystem } from "@opencode-ai/core/tool/read-filesystem"
 
 const created = DateTime.makeUnsafe(0)
 const id = (value: string) => SessionMessage.ID.make(`msg_${value}`)
 const model = Model.make({ id: "model", provider: "provider", route: OpenAIChat.route })
+const reader = ReadToolFileSystem.Service.of({
+  inspect: () => Effect.die("unused"),
+  read: (path) =>
+    Effect.succeed({
+      uri: `file://${path}`,
+      name: "README.md",
+      content: `contents of ${path}`,
+      encoding: "utf8",
+      mime: "text/plain",
+    }),
+  list: () =>
+    Effect.succeed(
+      new ReadToolFileSystem.ListPage({
+        entries: [
+          FileSystem.Entry.make({ path: RelativePath.make("src/"), type: "directory" }),
+          FileSystem.Entry.make({ path: RelativePath.make("README.md"), type: "file" }),
+        ],
+        truncated: false,
+      }),
+    ),
+})
+const toLLMMessages = (messages: readonly SessionMessage.Message[], model: Model) =>
+  Effect.runSync(lowerLLMMessages(messages, model, reader))
 
 describe("toLLMMessages", () => {
   test("omits empty assistant turns", () => {
@@ -136,6 +163,38 @@ Recent work
 </conversation-checkpoint>`,
         },
       ],
+    ])
+  })
+
+  test("materializes text and directory prompt attachments as text", () => {
+    const messages = toLLMMessages(
+      [
+        SessionMessage.User.make({
+          id: id("user-with-directory"),
+          type: "user",
+          text: "Inspect these attachments",
+          files: [
+            FileAttachment.make({ uri: "file:///repo/README.md", mime: "text/plain", name: "README.md" }),
+            FileAttachment.make({ uri: "file:///repo/packages/core/", mime: "application/x-directory", name: "core" }),
+            FileAttachment.make({ uri: "data:image/png;base64,aGVsbG8=", mime: "image/png", name: "hello.png" }),
+          ],
+          time: { created },
+        }),
+      ],
+      model,
+    )
+
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "Inspect these attachments" },
+      {
+        type: "text",
+        text: 'Called the Read tool with the following input: {"path":"/repo/README.md"}\n\ncontents of /repo/README.md',
+      },
+      {
+        type: "text",
+        text: 'Called the Read tool with the following input: {"path":"/repo/packages/core/"}\n\ndirectory: src/\nfile: README.md',
+      },
+      { type: "media", mediaType: "image/png", data: "data:image/png;base64,aGVsbG8=", filename: "hello.png" },
     ])
   })
 

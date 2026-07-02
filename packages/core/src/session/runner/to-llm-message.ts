@@ -7,6 +7,10 @@ import {
   type Model,
   type ProviderMetadata,
 } from "@opencode-ai/llm"
+import { Cause, Effect } from "effect"
+import { fileURLToPath } from "url"
+import { AbsolutePath, PositiveInt } from "../../schema"
+import { ReadToolFileSystem } from "../../tool/read-filesystem"
 import { SessionMessage } from "../message"
 import type { FileAttachment } from "../prompt"
 
@@ -17,6 +21,71 @@ const media = (file: FileAttachment): ContentPart => ({
   filename: file.name,
   metadata: file.description === undefined ? undefined : { description: file.description },
 })
+
+const fileContent = Effect.fn("toLLMMessage.fileContent")(function* (
+  file: FileAttachment,
+  reader: ReadToolFileSystem.Interface,
+) {
+  if (file.mime !== "text/plain" && file.mime !== "application/x-directory") return [media(file)]
+  if (file.uri.startsWith("data:text/plain")) return [{ type: "text" as const, text: decodeDataUrl(file.uri) }]
+  if (!URL.canParse(file.uri)) return []
+  const url = new URL(file.uri)
+  if (url.protocol !== "file:") return []
+  const filepath = fileURLToPath(url)
+  const path = AbsolutePath.make(filepath)
+  if (file.mime === "application/x-directory") {
+    const result = yield* reader.list(path, page(url)).pipe(Effect.exit)
+    if (result._tag === "Failure")
+      return [{ type: "text" as const, text: readError(filepath, Cause.squash(result.cause)) }]
+    return [{ type: "text" as const, text: directoryText(filepath, result.value) }]
+  }
+  const result = yield* reader.read(path, filepath, page(url)).pipe(Effect.exit)
+  if (result._tag === "Failure")
+    return [{ type: "text" as const, text: readError(filepath, Cause.squash(result.cause)) }]
+  if ("type" in result.value && result.value.type === "text-page")
+    return [{ type: "text" as const, text: readText(filepath, result.value.content) }]
+  if ("encoding" in result.value && result.value.encoding === "utf8")
+    return [{ type: "text" as const, text: readText(filepath, result.value.content) }]
+  return []
+})
+
+const page = (url: URL): ReadToolFileSystem.PageInput => {
+  const start = positiveInt(url.searchParams.get("start"))
+  const end = positiveInt(url.searchParams.get("end"))
+  return {
+    ...(start === undefined ? {} : { offset: start }),
+    ...(start === undefined || end === undefined || end < start ? {} : { limit: PositiveInt.make(end - start + 1) }),
+  }
+}
+
+const positiveInt = (value: string | null) => {
+  if (value === null) return undefined
+  const parsed = Number.parseInt(value, 10)
+  return Number.isInteger(parsed) && parsed > 0 ? PositiveInt.make(parsed) : undefined
+}
+
+const readText = (filepath: string, content: string) =>
+  `Called the Read tool with the following input: ${JSON.stringify({ path: filepath })}\n\n${content}`
+
+const directoryText = (filepath: string, page: ReadToolFileSystem.ListPage) =>
+  [
+    `Called the Read tool with the following input: ${JSON.stringify({ path: filepath })}`,
+    "",
+    ...page.entries.map((entry) => `${entry.type}: ${entry.path}`),
+    ...(page.truncated ? [`... (directory listing truncated, next offset: ${page.next})`] : []),
+  ].join("\n")
+
+const readError = (filepath: string, error: unknown) =>
+  `Read tool failed to read ${filepath} with the following error: ${error instanceof Error ? error.message : String(error)}`
+
+const decodeDataUrl = (dataUrl: string) => {
+  const index = dataUrl.indexOf(",")
+  if (index === -1) return ""
+  const data = dataUrl.slice(index + 1)
+  return dataUrl.slice(0, index).toLowerCase().endsWith(";base64")
+    ? Buffer.from(data, "base64").toString("utf8")
+    : decodeURIComponent(data)
+}
 
 const toolInput = (tool: SessionMessage.AssistantTool) => {
   if (tool.state.status !== "pending") return tool.state.input
@@ -112,23 +181,31 @@ const assistant = (message: SessionMessage.Assistant, model: Model) => {
   ]
 }
 
-function toLLMMessage(message: SessionMessage.Message, model: Model): Message[] {
+const toLLMMessage = Effect.fn("toLLMMessage")(function* (
+  message: SessionMessage.Message,
+  model: Model,
+  reader: ReadToolFileSystem.Interface,
+) {
   switch (message.type) {
     case "agent-switched":
     case "model-switched":
       return []
-    case "user":
+    case "user": {
+      const files = yield* Effect.forEach(message.files ?? [], (file) => fileContent(file, reader), {
+        concurrency: "unbounded",
+      })
       return [
         Message.make({
           id: message.id,
           role: "user",
-          content: [{ type: "text", text: message.text }, ...(message.files ?? []).map(media)],
+          content: [{ type: "text", text: message.text }, ...files.flat()],
           metadata: {
             ...message.metadata,
             ...(message.agents?.length ? { agents: message.agents } : {}),
           },
         }),
       ]
+    }
     case "synthetic":
       return [Message.make({ id: message.id, role: "user", content: message.text })]
     case "skill":
@@ -166,8 +243,15 @@ ${message.recent}
         }),
       ]
   }
-}
+})
 
 /** Translate projected V2 Session history into canonical @opencode-ai/llm context. */
-export const toLLMMessages = (messages: readonly SessionMessage.Message[], model: Model) =>
-  messages.flatMap((message) => toLLMMessage(message, model))
+export const toLLMMessages = (
+  messages: readonly SessionMessage.Message[],
+  model: Model,
+  reader: ReadToolFileSystem.Interface,
+) =>
+  Effect.map(
+    Effect.forEach(messages, (message) => toLLMMessage(message, model, reader)),
+    (messages) => messages.flat(),
+  )

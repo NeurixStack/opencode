@@ -23,6 +23,7 @@ import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
 import { McpGuidance } from "../../mcp/guidance"
 import { ToolRegistry } from "../../tool/registry"
+import { ReadToolFileSystem } from "../../tool/read-filesystem"
 import { ToolOutputStore } from "../../tool-output-store"
 import { SessionContextEpoch } from "../context-epoch"
 import { SessionCompaction } from "../compaction"
@@ -99,6 +100,7 @@ const layer = Layer.effect(
     const llm = yield* LLMClient.Service
     const agents = yield* AgentV2.Service
     const tools = yield* ToolRegistry.Service
+    const reader = yield* ReadToolFileSystem.Service
     const models = yield* SessionRunnerModel.Service
     const store = yield* SessionStore.Service
     const location = yield* Location.Service
@@ -208,13 +210,14 @@ const layer = Layer.effect(
         ? undefined
         : yield* tools.materialize({ permissions: agent.info?.permissions, model })
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
+      const messages = yield* toLLMMessages(context, model, reader)
       const request = LLM.request({
         model,
         providerOptions: { openai: { promptCacheKey } },
         system: [agent.info?.system ? agent.info.system : SessionRunnerSystemPrompt.provider(model), system.baseline]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
-        messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
+        messages: [...messages, ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
@@ -444,5 +447,6 @@ export const node = makeLocationNode({
     Config.node,
     Snapshot.node,
     Database.node,
+    ReadToolFileSystem.node,
   ],
 })
