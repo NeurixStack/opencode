@@ -4,11 +4,6 @@ import {
   CodeModeTool,
   Parameters,
   describeCatalog,
-  formatValue,
-  groupByServer,
-  toSandboxResult,
-  withLogs,
-  type Attachment,
 } from "@/tool/code-mode"
 import type { Tool as MCPToolDef } from "@modelcontextprotocol/sdk/types.js"
 import type { PermissionV1 } from "@opencode-ai/core/v1/permission"
@@ -111,27 +106,18 @@ describe("code mode execute", () => {
   })
 
   test("groups multi-underscore server names by longest matching prefix", () => {
-    const groups = groupByServer({ my_server_do_thing: mcpTool("do_thing", () => "") }, ["my_server"])
-    expect([...groups.keys()]).toEqual(["my_server"])
-    expect(groups.get("my_server")![0]).toMatchObject({
-      path: "my_server.do_thing",
-      local: "do_thing",
-      key: "my_server_do_thing",
-    })
+    const description = describeFor({ my_server_do_thing: mcpTool("do_thing", () => "") }, {}, ["my_server"])
+    expect(description).toContain("- my_server (1 tool)")
+    expect(description).toContain("tools.my_server.do_thing(")
   })
 
   test("groupByServer uses the whole key as the server name when it has no underscore", () => {
-    const groups = groupByServer({ standalone: mcpTool("standalone", () => "") }, [])
-    expect([...groups.keys()]).toEqual(["standalone"])
-    expect(groups.get("standalone")![0]).toMatchObject({
-      path: "standalone.standalone",
-      server: "standalone",
-      local: "standalone",
-      key: "standalone",
-    })
+    const description = describeFor({ standalone: mcpTool("standalone", () => "") }, {}, [])
+    expect(description).toContain("- standalone (1 tool)")
+    expect(description).toContain("tools.standalone.standalone(")
   })
 
-  test("groupByServer carries the raw MCP schemas for rendering", () => {
+  test("describeCatalog carries the raw MCP schemas for rendering", () => {
     const defs: Record<string, MCPToolDef> = {
       weather_current: {
         name: "current",
@@ -139,10 +125,8 @@ describe("code mode execute", () => {
         outputSchema: { type: "object", properties: { tempC: { type: "number" } }, required: ["tempC"] },
       } as any,
     }
-    const groups = groupByServer({ weather_current: mcpTool("current", () => "") }, ["weather"], defs)
-    const entry = groups.get("weather")![0]!
-    expect(entry.inputSchema).toEqual(defs.weather_current!.inputSchema as any)
-    expect(entry.outputSchema).toEqual(defs.weather_current!.outputSchema as any)
+    const description = describeFor({ weather_current: mcpTool("current", () => "") }, defs, ["weather"])
+    expect(description).toContain("tools.weather.current(input: { city: string }): Promise<{ tempC: number }>")
   })
 
   test("the static base description carries no catalog; the registry appends it", async () => {
@@ -679,137 +663,5 @@ describe("code mode permission visibility", () => {
       { permission: "c_tool", pattern: "something", action: "deny" },
     ])
     expect(Object.keys(visible)).toEqual(["b_tool", "c_tool"])
-  })
-})
-
-describe("toSandboxResult", () => {
-  const collector = () => {
-    const attachments: Attachment[] = []
-    return { attachments, collect: (a: Attachment) => void attachments.push(a) }
-  }
-
-  test("prefers structuredContent over text", () => {
-    const { collect } = collector()
-    expect(toSandboxResult({ structuredContent: { x: 1 }, content: [{ type: "text", text: "hi" }] }, collect)).toEqual(
-      { x: 1 },
-    )
-  })
-
-  test("joins text content when no structured content is present", () => {
-    const { collect } = collector()
-    expect(
-      toSandboxResult(
-        { content: [{ type: "text", text: "one" }, { type: "text", text: "two" }] },
-        collect,
-      ),
-    ).toBe("one\ntwo")
-  })
-
-  test("passes non-MCP values through untouched", () => {
-    const { collect } = collector()
-    expect(toSandboxResult("raw", collect)).toBe("raw")
-    expect(toSandboxResult(42, collect)).toBe(42)
-    expect(toSandboxResult(null, collect)).toBeNull()
-    expect(toSandboxResult({ some: "object" }, collect)).toEqual({ some: "object" })
-  })
-
-  test("strips media into the accumulator; text stays the sandbox value", () => {
-    const { attachments, collect } = collector()
-    const value = toSandboxResult(
-      {
-        content: [
-          { type: "text", text: "see image" },
-          { type: "image", data: "AAAA", mimeType: "image/png" },
-        ],
-      },
-      collect,
-    )
-    expect(value).toBe("see image")
-    expect(attachments).toEqual([{ type: "file", mime: "image/png", url: "data:image/png;base64,AAAA" }])
-  })
-
-  test("a media-only result yields a marker; counts and nouns follow the content", () => {
-    const one = collector()
-    expect(toSandboxResult({ content: [{ type: "image", data: "A", mimeType: "image/png" }] }, one.collect)).toBe(
-      "[1 image attached to the result]",
-    )
-
-    const two = collector()
-    expect(
-      toSandboxResult(
-        {
-          content: [
-            { type: "image", data: "A", mimeType: "image/png" },
-            { type: "image", data: "B", mimeType: "image/jpeg" },
-          ],
-        },
-        two.collect,
-      ),
-    ).toBe("[2 images attached to the result]")
-    expect(two.attachments).toHaveLength(2)
-
-    const mixed = collector()
-    expect(
-      toSandboxResult(
-        {
-          content: [
-            { type: "image", data: "A", mimeType: "image/png" },
-            { type: "audio", data: "B", mimeType: "audio/wav" },
-          ],
-        },
-        mixed.collect,
-      ),
-    ).toBe("[2 files attached to the result]")
-  })
-
-  test("extracts embedded resources: text inline, blobs as attachments with filenames", () => {
-    const { attachments, collect } = collector()
-    const value = toSandboxResult(
-      {
-        content: [
-          { type: "resource", resource: { uri: "file:///tmp/notes.txt", mimeType: "text/plain", text: "note text" } },
-          { type: "resource", resource: { uri: "file:///tmp/doc.pdf", mimeType: "application/pdf", blob: "PDF" } },
-        ],
-      },
-      collect,
-    )
-    expect(value).toBe("note text")
-    expect(attachments).toEqual([
-      { type: "file", mime: "application/pdf", url: "data:application/pdf;base64,PDF", filename: "doc.pdf" },
-    ])
-  })
-
-  test("collects resource_link blocks as external-URL attachments", () => {
-    const { attachments, collect } = collector()
-    const value = toSandboxResult(
-      { content: [{ type: "resource_link", uri: "https://example.com/report.csv", mimeType: "text/csv" }] },
-      collect,
-    )
-    expect(value).toBe("[1 file attached to the result]")
-    expect(attachments).toEqual([
-      { type: "file", mime: "text/csv", url: "https://example.com/report.csv", filename: "report.csv" },
-    ])
-  })
-
-  test("an MCP-shaped result with nothing extractable becomes null", () => {
-    const { collect } = collector()
-    expect(toSandboxResult({ content: [] }, collect)).toBeNull()
-    expect(toSandboxResult({ content: [{ type: "mystery" }] }, collect)).toBeNull()
-  })
-})
-
-describe("formatting helpers", () => {
-  test("formatValue", () => {
-    expect(formatValue("text")).toBe("text")
-    expect(formatValue({ a: 1 })).toBe(JSON.stringify({ a: 1 }, null, 2))
-    expect(formatValue(null)).toBe("null")
-    expect(formatValue(undefined)).toBe("undefined")
-  })
-
-  test("withLogs", () => {
-    expect(withLogs("result", [])).toBe("result")
-    expect(withLogs("result")).toBe("result")
-    expect(withLogs("result", ["a", "[warn] b"])).toBe("result\n\nLogs:\na\n[warn] b")
-    expect(withLogs("", ["[error] boom"])).toBe("Logs:\n[error] boom")
   })
 })

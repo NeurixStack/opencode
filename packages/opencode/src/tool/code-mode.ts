@@ -34,16 +34,16 @@ export const Parameters = Schema.Struct({
   }),
 })
 
-export type CallEntry = { tool: string; status: "running" | "completed" | "error"; input?: Record<string, unknown> }
+type CallEntry = { tool: string; status: "running" | "completed" | "error"; input?: Record<string, unknown> }
 
 type Metadata = {
   toolCalls: CallEntry[]
   error?: boolean
 }
 
-export type Attachment = NonNullable<Tool.ExecuteResult["attachments"]>[number]
+type Attachment = NonNullable<Tool.ExecuteResult["attachments"]>[number]
 
-export type CatalogEntry = {
+type CatalogEntry = {
   path: string
   key: string
   server: string
@@ -62,7 +62,7 @@ function fallbackInputSchema(tool: AITool): JsonSchema {
   return { type: "object", properties: {} }
 }
 
-export function groupByServer(
+function groupByServer(
   mcpTools: Record<string, AITool>,
   servers: readonly string[],
   mcpDefs: Record<string, MCPToolDef> = {},
@@ -70,7 +70,8 @@ export function groupByServer(
   const byLongest = [...servers].sort((a, b) => b.length - a.length)
   const groups = new Map<string, CatalogEntry[]>()
   for (const key of Object.keys(mcpTools).sort((a, b) => a.localeCompare(b))) {
-    const server = byLongest.find((name) => key.startsWith(name + "_")) ?? (key.includes("_") ? key.slice(0, key.indexOf("_")) : key)
+    const server =
+      byLongest.find((name) => key.startsWith(name + "_")) ?? (key.includes("_") ? key.slice(0, key.indexOf("_")) : key)
     const local = server && key.startsWith(server + "_") ? key.slice(server.length + 1) : key
     const def = mcpDefs[key]
     const entry: CatalogEntry = {
@@ -95,7 +96,9 @@ export function describeCatalog(
 ): string {
   return CodeMode.make({
     tools: toolTree(
-      [...groupByServer(mcpTools, servers, mcpDefs).values()].flat().filter((entry) => entry.tool.execute !== undefined),
+      [...groupByServer(mcpTools, servers, mcpDefs).values()]
+        .flat()
+        .filter((entry) => entry.tool.execute !== undefined),
       () => () => Effect.fail(toolError("Tool preview is not executable.")),
     ),
   }).instructions()
@@ -124,7 +127,7 @@ const mediaMarker = (files: number, images: number) => {
   return `[${files} ${noun}${files === 1 ? "" : "s"} attached to the result]`
 }
 
-export function toSandboxResult(raw: unknown, collect: (attachment: Attachment) => void): unknown {
+function toProgramValue(raw: unknown, collect: (attachment: Attachment) => void): unknown {
   if (raw === null || typeof raw !== "object") return raw
   const record = raw as { structuredContent?: unknown; content?: unknown }
   const content = Array.isArray(record.content) ? record.content : []
@@ -182,22 +185,6 @@ export function toSandboxResult(raw: unknown, collect: (attachment: Attachment) 
   return raw
 }
 
-export function withLogs(output: string, logs: ReadonlyArray<string> = []): string {
-  if (logs.length === 0) return output
-  const section = "Logs:\n" + logs.join("\n")
-  return output.length > 0 ? `${output}\n\n${section}` : section
-}
-
-export function formatValue(value: unknown): string {
-  if (typeof value === "string") return value
-  if (value === undefined) return "undefined"
-  try {
-    return JSON.stringify(value, null, 2) ?? String(value)
-  } catch {
-    return String(value)
-  }
-}
-
 type Run = (input: unknown) => Effect.Effect<unknown, unknown>
 
 function toolTree(catalog: readonly CatalogEntry[], run: (entry: CatalogEntry) => Run) {
@@ -213,15 +200,6 @@ function toolTree(catalog: readonly CatalogEntry[], run: (entry: CatalogEntry) =
   }
   return tree
 }
-
-const toCatchable = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(
-    Effect.catchCause((cause) => {
-      if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
-      const error = Cause.squash(cause)
-      return Effect.fail(toolError(error instanceof Error ? error.message : String(error), error))
-    }),
-  )
 
 const invokeChildTool = Effect.fn("CodeMode.invokeChildTool")(function* <R>(input: {
   plugin: Plugin.Interface
@@ -289,23 +267,28 @@ export const CodeModeTool = Tool.define(
         const calls: CallEntry[] = []
         const attachments: Attachment[] = []
         const collect = (attachment: Attachment) => void attachments.push(attachment)
-        const publish = () => ctx.metadata({ title: CODE_MODE_TOOL, metadata: { toolCalls: calls.map((c) => ({ ...c })) } })
+        const publish = () =>
+          ctx.metadata({ title: CODE_MODE_TOOL, metadata: { toolCalls: calls.map((c) => ({ ...c })) } })
 
         let childCalls = 0
         const callTool = (entry: CatalogEntry) => (input: unknown) =>
-          toCatchable(
-            Effect.gen(function* () {
-              childCalls += 1
-              const raw = yield* invokeChildTool({
-                plugin,
-                entry,
-                args: input ?? {},
-                callID: `${ctx.callID ?? entry.key}/${childCalls}`,
-                options: { toolCallId: ctx.callID ?? entry.key, abortSignal: ctx.abort, messages: [] },
-                ctx,
-                execute: entry.tool.execute!,
-              })
-              return toSandboxResult(raw, collect)
+          Effect.gen(function* () {
+            childCalls += 1
+            const raw = yield* invokeChildTool({
+              plugin,
+              entry,
+              args: input ?? {},
+              callID: `${ctx.callID ?? entry.key}/${childCalls}`,
+              options: { toolCallId: ctx.callID ?? entry.key, abortSignal: ctx.abort, messages: [] },
+              ctx,
+              execute: entry.tool.execute!,
+            })
+            return toProgramValue(raw, collect)
+          }).pipe(
+            Effect.catchCause((cause) => {
+              if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
+              const error = Cause.squash(cause)
+              return Effect.fail(toolError(error instanceof Error ? error.message : String(error), error))
             }),
           )
 
@@ -343,20 +326,31 @@ export const CodeModeTool = Tool.define(
         const result = yield* Effect.raceFirst(runtime.execute(params.code), cancelled)
         const logs = result.logs ?? []
         const attached = attachments.length > 0 ? { attachments } : {}
-
+        const hints = result.ok
+          ? []
+          : (result.error.suggestions ?? []).filter((hint) => !result.error.message.includes(hint))
+        const metadata: Metadata = result.ok ? { toolCalls: calls } : { toolCalls: calls, error: true }
+        let output: string
         if (result.ok) {
-          return {
-            title: CODE_MODE_TOOL,
-            metadata: { toolCalls: calls },
-            output: withLogs(formatValue(result.value), logs),
-            ...attached,
-          } satisfies Tool.ExecuteResult<Metadata>
+          if (typeof result.value === "string") output = result.value
+          else if (result.value === undefined) output = "undefined"
+          else {
+            try {
+              output = JSON.stringify(result.value, null, 2) ?? String(result.value)
+            } catch {
+              output = String(result.value)
+            }
+          }
+        } else {
+          output = [result.error.message, ...hints].join("\n")
         }
-        const hints = (result.error.suggestions ?? []).filter((hint) => !result.error.message.includes(hint))
+        if (logs.length > 0)
+          output = output.length > 0 ? `${output}\n\nLogs:\n${logs.join("\n")}` : `Logs:\n${logs.join("\n")}`
+
         return {
           title: CODE_MODE_TOOL,
-          metadata: { toolCalls: calls, error: true },
-          output: withLogs([result.error.message, ...hints].join("\n"), logs),
+          metadata,
+          output,
           ...attached,
         } satisfies Tool.ExecuteResult<Metadata>
       }),
