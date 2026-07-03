@@ -56,12 +56,6 @@ type CatalogEntry = {
 
 const toJsonSchema = (schema: unknown): JsonSchema => schema as JsonSchema
 
-function fallbackInputSchema(tool: AITool): JsonSchema {
-  const schema = (tool.inputSchema as { jsonSchema?: unknown } | undefined)?.jsonSchema
-  if (schema && typeof schema === "object") return toJsonSchema(schema)
-  return { type: "object", properties: {} }
-}
-
 function groupByServer(
   mcpTools: Record<string, AITool>,
   servers: readonly string[],
@@ -73,15 +67,21 @@ function groupByServer(
     const server =
       byLongest.find((name) => key.startsWith(name + "_")) ?? (key.includes("_") ? key.slice(0, key.indexOf("_")) : key)
     const local = server && key.startsWith(server + "_") ? key.slice(server.length + 1) : key
+    const tool = mcpTools[key]!
     const def = mcpDefs[key]
+    const schema = (tool.inputSchema as { jsonSchema?: unknown } | undefined)?.jsonSchema
     const entry: CatalogEntry = {
       path: `${server}.${local}`,
       key,
       server,
       local,
-      description: mcpTools[key]!.description ?? def?.description ?? "",
-      tool: mcpTools[key]!,
-      inputSchema: def?.inputSchema ? toJsonSchema(def.inputSchema) : fallbackInputSchema(mcpTools[key]!),
+      description: tool.description ?? def?.description ?? "",
+      tool,
+      inputSchema: def?.inputSchema
+        ? toJsonSchema(def.inputSchema)
+        : schema && typeof schema === "object"
+          ? toJsonSchema(schema)
+          : { type: "object", properties: {} },
       ...(def?.outputSchema ? { outputSchema: toJsonSchema(def.outputSchema) } : {}),
     }
     groups.set(server, [...(groups.get(server) ?? []), entry])
@@ -104,16 +104,6 @@ export function describeCatalog(
   }).instructions()
 }
 
-function displayInput(input: unknown): Record<string, unknown> | undefined {
-  if (input === null || input === undefined) return
-  if (typeof input === "object" && !Array.isArray(input)) {
-    const value = input as Record<string, unknown>
-    if (Object.keys(value).length > 0) return value
-    return
-  }
-  return { input }
-}
-
 const lastSegment = (uri: string) => {
   const trimmed = uri.split(/[?#]/, 1)[0]!.replace(/\/+$/, "")
   const segment = trimmed.slice(trimmed.lastIndexOf("/") + 1)
@@ -122,12 +112,7 @@ const lastSegment = (uri: string) => {
 
 const dataUrl = (mime: string, base64: string) => `data:${mime};base64,${base64}`
 
-const mediaMarker = (files: number, images: number) => {
-  const noun = files === images ? "image" : "file"
-  return `[${files} ${noun}${files === 1 ? "" : "s"} attached to the result]`
-}
-
-function toProgramValue(raw: unknown, collect: (attachment: Attachment) => void): unknown {
+function projectMcpResult(raw: unknown, collect: (attachment: Attachment) => void): unknown {
   if (raw === null || typeof raw !== "object") return raw
   const record = raw as { structuredContent?: unknown; content?: unknown }
   const content = Array.isArray(record.content) ? record.content : []
@@ -180,7 +165,10 @@ function toProgramValue(raw: unknown, collect: (attachment: Attachment) => void)
 
   if (record.structuredContent !== undefined && record.structuredContent !== null) return record.structuredContent
   if (text.length > 0) return text.join("\n")
-  if (files > 0) return mediaMarker(files, images)
+  if (files > 0) {
+    const noun = files === images ? "image" : "file"
+    return `[${files} ${noun}${files === 1 ? "" : "s"} attached to the result]`
+  }
   if (Array.isArray(record.content)) return null // MCP-shaped result with nothing extractable
   return raw
 }
@@ -283,7 +271,7 @@ export const CodeModeTool = Tool.define(
               ctx,
               execute: entry.tool.execute!,
             })
-            return toProgramValue(raw, collect)
+            return projectMcpResult(raw, collect)
           }).pipe(
             Effect.catchCause((cause) => {
               if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
@@ -296,7 +284,14 @@ export const CodeModeTool = Tool.define(
           tools: toolTree(catalog, callTool),
           onToolCallStart: ({ index, name, input }) =>
             Effect.suspend(() => {
-              const shown = displayInput(input)
+              const shown = (() => {
+                if (input === null || input === undefined) return
+                if (typeof input === "object" && !Array.isArray(input)) {
+                  const value = input as Record<string, unknown>
+                  return Object.keys(value).length > 0 ? value : undefined
+                }
+                return { input }
+              })()
               calls[index] = { tool: name, status: "running", ...(shown ? { input: shown } : {}) }
               return publish()
             }),
@@ -308,22 +303,22 @@ export const CodeModeTool = Tool.define(
             }),
         })
 
-        // Bridge ai-sdk AbortSignal cancellation into the Effect fiber.
-        const cancelled = Effect.callback<ExecuteResult>((resume) => {
-          const onAbort = () =>
-            resume(
-              Effect.succeed<ExecuteResult>({
-                ok: false,
-                error: { kind: "ExecutionFailure", message: "Execution cancelled." },
-                toolCalls: calls.map((call) => ({ name: call.tool })),
-              }),
-            )
-          if (ctx.abort.aborted) return onAbort()
-          ctx.abort.addEventListener("abort", onAbort, { once: true })
-          return Effect.sync(() => ctx.abort.removeEventListener("abort", onAbort))
+        const abort = Effect.callback<void>((resume) => {
+          if (ctx.abort.aborted) return resume(Effect.void)
+          const handler = () => resume(Effect.void)
+          ctx.abort.addEventListener("abort", handler, { once: true })
+          return Effect.sync(() => ctx.abort.removeEventListener("abort", handler))
+        })
+        const cancelled = (): ExecuteResult => ({
+          ok: false,
+          error: { kind: "ExecutionFailure", message: "Execution cancelled." },
+          toolCalls: calls.map((call) => ({ name: call.tool })),
         })
 
-        const result = yield* Effect.raceFirst(runtime.execute(params.code), cancelled)
+        const result = yield* Effect.raceFirst(
+          runtime.execute(params.code),
+          abort.pipe(Effect.map(cancelled)),
+        )
         const logs = result.logs ?? []
         const attached = attachments.length > 0 ? { attachments } : {}
         const hints = result.ok

@@ -509,6 +509,47 @@ describe("code mode execute", () => {
     expect(out.attachments).toEqual([{ type: "file", mime: "image/png", url: "data:image/png;base64,PNGDATA" }])
   })
 
+  test("media-only markers distinguish all-image from mixed attachments", async () => {
+    const tool = await build({
+      media_images: mcpTool("images", () => ({
+        content: [
+          { type: "image", data: "PNG1", mimeType: "image/png" },
+          { type: "image", data: "PNG2", mimeType: "image/png" },
+        ],
+      })),
+      media_mixed: mcpTool("mixed", () => ({
+        content: [
+          { type: "image", data: "PNG3", mimeType: "image/png" },
+          { type: "resource_link", uri: "file:///tmp/report.pdf", mimeType: "application/pdf" },
+        ],
+      })),
+    })
+    const out = await Effect.runPromise(
+      tool.execute(
+        {
+          code: `
+            const images = await tools.media.images({})
+            const mixed = await tools.media.mixed({})
+            return { images, mixed }
+          `,
+        },
+        ctx,
+      ),
+    )
+
+    expect(JSON.parse(out.output)).toEqual({
+      images: "[2 images attached to the result]",
+      mixed: "[2 files attached to the result]",
+    })
+    expect(out.output).not.toContain("PNG")
+    expect(out.attachments).toEqual([
+      { type: "file", mime: "image/png", url: "data:image/png;base64,PNG1" },
+      { type: "file", mime: "image/png", url: "data:image/png;base64,PNG2" },
+      { type: "file", mime: "image/png", url: "data:image/png;base64,PNG3" },
+      { type: "file", mime: "application/pdf", url: "file:///tmp/report.pdf", filename: "report.pdf" },
+    ])
+  })
+
   test("attachments still flow when the program returns something else entirely", async () => {
     const tool = await build({
       shot_take: mcpTool("take", () => ({ content: [{ type: "image", data: "PNGDATA", mimeType: "image/png" }] })),
