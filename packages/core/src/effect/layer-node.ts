@@ -226,8 +226,11 @@ export function hoist<A, E, T extends Tag, const Items extends Replacements = re
         return { ...node, dependencies: node.dependencies.map(context.visit) }
       }
       if (node.tag === tag) {
+        // Replacement rewriting can produce copies of the same node with
+        // rewritten dependencies, so compare implementations rather than
+        // object identity: only a different layer is a real conflict.
         const existing = hoisted.get(node.name)
-        if (existing && existing !== node) {
+        if (existing && existing.implementation !== node.implementation) {
           throw new Error(`Tag ${tag} has conflicting implementations for ${node.name}`)
         }
         hoisted.set(node.name, node)

@@ -51,6 +51,25 @@ Out of scope:
 
 Goal: make the app safe and controlled by swapping the lowest layers, not app logic.
 
+Implementation checklist:
+
+- [x] Add `packages/server/src/simulation/` as the home for all simulation layer replacements, exported from `index.ts` as `simulationReplacements`.
+- [x] Wire simulation replacements through the server's `makeRoutes` via `Layer.unwrap` + dynamic `import("./simulation")` gated on `OPENCODE_SIMULATION`, so the simulation module is never loaded eagerly and `makeRoutes` stays synchronous.
+- [x] Implement in-memory `FileSystem.FileSystem` (`simulation/filesystem.ts`) replacing the `NodeFileSystem` platform node. Backed by a flat path map; implements the operations the app uses (stat, access, chmod, realPath, read/write file, make/read directory, remove, rename, copy, copyFile, temp dirs, read-only open handles); unused operations die with a clear defect; `watch` fails as unsupported.
+- [x] Root the fake filesystem at `OPENCODE_SIMULATION_ROOT` (falling back to `process.cwd()` at layer-build time). The anchor is a real, empty host directory the runner creates and cds into.
+- [x] Deny host filesystem escapes loudly: content/mutation operations outside the root fail with `PermissionDenied` simulation errors. Probe operations (`stat`/`access`/`exists`) report `NotFound` outside the root so walk-up loops (project discovery, `findUp`, `globUp`) terminate naturally.
+- [x] Add `SimulationFSUtil` replacement (`simulation/fs-util.ts`): wraps the real `FSUtil` layer and reroutes `readDirectoryEntries`, `glob`, and `globUp` — which bypass the injected `FileSystem` via node `fs/promises` and the `glob` package — through the simulated filesystem.
+- [x] Fix `LayerNode.hoist` conflict detection to compare node implementations instead of object identity; replacement rewriting produces dependency-rewritten copies of the same node, which previously false-positived as "conflicting implementations".
+- [x] Add snapshot seeding from `OPENCODE_SIMULATION_STATE`: `project/` contents of the snapshot directory are read from the host once at layer-build time and seeded into the in-memory tree joined onto the anchor root.
+- [x] Verify end to end: `opencode serve` boots with `OPENCODE_SIMULATION=1` + `OPENCODE_SIMULATION_ROOT` + path/DB env seams (`OPENCODE_CONFIG_DIR`, `OPENCODE_TEST_HOME`, `OPENCODE_DB=:memory:`); `fs.list`/`fs.read` observe only seeded in-memory files; the anchor directory on the host remains empty after the run.
+- [ ] Create the anchor directory + `chdir` + env seam setup automatically in CLI startup when simulation mode is enabled (currently set manually by the runner).
+- [ ] Assert the anchor directory is still empty at the end of the run.
+- [ ] Add simulated network registry and deny unknown external network by default (design: `simulated-network-llm.md`).
+- [ ] Add driver-scripted LLM as an OpenAI route in the simulated network; the driver answers `llm.request` notifications over the control WebSocket and streams chunks back — no enqueue store (design: `simulated-network-llm.md`).
+- [ ] Add simulated process registry (shell via `just-bash`, minimal fake `git`, deny unsupported spawns).
+- [ ] Add simulation-gated backend control routes proxied through the frontend WebSocket.
+- [ ] Trace filesystem, network, LLM, process, and backend control activity.
+
 Scope:
 
 - Wire simulation replacements through `AppNodeBuilder.build(...)` and `AppNodeBuilderV1.build(...)`.
