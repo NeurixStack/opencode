@@ -181,7 +181,7 @@ export const OpenAIPlugin = define({
           if (!chatgpt) continue
           for (const model of item.models.values()) {
             evt.model.update(item.provider.id, model.id, (draft) => {
-              if (!eligible(draft)) {
+              if (!eligible(draft.api.id)) {
                 draft.enabled = false
                 return
               }
@@ -316,8 +316,15 @@ function isChatGPT(credential: { readonly type: string; readonly methodID?: stri
   )
 }
 
-function eligible(model: { readonly id: string }) {
-  return model.id.includes("codex")
+const chatgptAllowed = new Set(["gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini"])
+const chatgptDisallowed = new Set(["gpt-5.5-pro"])
+
+/** Which API model ids a ChatGPT subscription may call through the codex backend. */
+function eligible(apiID: string) {
+  if (chatgptAllowed.has(apiID)) return true
+  if (chatgptDisallowed.has(apiID)) return false
+  const match = apiID.match(/^gpt-(\d+\.\d+)/)
+  return match ? Number.parseFloat(match[1]) > 5.4 : false
 }
 
 function claim(token: string) {

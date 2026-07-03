@@ -182,8 +182,8 @@ describe("OpenAIPlugin", () => {
         catalog.provider.update(item.id, (draft) => {
           draft.api = item.api
         })
-        catalog.model.update(item.id, ModelV2.ID.make("gpt-5-codex"), (draft) => {
-          draft.api = { id: ModelV2.ID.make("gpt-5-codex"), type: "aisdk", package: "@ai-sdk/openai" }
+        catalog.model.update(item.id, ModelV2.ID.make("gpt-5.3-codex-spark"), (draft) => {
+          draft.api = { id: ModelV2.ID.make("gpt-5.3-codex-spark"), type: "aisdk", package: "@ai-sdk/openai" }
           draft.cost = [{ input: 1, output: 2, cache: { read: 3, write: 4 } }]
         })
         catalog.model.update(item.id, ModelV2.ID.make("gpt-5"), (draft) => {
@@ -204,11 +204,13 @@ describe("OpenAIPlugin", () => {
 
       yield* addPlugin()
 
-      expect(required(yield* catalog.model.get(ProviderV2.ID.openai, ModelV2.ID.make("gpt-5-codex")))).toMatchObject({
+      expect(
+        required(yield* catalog.model.get(ProviderV2.ID.openai, ModelV2.ID.make("gpt-5.3-codex-spark"))),
+      ).toMatchObject({
         enabled: true,
         api: {
           type: "native",
-          id: "gpt-5-codex",
+          id: "gpt-5.3-codex-spark",
           package: "@opencode-ai/llm/providers/openai/codex",
           settings: { store: false },
         },
