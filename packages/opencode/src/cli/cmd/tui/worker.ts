@@ -11,6 +11,7 @@ import { Flag } from "@/flag/flag"
 import { writeHeapSnapshot } from "node:v8"
 import { Heap } from "@/cli/heap"
 import { AppRuntime } from "@/effect/app-runtime"
+import { ModelsDev } from "@/provider/models"
 
 await Log.init({
   print: process.argv.includes("--print-logs"),
@@ -22,6 +23,7 @@ await Log.init({
 })
 
 Heap.start()
+ModelsDev.startAutoRefresh()
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {

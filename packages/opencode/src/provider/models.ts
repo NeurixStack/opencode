@@ -125,7 +125,7 @@ export namespace ModelsDev {
       headers: { "User-Agent": Installation.USER_AGENT },
       signal: AbortSignal.timeout(10000),
     })
-    return { ok: result.ok, text: await result.text() }
+    return { ok: result.ok, status: result.status, text: await result.text() }
   }
 
   export const Data = lazy(async () => {
@@ -160,23 +160,22 @@ export namespace ModelsDev {
     await Flock.withLock(`models-dev:${filepath}`, async () => {
       if (skip(force)) return ModelsDev.Data.reset()
       const result = await fetchApi()
-      if (!result.ok) return
+      if (!result.ok) throw new Error(`Failed to fetch models.dev: ${result.status}`)
       await Filesystem.write(filepath, result.text)
       ModelsDev.Data.reset()
-    }).catch((e) => {
-      log.error("Failed to fetch models.dev", {
-        error: e,
-      })
     })
   }
-}
 
-if (!Flag.OPENCODE_DISABLE_MODELS_FETCH && !process.argv.includes("--get-yargs-completions")) {
-  ModelsDev.refresh()
-  setInterval(
-    async () => {
-      await ModelsDev.refresh()
-    },
-    60 * 1000 * 60,
-  ).unref()
+  export function startAutoRefresh() {
+    if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return
+    if (process.argv.includes("--get-yargs-completions")) return
+
+    const refresh = () =>
+      ModelsDev.refresh().catch((e) => {
+        log.warn("Failed to refresh models.dev catalog", { error: e })
+      })
+
+    refresh()
+    setInterval(refresh, 60 * 1000 * 60).unref()
+  }
 }

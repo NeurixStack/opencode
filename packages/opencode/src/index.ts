@@ -37,6 +37,7 @@ import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
 import { Heap } from "./cli/heap"
 import { drizzle } from "drizzle-orm/bun-sqlite"
+import { ModelsDev } from "./provider/models"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -99,6 +100,7 @@ const cli = yargs(args)
     })
 
     Heap.start()
+    ModelsDev.startAutoRefresh()
 
     process.env.AGENT = "1"
     process.env.OPENCODE = "1"
