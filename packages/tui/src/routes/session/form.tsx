@@ -398,8 +398,7 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
         cmd: () => {
           if (!textual()) return
           const text = textarea?.plainText?.trim() ?? ""
-          if (text) submitText(text)
-          if (!text) selectTab((store.tab + 1) % tabs())
+          submitText(text)
         },
       },
       {
@@ -409,8 +408,7 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
         cmd: () => {
           if (!textual()) return
           const text = textarea?.plainText?.trim() ?? ""
-          if (text) submitText(text, -1)
-          if (!text) selectTab((store.tab - 1 + tabs()) % tabs())
+          submitText(text, -1)
         },
       },
       {

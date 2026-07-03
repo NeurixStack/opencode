@@ -188,7 +188,10 @@ export function Session() {
   })
   const forms = createMemo(() => {
     if (session()?.parentID) return []
-    return [...(data.session.form.list(route.sessionID) ?? []), ...(data.session.form.list("global") ?? [])]
+    return [
+      ...[route.sessionID, ...descendantSessionIDs()].flatMap((sessionID) => data.session.form.list(sessionID) ?? []),
+      ...(data.session.form.list("global") ?? []),
+    ]
   })
   const [composer, setComposer] = createStore({
     open: false,
@@ -241,7 +244,12 @@ export function Session() {
 
   createEffect(
     on(descendantSessionIDs, (sessionIDs) => {
-      void Promise.all(sessionIDs.map((sessionID) => data.session.permission.refresh(sessionID)))
+      void Promise.all(
+        sessionIDs.flatMap((sessionID) => [
+          data.session.permission.refresh(sessionID),
+          data.session.form.refresh(sessionID),
+        ]),
+      )
     }),
   )
 
