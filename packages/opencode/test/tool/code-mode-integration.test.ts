@@ -17,7 +17,6 @@ import {
   ListToolsRequestSchema,
   type Tool as MCPToolDef,
 } from "@modelcontextprotocol/sdk/types.js"
-import type { Tool as AITool } from "ai"
 import { Effect, Layer } from "effect"
 
 const PNG =
@@ -135,12 +134,9 @@ async function buildTool() {
   await client.connect()
 
   const listed = (await client.listTools()).tools as MCPToolDef[]
-  const mcpTools: Record<string, AITool> = {}
-  const mcpDefs: Record<string, MCPToolDef> = {}
+  const mcpTools: Record<string, MCP.McpTool> = {}
   for (const def of listed) {
-    const key = McpCatalog.toolName(SERVER, def.name)
-    mcpDefs[key] = def
-    mcpTools[key] = McpCatalog.convertTool(def, client as unknown as Client)
+    mcpTools[McpCatalog.toolName(SERVER, def.name)] = { def, client: client as unknown as Client }
   }
 
   const layer = Layer.mergeAll(
@@ -155,13 +151,12 @@ async function buildTool() {
     Layer.mock(Session.Service, { get: () => Effect.succeed({ permission: [] } as any) }),
     Layer.mock(MCP.Service, {
       tools: () => Effect.succeed(mcpTools),
-      defs: () => Effect.succeed(mcpDefs),
       clients: () => Effect.succeed({ [SERVER]: {} as any }),
     }),
   )
   return {
     tool: await Effect.runPromise(CodeModeTool.pipe(Effect.flatMap(Tool.init), Effect.provide(layer))),
-    description: describeCatalog(mcpTools, mcpDefs, [SERVER]),
+    description: describeCatalog(mcpTools, [SERVER]),
   }
 }
 

@@ -210,6 +210,10 @@ const layer = Layer.effect(
 
     type Transport = StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport
 
+    /**
+     * Connect a client via the given transport with resource safety:
+     * on failure the transport is closed; on success the caller owns it.
+     */
     const connectTransport = Effect.fn("MCP.connectTransport")(function* (transport: Transport, timeout: number) {
       const directory = yield* InstanceState.directory
       return yield* Effect.acquireUseRelease(
