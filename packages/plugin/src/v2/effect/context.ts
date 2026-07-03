@@ -10,6 +10,7 @@ import type { SkillHooks } from "./skill.js"
 import type { Reload } from "./registration.js"
 import type { ToolDomain } from "./tool.js"
 import type { SessionDomain } from "./runtime.js"
+import type { VcsDomain } from "./vcs.js"
 
 export interface PluginContext {
   readonly options: PluginOptions
@@ -23,4 +24,5 @@ export interface PluginContext {
   readonly skill: SkillHooks & Reload
   readonly tool: ToolDomain
   readonly session: SessionDomain
+  readonly vcs: VcsDomain
 }

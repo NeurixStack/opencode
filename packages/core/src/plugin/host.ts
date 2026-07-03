@@ -18,6 +18,7 @@ import { AbsolutePath, type DeepMutable } from "../schema"
 import { SkillV2 } from "../skill"
 import { Tools } from "../tool/tools"
 import { ToolHooks } from "../tool/hooks"
+import { VcsBackends } from "../vcs/backends"
 import { WorkspaceV2 } from "../workspace"
 
 const mutable = <T>(value: T) => value as DeepMutable<T>
@@ -33,6 +34,7 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
   const skill = yield* SkillV2.Service
   const tools = yield* Tools.Service
   const toolHooks = yield* ToolHooks.Service
+  const vcsBackends = yield* VcsBackends.Service
   const runtime = yield* PluginRuntime.Service
   const locationInfo = () =>
     new Location.Info({
@@ -290,6 +292,9 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
             )
           }),
       },
+    },
+    vcs: {
+      register: (backend) => vcsBackends.register(backend),
     },
     session: {
       create: (input) =>

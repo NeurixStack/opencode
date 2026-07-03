@@ -33,6 +33,7 @@ import { SkillV2 } from "../skill"
 import { State } from "../state"
 import { ToolRegistry } from "../tool/registry"
 import { Tools } from "../tool/tools"
+import { VcsBackends } from "../vcs/backends"
 import { HttpClient } from "effect/unstable/http"
 import { AgentPlugin } from "./agent"
 import { CommandPlugin } from "./command"
@@ -67,6 +68,7 @@ export type Requirements =
   | Shell.Service
   | SkillV2.Service
   | Tools.Service
+  | VcsBackends.Service
 
 export interface Plugin<R = never> {
   readonly id: string
@@ -102,6 +104,7 @@ const layer = Layer.effectDiscard(
       Context.make(Ripgrep.Service, yield* Ripgrep.Service),
       Context.make(Shell.Service, yield* Shell.Service),
       Context.make(Tools.Service, yield* Tools.Service),
+      Context.make(VcsBackends.Service, yield* VcsBackends.Service),
       Context.make(PluginRuntime.Service, yield* PluginRuntime.Service),
     )
     const add = (input: Plugin<Requirements | Scope.Scope>) =>
@@ -158,6 +161,7 @@ export const node = makeLocationNode({
     Ripgrep.node,
     Shell.node,
     ToolRegistry.toolsNode,
+    VcsBackends.node,
     PluginRuntime.node,
     SdkPlugins.node,
   ],

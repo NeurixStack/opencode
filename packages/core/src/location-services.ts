@@ -47,6 +47,7 @@ import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { ToolRegistry } from "./tool/registry"
 import { ToolOutputStore } from "./tool-output-store"
 import { Vcs } from "./vcs"
+import { VcsBackends } from "./vcs/backends"
 
 export { LocationServiceMap } from "./location-service-map"
 
@@ -97,6 +98,7 @@ export const locationServices = LayerNode.group([
   SessionTitle.node,
   Snapshot.node,
   SessionRunnerLLM.node,
+  VcsBackends.node,
   Vcs.node,
 ])
 

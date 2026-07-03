@@ -19,6 +19,7 @@ import { SkillV2 } from "./skill"
 import { State } from "./state"
 import { ToolRegistry } from "./tool/registry"
 import { ToolHooks } from "./tool/hooks"
+import { VcsBackends } from "./vcs/backends"
 
 export const ID = Plugin.ID
 export type ID = typeof ID.Type
@@ -167,6 +168,7 @@ export const node = makeLocationNode({
     SkillV2.node,
     ToolRegistry.toolsNode,
     ToolHooks.node,
+    VcsBackends.node,
     PluginRuntime.node,
   ],
 })

@@ -64,6 +64,9 @@ export function host(overrides: Overrides = {}): PluginContext {
       command: () => Effect.die("unused session.command"),
       interrupt: () => Effect.die("unused session.interrupt"),
     },
+    vcs: overrides.vcs ?? {
+      register: () => Effect.die("unused vcs.register"),
+    },
   }
 }
 
