@@ -32,7 +32,7 @@ import { InstallationVersion } from "../installation/version"
 
 const DEFAULT_STARTUP_TIMEOUT = 30_000
 const DEFAULT_REQUEST_TIMEOUT = 30_000
-const TOOL_CALL_TIMEOUT = 2_147_483_647
+const DEFAULT_TOOL_CALL_TIMEOUT = 100_000_000
 
 type Transport = StdioClientTransport | StreamableHTTPClientTransport
 
@@ -282,8 +282,8 @@ export const connect = Effect.fnUntraced(function* (
             client.callTool(
               { name: input.name, arguments: input.args ?? {} },
               CallToolResultSchema,
-              // The SDK does not support disabling request timeouts; use the setTimeout max.
-              { signal, timeout: TOOL_CALL_TIMEOUT, resetTimeoutOnProgress: true, onprogress: () => {} },
+              // Human-driven tools can exceed the SDK default; use an effectively infinite timeout.
+              { signal, timeout: DEFAULT_TOOL_CALL_TIMEOUT, resetTimeoutOnProgress: true, onprogress: () => {} },
             ),
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         }).pipe(
