@@ -1,9 +1,10 @@
-import { describe, expect } from "bun:test"
+import { afterAll, describe, expect } from "bun:test"
 import { $ } from "bun"
 import fs from "fs/promises"
 import path from "path"
 import { Effect, Schema } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
+import { Global } from "@opencode-ai/core/global"
 import { ProjectV2 } from "@opencode-ai/core/project"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { Hash } from "@opencode-ai/core/util/hash"
@@ -11,6 +12,12 @@ import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 
 const it = testEffect(AppNodeBuilder.build(ProjectV2.node))
+
+const globalConfig = await tmpdir()
+afterAll(() => globalConfig[Symbol.asyncDispose]())
+const itMarker = testEffect(
+  AppNodeBuilder.build(ProjectV2.node, [[Global.node, Global.layerWith({ config: globalConfig.path })]]),
+)
 
 function remoteID(remote: string) {
   return ProjectV2.ID.make(Hash.fast(`git-remote:${remote}`))
@@ -234,6 +241,31 @@ describe("ProjectV2.resolve", () => {
       const result = yield* project.resolve(abs(tmp.path))
 
       expect(result.vcs?.type).toBe("git")
+    }),
+  )
+
+  itMarker.live("detects plugin backends from global config markers", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await Bun.write(
+          path.join(globalConfig.path, "opencode.json"),
+          JSON.stringify({ vcs: { jj: { marker: ".jj" } } }),
+        )
+        await fs.mkdir(path.join(tmp.path, ".jj"))
+        await fs.mkdir(path.join(tmp.path, "a", "b"), { recursive: true })
+      })
+      const project = yield* ProjectV2.Service
+
+      const result = yield* project.resolve(abs(path.join(tmp.path, "a", "b")))
+
+      expect(result.vcs?.type).toBe("jj")
+      expect(result.vcs?.store).toBe(abs(path.join(tmp.path, ".jj")))
+      expect(result.directory).toBe(abs(tmp.path))
+      expect(result.id).toBe(ProjectV2.ID.make(Hash.fast(`vcs-store:${path.join(tmp.path, ".jj")}`)))
     }),
   )
 

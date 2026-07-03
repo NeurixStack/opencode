@@ -5,8 +5,10 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import path from "path"
 import { AbsolutePath } from "./schema"
+import { ConfigVcs } from "./config/vcs"
 import { FSUtil } from "./fs-util"
 import { Git } from "./git"
+import { Global } from "./global"
 import { AppProcess } from "./process"
 import { makeGlobalNode } from "./effect/app-node"
 import { Hash } from "./util/hash"
@@ -75,6 +77,7 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const fs = yield* FSUtil.Service
     const git = yield* Git.Service
+    const global = yield* Global.Service
     const proc = yield* AppProcess.Service
     const projectDirectories = yield* ProjectDirectories.Service
 
@@ -168,6 +171,27 @@ const layer = Layer.effect(
       }
     })
 
+    const markerDiscover = Effect.fnUntraced(function* (input: AbsolutePath) {
+      const backends = yield* ConfigVcs.readGlobal(fs, global.config)
+      if (backends.size === 0) return undefined
+      const types = new Map([...backends].map(([type, backend]) => [backend.marker, type] as const))
+      const match = yield* fs.up({ targets: [...types.keys()], start: input }).pipe(
+        Effect.map((matches) => matches[0]),
+        Effect.catch(() => Effect.succeed(undefined)),
+      )
+      if (!match) return undefined
+      const type = types.get(path.basename(match))
+      if (!type) return undefined
+      const store = AbsolutePath.make(match)
+      const previous = yield* cached(store)
+      return {
+        previous,
+        id: previous ?? ID.make(Hash.fast(`vcs-store:${store}`)),
+        directory: AbsolutePath.make(path.dirname(match)),
+        vcs: { type, store },
+      }
+    })
+
     const resolve = Effect.fn("Project.resolve")(function* (input: AbsolutePath) {
       const repo = yield* git.repo.discover(input)
       if (repo) {
@@ -183,6 +207,8 @@ const layer = Layer.effect(
 
       const hg = yield* hgDiscover(input)
       if (hg) return hg
+      const marker = yield* markerDiscover(input)
+      if (marker) return marker
       return { id: ID.global, directory: AbsolutePath.make(path.parse(input).root), vcs: undefined }
     })
 
@@ -197,5 +223,5 @@ const layer = Layer.effect(
 export const node = makeGlobalNode({
   service: Service,
   layer: layer,
-  deps: [FSUtil.node, Git.node, AppProcess.node, ProjectDirectories.node],
+  deps: [FSUtil.node, Git.node, Global.node, AppProcess.node, ProjectDirectories.node],
 })

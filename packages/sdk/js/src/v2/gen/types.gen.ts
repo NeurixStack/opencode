@@ -3540,7 +3540,7 @@ export type FormAnswer = {
   [key: string]: FormValue
 }
 
-export type ProjectVcs = "git" | "hg"
+export type ProjectVcs = string
 
 export type ProjectIcon = {
   url?: string

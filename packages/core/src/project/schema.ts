@@ -19,14 +19,8 @@ export type DirectoriesInput = typeof DirectoriesInput.Type
 export const Directories = Project.Directories
 export type Directories = typeof Directories.Type
 
-export const Vcs = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literal("git"),
-    store: AbsolutePath,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("hg"),
-    store: AbsolutePath,
-  }),
-])
+export const Vcs = Schema.Struct({
+  type: Schema.String,
+  store: AbsolutePath,
+})
 export type Vcs = typeof Vcs.Type
