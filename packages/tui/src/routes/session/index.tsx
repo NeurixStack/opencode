@@ -185,7 +185,7 @@ export function Session() {
     const sessionIDs = session()?.parentID ? [route.sessionID] : [route.sessionID, ...descendantSessionIDs()]
     return [
       ...sessionIDs.flatMap((sessionID) => data.session.form.list(sessionID) ?? []),
-      ...(data.session.form.list("global") ?? []),
+      ...(data.session.form.list("global", location()) ?? []),
     ]
   })
   const [composer, setComposer] = createStore({
@@ -266,7 +266,7 @@ export function Session() {
       await Promise.all([
         data.session.permission.refresh(sessionID),
         data.session.form.refresh(sessionID),
-        data.session.form.refresh("global"),
+        data.session.form.refresh("global", info.location),
       ])
 
       project.workspace.set(info.location.workspaceID)
@@ -949,8 +949,8 @@ export function Session() {
                     <PermissionPrompt request={permissions()[0]} directory={session()?.location.directory} />
                   </Match>
                   <Match when={forms().length > 0}>
-                    <Show when={forms()[0]} keyed>
-                      {(form) => <FormPrompt form={form} />}
+                    <Show when={forms()[0]?.id} keyed>
+                      {() => <Show when={forms()[0]}>{(form) => <FormPrompt form={form()} />}</Show>}
                     </Show>
                   </Match>
                   <Match when={composer.open || !!session()?.parentID}>{null}</Match>
