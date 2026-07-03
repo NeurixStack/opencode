@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import Notifications from "../../../../src/feature-plugins/system/notifications"
-import type { PermissionRequest, QuestionRequest, Session, V2Event } from "@opencode-ai/sdk/v2"
+import type { PermissionRequest, Session, V2Event } from "@opencode-ai/sdk/v2"
 import type { TuiAttentionNotifyInput } from "@opencode-ai/plugin/tui"
 import { createTuiPluginApi } from "../../../fixture/tui-plugin"
 
@@ -67,11 +67,12 @@ async function setup() {
   }
 }
 
-function question(id: string, sessionID = "session"): QuestionRequest {
+function form(id: string, sessionID = "session"): Extract<V2Event, { type: "form.created" }>["data"]["form"] {
   return {
     id,
     sessionID,
-    questions: [],
+    mode: "form",
+    fields: [],
   }
 }
 
@@ -128,9 +129,9 @@ function stepFailed(id: string, sessionID = "session"): V2Event {
   }
 }
 
-const questionNotification: TuiAttentionNotifyInput = {
+const formNotification: TuiAttentionNotifyInput = {
   title: "Demo session",
-  message: "Question needs input",
+  message: "Input needs response",
   notification: { when: "blurred" },
   sound: { name: "question", when: "always" },
 }
@@ -143,26 +144,26 @@ const permissionNotification: TuiAttentionNotifyInput = {
 }
 
 describe("internal notifications TUI plugin", () => {
-  test("notifies for question and permission requests with blurred notifications and always-on sounds", async () => {
+  test("notifies for form and permission requests with blurred notifications and always-on sounds", async () => {
     const harness = await setup()
 
-    harness.emit({ id: "event-1", type: "question.asked", data: question("question-1") })
+    harness.emit({ id: "event-1", type: "form.created", data: { form: form("form-1") } })
     harness.emit({ id: "event-2", type: "permission.asked", data: permission("permission-1") })
 
-    expect(harness.notifications).toEqual([questionNotification, permissionNotification])
+    expect(harness.notifications).toEqual([formNotification, permissionNotification])
   })
 
-  test("dedupes pending questions and permissions until they are resolved", async () => {
+  test("dedupes pending forms and permissions until they are resolved", async () => {
     const harness = await setup()
 
-    harness.emit({ id: "event-1", type: "question.asked", data: question("question-1") })
-    harness.emit({ id: "event-2", type: "question.asked", data: question("question-1") })
+    harness.emit({ id: "event-1", type: "form.created", data: { form: form("form-1") } })
+    harness.emit({ id: "event-2", type: "form.created", data: { form: form("form-1") } })
     harness.emit({
       id: "event-3",
-      type: "question.replied",
-      data: { sessionID: "session", requestID: "question-1", answers: [] },
+      type: "form.replied",
+      data: { sessionID: "session", id: "form-1", answer: {} },
     })
-    harness.emit({ id: "event-4", type: "question.asked", data: question("question-1") })
+    harness.emit({ id: "event-4", type: "form.created", data: { form: form("form-1") } })
 
     harness.emit({ id: "event-5", type: "permission.asked", data: permission("permission-1") })
     harness.emit({ id: "event-6", type: "permission.asked", data: permission("permission-1") })
@@ -174,8 +175,8 @@ describe("internal notifications TUI plugin", () => {
     harness.emit({ id: "event-8", type: "permission.asked", data: permission("permission-1") })
 
     expect(harness.notifications).toEqual([
-      questionNotification,
-      questionNotification,
+      formNotification,
+      formNotification,
       permissionNotification,
       permissionNotification,
     ])
@@ -201,14 +202,14 @@ describe("internal notifications TUI plugin", () => {
   test("uses sound-only notifications and subagent_done sound for subagent sessions", async () => {
     const harness = await setup()
 
-    harness.emit({ id: "event-1", type: "question.asked", data: question("question-1", "subagent") })
+    harness.emit({ id: "event-1", type: "form.created", data: { form: form("form-1", "subagent") } })
     harness.emit(stepStarted("event-2", "subagent"))
     harness.emit(stepEnded("event-3", "subagent"))
 
     expect(harness.notifications).toEqual([
       {
         title: "Subagent session",
-        message: "Question needs input",
+        message: "Input needs response",
         notification: false,
         sound: { name: "question", when: "always" },
       },

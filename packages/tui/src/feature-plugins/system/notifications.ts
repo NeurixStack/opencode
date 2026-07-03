@@ -29,21 +29,21 @@ function sessionErrorMessage(error: SessionError) {
 const tui: TuiPlugin = async (api) => {
   const active = new Set<string>()
   const errored = new Set<string>()
-  const questions = new Set<string>()
+  const forms = new Set<string>()
   const permissions = new Set<string>()
 
-  api.event.on("question.asked", (event) => {
-    if (questions.has(event.data.id)) return
-    questions.add(event.data.id)
-    notify(api, event.data.sessionID, "Question needs input", "question")
+  api.event.on("form.created", (event) => {
+    if (forms.has(event.data.form.id)) return
+    forms.add(event.data.form.id)
+    notify(api, event.data.form.sessionID, "Input needs response", "question")
   })
 
-  api.event.on("question.replied", (event) => {
-    questions.delete(event.data.requestID)
+  api.event.on("form.replied", (event) => {
+    forms.delete(event.data.id)
   })
 
-  api.event.on("question.rejected", (event) => {
-    questions.delete(event.data.requestID)
+  api.event.on("form.cancelled", (event) => {
+    forms.delete(event.data.id)
   })
 
   api.event.on("permission.asked", (event) => {
