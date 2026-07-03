@@ -33,10 +33,7 @@ async function setup() {
         },
       },
       event: {
-        on: <Type extends V2Event["type"]>(
-          type: Type,
-          handler: (event: Extract<V2Event, { type: Type }>) => void,
-        ) => {
+        on: <Type extends V2Event["type"]>(type: Type, handler: (event: Extract<V2Event, { type: Type }>) => void) => {
           const list = handlers.get(type) ?? []
           const wrapped = handler as (event: V2Event) => void
           list.push(wrapped)
@@ -86,28 +83,37 @@ function permission(id: string, sessionID = "session"): PermissionV2Request {
   }
 }
 
+function durable(sessionID: string) {
+  return { aggregateID: sessionID, seq: 0, version: 1 }
+}
+
 function stepStarted(id: string, sessionID = "session"): V2Event {
   return {
     id,
-    type: "session.next.step.started",
+    created: 0,
+    type: "step.started",
+    durable: durable(sessionID),
     data: {
       sessionID,
       assistantMessageID: `msg_${id}`,
-      timestamp: 0,
       agent: "build",
       model: { id: "model", providerID: "provider" },
     },
   }
 }
 
-function executionSettled(id: string, sessionID = "session"): V2Event {
+function executionSettled(id: string, sessionID = "session", finish = "stop"): V2Event {
   return {
     id,
-    type: "session.next.execution.settled",
+    created: 0,
+    type: "step.ended",
+    durable: durable(sessionID),
     data: {
       sessionID,
-      timestamp: 0,
-      outcome: "success",
+      assistantMessageID: `msg_${id}`,
+      finish,
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     },
   }
 }
@@ -115,11 +121,12 @@ function executionSettled(id: string, sessionID = "session"): V2Event {
 function stepFailed(id: string, sessionID = "session"): V2Event {
   return {
     id,
-    type: "session.next.step.failed",
+    created: 0,
+    type: "step.failed",
+    durable: durable(sessionID),
     data: {
       sessionID,
       assistantMessageID: `msg_${id}`,
-      timestamp: 0,
       error: { type: "unknown", message: "boom" },
     },
   }
@@ -143,8 +150,8 @@ describe("internal notifications TUI plugin", () => {
   test("notifies for form and permission requests with blurred notifications and always-on sounds", async () => {
     const harness = await setup()
 
-    harness.emit({ id: "event-1", type: "form.created", data: { form: form("form-1") } })
-    harness.emit({ id: "event-2", type: "permission.v2.asked", data: permission("permission-1") })
+    harness.emit({ id: "event-1", created: 0, type: "form.created", data: { form: form("form-1") } })
+    harness.emit({ id: "event-2", created: 0, type: "permission.v2.asked", data: permission("permission-1") })
 
     expect(harness.notifications).toEqual([formNotification, permissionNotification])
   })
@@ -152,23 +159,25 @@ describe("internal notifications TUI plugin", () => {
   test("dedupes pending forms and permissions until they are resolved", async () => {
     const harness = await setup()
 
-    harness.emit({ id: "event-1", type: "form.created", data: { form: form("form-1") } })
-    harness.emit({ id: "event-2", type: "form.created", data: { form: form("form-1") } })
+    harness.emit({ id: "event-1", created: 0, type: "form.created", data: { form: form("form-1") } })
+    harness.emit({ id: "event-2", created: 0, type: "form.created", data: { form: form("form-1") } })
     harness.emit({
       id: "event-3",
+      created: 0,
       type: "form.replied",
       data: { sessionID: "session", id: "form-1", answer: {} },
     })
-    harness.emit({ id: "event-4", type: "form.created", data: { form: form("form-1") } })
+    harness.emit({ id: "event-4", created: 0, type: "form.created", data: { form: form("form-1") } })
 
-    harness.emit({ id: "event-5", type: "permission.v2.asked", data: permission("permission-1") })
-    harness.emit({ id: "event-6", type: "permission.v2.asked", data: permission("permission-1") })
+    harness.emit({ id: "event-5", created: 0, type: "permission.v2.asked", data: permission("permission-1") })
+    harness.emit({ id: "event-6", created: 0, type: "permission.v2.asked", data: permission("permission-1") })
     harness.emit({
       id: "event-7",
+      created: 0,
       type: "permission.v2.replied",
       data: { sessionID: "session", requestID: "permission-1", reply: "once" },
     })
-    harness.emit({ id: "event-8", type: "permission.v2.asked", data: permission("permission-1") })
+    harness.emit({ id: "event-8", created: 0, type: "permission.v2.asked", data: permission("permission-1") })
 
     expect(harness.notifications).toEqual([
       formNotification,
@@ -198,7 +207,7 @@ describe("internal notifications TUI plugin", () => {
   test("uses sound-only notifications and subagent_done sound for subagent sessions", async () => {
     const harness = await setup()
 
-    harness.emit({ id: "event-1", type: "form.created", data: { form: form("form-1", "subagent") } })
+    harness.emit({ id: "event-1", created: 0, type: "form.created", data: { form: form("form-1", "subagent") } })
     harness.emit(stepStarted("event-2", "subagent"))
     harness.emit(executionSettled("event-3", "subagent"))
 
@@ -241,12 +250,14 @@ describe("internal notifications TUI plugin", () => {
     harness.emit(stepStarted("event-1", "abort"))
     harness.emit({
       id: "event-2",
+      created: 0,
       type: "session.error",
       data: { sessionID: "abort", error: { name: "MessageAbortedError", data: { message: "Aborted" } } },
     })
     harness.emit(stepStarted("event-3", "timeout"))
     harness.emit({
       id: "event-4",
+      created: 0,
       type: "session.error",
       data: { sessionID: "timeout", error: { name: "UnknownError", data: { message: "SSE read timed out" } } },
     })

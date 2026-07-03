@@ -6,6 +6,7 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { Credential } from "@opencode-ai/core/credential"
 import { PermissionSaved } from "@opencode-ai/core/permission/saved"
 import { PtyTicket } from "@opencode-ai/core/pty/ticket"
+import { Project } from "@opencode-ai/core/project"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { Job } from "@opencode-ai/core/job"
@@ -23,7 +24,7 @@ import { handlers } from "./handlers"
 import { authorizationLayer } from "./middleware/authorization"
 import { schemaErrorLayer } from "./middleware/schema-error"
 import { PtyEnvironment } from "./pty-environment"
-import { layer as locationLayer } from "./location"
+import { layer } from "./location"
 import { formLocationLayer } from "./middleware/form-location"
 import { sessionLocationLayer } from "./middleware/session-location"
 
@@ -33,6 +34,7 @@ const applicationServices = LayerNode.group([
   httpClient,
   ToolOutputStore.cleanupNode,
   Job.node,
+  Project.node,
   SessionV2.node,
   PluginRuntime.providerNode,
   PermissionSaved.node,
@@ -72,7 +74,7 @@ function makeRoutes<AuthError, AuthServices>(
   const serviceLayer = simulationEnabled()
     ? Layer.unwrap(
         Effect.gen(function* () {
-          const { simulationReplacements } = yield* Effect.promise(() => import("./simulation"))
+          const { simulationReplacements } = yield* Effect.promise(() => import("@opencode-ai/simulation/backend"))
           return AppNodeBuilder.build(applicationServices, [...replacements, ...simulationReplacements])
         }),
       )
@@ -82,7 +84,7 @@ function makeRoutes<AuthError, AuthServices>(
     Layer.provide(handlers),
     Layer.provide(formLocationLayer),
     Layer.provide(sessionLocationLayer),
-    Layer.provide(locationLayer),
+    Layer.provide(layer),
     Layer.provide(authorizationLayer),
     Layer.provide(schemaErrorLayer),
     Layer.provide(auth),
@@ -97,4 +99,4 @@ function simulationEnabled() {
 export const routes = createRoutes()
 
 export const webHandler = () =>
-  HttpRouter.toWebHandler(routes.pipe(Layer.provide(HttpServer.layerServices)), { disableLogger: true })
+  HttpRouter.toWebHandler(routes.pipe(Layer.provide(HttpServer.layerServices)))

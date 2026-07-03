@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test"
-import { Agent, FileSystem, Form, Integration, Permission, Project, Reference, Session, Workspace } from "../src/index.js"
+import {
+  Agent,
+  FileSystem,
+  Form,
+  Integration,
+  Permission,
+  Project,
+  Reference,
+  Session,
+  Workspace,
+} from "../src/index.js"
 import { EventManifest } from "../src/event-manifest.js"
 import { IdeEvent } from "../src/ide-event.js"
+import { McpEvent } from "../src/mcp-event.js"
 import { SessionEvent } from "../src/session-event.js"
 import { SessionTodo } from "../src/session-todo.js"
 import { SessionV1 } from "../src/session-v1.js"
@@ -9,11 +20,11 @@ import { WorkspaceEvent } from "../src/workspace-event.js"
 
 describe("public event manifest", () => {
   test("owns the complete public event surface", () => {
-    expect(EventManifest.ServerDefinitions.filter((definition) => definition.type !== "agent.updated").length).toBe(86)
+    expect(EventManifest.ServerDefinitions).toContain(Agent.Event.Updated)
     expect(EventManifest.ServerDefinitions.filter((definition) => definition.type === "agent.updated")).toEqual([
       Agent.Event.Updated,
     ])
-    expect(EventManifest.Definitions.filter((definition) => definition.type !== "agent.updated").length).toBe(101)
+    expect(EventManifest.Definitions).toContain(Agent.Event.Updated)
     expect(EventManifest.Definitions.filter((definition) => definition.type === "agent.updated")).toEqual([
       Agent.Event.Updated,
     ])
@@ -29,7 +40,9 @@ describe("public event manifest", () => {
       SessionV1.Event.Diff,
       SessionV1.Event.Error,
     ])
-    expect(Array.from(EventManifest.Latest.keys()).filter((type) => type !== "agent.updated").length).toBe(101)
+    expect(Array.from(EventManifest.Latest.keys())).toEqual(
+      EventManifest.Definitions.map((definition) => definition.type),
+    )
     expect(EventManifest.Latest.get("agent.updated")).toBe(Agent.Event.Updated)
     expect(Agent.Event.Updated.durable).toBeUndefined()
     expect(EventManifest.Durable.has("agent.updated")).toBe(false)
@@ -40,7 +53,7 @@ describe("public event manifest", () => {
     expect(Session.Event.Definitions).toBe(SessionEvent.Definitions)
     expect(Workspace.Event).toBe(WorkspaceEvent)
     expect(Workspace.Event.Definitions).toBe(WorkspaceEvent.Definitions)
-    expect(EventManifest.Latest.get("session.next.step.ended")).toBe(SessionEvent.Step.Ended)
+    expect(EventManifest.Latest.get("step.ended")).toBe(SessionEvent.Step.Ended)
     expect(EventManifest.Latest.get("todo.updated")).toBe(SessionTodo.Event.Updated)
     expect(EventManifest.Latest.get("agent.updated")).toBe(Agent.Event.Updated)
     expect(EventManifest.Latest.get("project.updated")).toBe(Project.Event.Updated)
@@ -51,6 +64,8 @@ describe("public event manifest", () => {
     expect(Permission.Event.Definitions).toEqual([Permission.Event.Asked, Permission.Event.Replied])
     expect(Form.Event.Definitions).toEqual([Form.Event.Created, Form.Event.Replied, Form.Event.Cancelled])
     expect(Reference.Event.Definitions).toEqual([Reference.Event.Updated])
+    expect(McpEvent.Definitions).toEqual([McpEvent.ToolsChanged, McpEvent.StatusChanged])
+    expect(EventManifest.Latest.has("mcp.browser.open.failed")).toBe(false)
     expect(EventManifest.Latest.has("ide.installed")).toBe(false)
     expect(IdeEvent.Definitions).toEqual([IdeEvent.Installed])
     const sessionV1TailStart = EventManifest.Definitions.indexOf(SessionV1.Event.PartDelta)
@@ -59,7 +74,56 @@ describe("public event manifest", () => {
       SessionV1.Event.Diff,
       SessionV1.Event.Error,
     ])
-    expect(EventManifest.Durable.has("session.next.step.ended.1")).toBe(false)
-    expect(EventManifest.Durable.get("session.next.step.ended.2")).toBe(SessionEvent.Step.Ended)
+    expect(EventManifest.Durable.get("step.ended.1")).toBe(SessionEvent.Step.Ended)
+    expect(EventManifest.Durable.has("step.ended.2")).toBe(false)
+  })
+
+  test("derives durable definitions from explicit definition durability", () => {
+    expect(Array.from(EventManifest.Durable.keys()).toSorted()).toEqual(
+      [
+        "session.created.1",
+        "session.updated.1",
+        "session.deleted.1",
+        "message.updated.1",
+        "message.removed.1",
+        "message.part.updated.1",
+        "message.part.removed.1",
+        "agent.selected.1",
+        "model.selected.1",
+        "session.moved.1",
+        "renamed.1",
+        "forked.1",
+        "prompt.promoted.1",
+        "prompt.admitted.1",
+        "session.context.updated.1",
+        "synthetic.1",
+        "skill.activated.1",
+        "shell.started.1",
+        "shell.ended.1",
+        "step.started.1",
+        "step.ended.1",
+        "step.failed.1",
+        "text.started.1",
+        "text.ended.1",
+        "tool.input.started.1",
+        "tool.input.ended.1",
+        "tool.called.1",
+        "tool.progress.1",
+        "tool.success.1",
+        "tool.failed.1",
+        "reasoning.started.1",
+        "reasoning.ended.1",
+        "retried.1",
+        "compaction.started.1",
+        "compaction.ended.1",
+        "revert.staged.1",
+        "revert.cleared.1",
+        "revert.committed.1",
+      ].toSorted(),
+    )
+    expect(SessionEvent.DurableDefinitions).toEqual(
+      SessionEvent.Definitions.filter((definition) => definition.durability === "durable"),
+    )
+    expect(EventManifest.Definitions.every((definition) => definition.durability !== undefined)).toBe(true)
   })
 })

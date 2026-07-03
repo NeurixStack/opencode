@@ -17,11 +17,11 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Prompt } from "@opencode-ai/core/session/prompt"
+import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
 import { SessionInput } from "@opencode-ai/core/session/input"
 import { SessionEvent } from "@opencode-ai/core/session/event"
-import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionStore } from "@opencode-ai/core/session/store"
 import { WorkspaceV2 } from "@opencode-ai/core/workspace"
@@ -61,6 +61,13 @@ const assertCreateInputTypes = (session: SessionV2.Interface) => {
   session.create({ parentID: SessionV2.ID.create(), location })
 }
 void assertCreateInputTypes
+
+function withTmp<A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) {
+  return Effect.acquireRelease(
+    Effect.promise(() => tmpdir()),
+    (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+  ).pipe(Effect.flatMap((tmp) => f(tmp.path)))
+}
 
 describe("SessionV2.create", () => {
   it.effect("creates a fresh projected session when the ID is omitted", () =>
@@ -190,8 +197,6 @@ describe("SessionV2.create", () => {
       yield* SessionInput.promoteSteers(db, events, parent.id)
       yield* events.publish(SessionEvent.Synthetic, {
         sessionID: parent.id,
-        messageID: SessionMessage.ID.create(),
-        timestamp: yield* DateTime.now,
         text: "parent note",
       })
 
@@ -208,7 +213,7 @@ describe("SessionV2.create", () => {
       expect(forkContext.map((message) => message.id)).not.toEqual(parentContext.map((message) => message.id))
       expect(history).toHaveLength(1)
       expect(history[0]).toMatchObject({
-        type: "session.next.forked",
+        type: "forked",
         durable: { seq: 0 },
         data: { sessionID: forked.id, parentID: parent.id },
       })
@@ -260,7 +265,7 @@ describe("SessionV2.create", () => {
       const history = Array.from(yield* Stream.runCollect(logEvents(session, forked.id)))
       expect(context).toMatchObject([{ text: "First" }])
       expect(context[0]?.id).not.toBe(first.id)
-      expect(history[0]).toMatchObject({ data: { messageID: second.id } })
+      expect(history[0]).toMatchObject({ data: { from: second.id } })
     }),
   )
 
@@ -373,8 +378,8 @@ describe("SessionV2.create", () => {
       expect(
         Array.from(yield* logEvents(session, created.id, true).pipe(Stream.take(2), Stream.runCollect)),
       ).toMatchObject([
-        { durable: { seq: 1 }, type: "session.next.prompt.admitted", data: { prompt: { text: "Hello" } } },
-        { durable: { seq: 2 }, type: "session.next.prompted" },
+        { durable: { seq: 1 }, type: "prompt.admitted", data: { prompt: { text: "Hello" } } },
+        { durable: { seq: 2 }, type: "prompt.promoted" },
       ])
     }),
   )
@@ -399,6 +404,7 @@ describe("SessionV2.create", () => {
         .all()
         .pipe(Effect.orDie)).map((event) => ({
         id: event.id,
+        created: DateTime.makeUnsafe(event.created),
         aggregateID: event.aggregate_id,
         seq: event.seq,
         type: event.type,
@@ -459,7 +465,7 @@ describe("SessionV2.create", () => {
         ).toEqual([
           [0, EventV2.versionedType(SessionV1.Event.Created.type, 1)],
           [1, EventV2.versionedType(SessionEvent.PromptAdmitted.type, 1)],
-          [2, EventV2.versionedType(SessionEvent.Prompted.type, 1)],
+          [2, EventV2.versionedType(SessionEvent.PromptPromoted.type, 1)],
         ])
       }).pipe(Effect.provide(Layer.fresh(targetLayer)))
     }),
@@ -476,20 +482,41 @@ describe("SessionV2.create", () => {
     }),
   )
 
-  it.effect("reports unfinished Session operations as unavailable", () =>
-    Effect.gen(function* () {
-      const session = yield* SessionV2.Service
-      const created = yield* session.create({ location })
-      const unavailable = (
-        effect: Effect.Effect<void, SessionV2.NotFoundError | SessionV2.OperationUnavailableError>,
-      ) =>
-        effect.pipe(
-          Effect.flip,
-          Effect.map((error) => (error instanceof SessionV2.OperationUnavailableError ? error.operation : "not-found")),
-        )
+  it.live("runs a shell command and projects the started/ended shell message", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const session = yield* SessionV2.Service
+        const created = yield* session.create({
+          location: Location.Ref.make({ directory: AbsolutePath.make(directory) }),
+        })
 
-      expect(yield* unavailable(session.shell({ sessionID: created.id, command: "pwd" }))).toBe("shell")
-    }),
+        yield* session.shell({ sessionID: created.id, command: "echo hello" })
+
+        const messages = yield* session.messages({ sessionID: created.id, order: "asc" })
+        const shell = messages.find((message): message is SessionMessage.Shell => message.type === "shell")
+        expect(shell).toMatchObject({ type: "shell", command: "echo hello" })
+        expect(shell?.output).toContain("hello")
+        expect(shell?.time.completed).toBeDefined()
+      }),
+    ),
+  )
+
+  it.live("still emits shell ended for a failing command", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const session = yield* SessionV2.Service
+        const created = yield* session.create({
+          location: Location.Ref.make({ directory: AbsolutePath.make(directory) }),
+        })
+
+        yield* session.shell({ sessionID: created.id, command: "false" })
+
+        const messages = yield* session.messages({ sessionID: created.id, order: "asc" })
+        const shell = messages.find((message): message is SessionMessage.Shell => message.type === "shell")
+        expect(shell).toMatchObject({ type: "shell", command: "false" })
+        expect(shell?.time.completed).toBeDefined()
+      }),
+    ),
   )
 
   it.effect("switches the selected agent through the durable Session event", () =>
@@ -502,7 +529,7 @@ describe("SessionV2.create", () => {
       expect(yield* session.get(created.id)).toMatchObject({ agent: "plan" })
       expect(
         Array.from(yield* logEvents(session, created.id, true).pipe(Stream.take(1), Stream.runCollect)),
-      ).toMatchObject([{ type: "session.next.agent.switched", data: { agent: "plan" } }])
+      ).toMatchObject([{ type: "agent.selected", data: { agent: "plan" } }])
     }),
   )
 
@@ -535,7 +562,7 @@ describe("SessionV2.create", () => {
       expect(yield* session.get(created.id)).toMatchObject({ model })
       expect(
         Array.from(yield* logEvents(session, created.id, true).pipe(Stream.take(1), Stream.runCollect)),
-      ).toMatchObject([{ type: "session.next.model.switched", data: { model } }])
+      ).toMatchObject([{ type: "model.selected", data: { model } }])
     }),
   )
 

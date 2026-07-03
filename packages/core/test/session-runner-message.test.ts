@@ -51,13 +51,13 @@ describe("toLLMMessages", () => {
     const file = FileAttachment.make({ uri: "data:image/png;base64,aGVsbG8=", mime: "image/png", name: "hello.png" })
     const messages = toLLMMessages(
       [
-        SessionMessage.AgentSwitched.make({
+        SessionMessage.AgentSelected.make({
           id: id("agent"),
           type: "agent-switched",
           agent: "build",
           time: { created },
         }),
-        SessionMessage.ModelSwitched.make({
+        SessionMessage.ModelSelected.make({
           id: id("model"),
           type: "model-switched",
           model: { id: ModelV2.ID.make("model"), providerID: ProviderV2.ID.make("provider") },
@@ -354,7 +354,7 @@ Recent work
               state: SessionMessage.ToolStateError.make({
                 status: "error",
                 input: { query: "Effect" },
-                error: { type: "unknown", message: "Provider turn interrupted" },
+                error: { type: "unknown", message: "Step interrupted" },
                 content: [],
                 structured: {},
               }),
@@ -362,7 +362,7 @@ Recent work
             }),
           ],
           finish: "error",
-          error: { type: "unknown", message: "Provider turn interrupted" },
+          error: { type: "unknown", message: "Step interrupted" },
           time: { created, completed: created },
         }),
       ],
@@ -386,7 +386,7 @@ Recent work
         result: {
           type: "error",
           value: {
-            error: { type: "unknown", message: "Provider turn interrupted" },
+            error: { type: "unknown", message: "Step interrupted" },
             content: [],
             structured: {},
           },

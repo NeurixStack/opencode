@@ -260,7 +260,7 @@ const execution = Layer.effect(
   Effect.gen(function* () {
     const sessionRunner = yield* SessionRunner.Service
     const coordinator = yield* SessionRunCoordinator.make<SessionV2.ID, SessionRunner.RunError>({
-      drain: (sessionID, force) => sessionRunner.run({ sessionID, force }),
+      drain: (sessionID, force) => sessionRunner.drain({ sessionID, force }),
     })
     return SessionExecution.Service.of({
       active: coordinator.active,
@@ -423,6 +423,7 @@ const replaySessionProjection = (id: SessionV2.ID) =>
     yield* events.replayAll(
       recorded.map((event) => ({
         id: event.id,
+        created: DateTime.makeUnsafe(event.created),
         aggregateID: event.aggregate_id,
         seq: event.seq,
         type: event.type,
@@ -574,7 +575,7 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
     )
 
     const runner = yield* SessionRunner.Service
-    const fiber = yield* runner.run({ sessionID, force: true }).pipe(Effect.forkChild)
+    const fiber = yield* runner.drain({ sessionID, force: true }).pipe(Effect.forkChild)
     yield* Deferred.await(streamed)
     yield* Fiber.interrupt(fiber)
     expect(yield* session.context(sessionID)).toMatchObject([
@@ -582,7 +583,7 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
       {
         type: "assistant",
         finish: "error",
-        error: { type: "unknown", message: "Provider turn interrupted" },
+        error: { type: "unknown", message: "Step interrupted" },
         content: [
           kind === "tool input"
             ? { type: "tool", id: fragmentID(kind, "interrupted"), state: { status: "error" } }
@@ -740,7 +741,6 @@ describe("SessionRunnerLLM", () => {
 
       yield* events.publish(SessionEvent.Moved, {
         sessionID,
-        timestamp: DateTime.makeUnsafe(1),
         location: Location.Ref.make({ directory: AbsolutePath.make("/moved") }),
       })
       expect(
@@ -848,7 +848,7 @@ describe("SessionRunnerLLM", () => {
         yield* db
           .select({ id: EventTable.id })
           .from(EventTable)
-          .where(eq(EventTable.type, "session.next.context.updated.1"))
+          .where(eq(EventTable.type, "session.context.updated.1"))
           .all()
           .pipe(Effect.orDie),
       ).toHaveLength(1)
@@ -1010,10 +1010,8 @@ describe("SessionRunnerLLM", () => {
       response = []
       yield* session.resume(sessionID)
       skillBaselines.set(AgentV2.ID.make("reviewer"), "Reviewer skills")
-      yield* events.publish(SessionEvent.AgentSwitched, {
+      yield* events.publish(SessionEvent.AgentSelected, {
         sessionID,
-        messageID: SessionMessage.ID.create(),
-        timestamp: DateTime.makeUnsafe(1),
         agent: "reviewer",
       })
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
@@ -1039,10 +1037,8 @@ describe("SessionRunnerLLM", () => {
         if (switched) return Effect.void
         switched = true
         return events
-          .publish(SessionEvent.AgentSwitched, {
+          .publish(SessionEvent.AgentSelected, {
             sessionID,
-            messageID: SessionMessage.ID.create(),
-            timestamp: DateTime.makeUnsafe(1),
             agent: "reviewer",
           })
           .pipe(Effect.asVoid)
@@ -1069,10 +1065,8 @@ describe("SessionRunnerLLM", () => {
         if (switched) return Effect.void
         switched = true
         return events
-          .publish(SessionEvent.ModelSwitched, {
+          .publish(SessionEvent.ModelSelected, {
             sessionID,
-            messageID: SessionMessage.ID.create(),
-            timestamp: DateTime.makeUnsafe(1),
             model: { id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") },
           })
           .pipe(Effect.asVoid)
@@ -1175,10 +1169,8 @@ describe("SessionRunnerLLM", () => {
       systemBaseline = "Changed context"
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Second" }), resume: false })
       yield* session.resume(sessionID)
-      yield* events.publish(SessionEvent.ModelSwitched, {
+      yield* events.publish(SessionEvent.ModelSelected, {
         sessionID,
-        messageID: SessionMessage.ID.create(),
-        timestamp: DateTime.makeUnsafe(1),
         model: { id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") },
       })
       systemBaseline = "Replacement context"
@@ -1217,10 +1209,8 @@ describe("SessionRunnerLLM", () => {
       requests.length = 0
       response = []
       yield* session.resume(sessionID)
-      yield* events.publish(SessionEvent.ModelSwitched, {
+      yield* events.publish(SessionEvent.ModelSelected, {
         sessionID,
-        messageID: SessionMessage.ID.create(),
-        timestamp: DateTime.makeUnsafe(1),
         model: { id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") },
       })
       systemUnavailable = true
@@ -1252,14 +1242,10 @@ describe("SessionRunnerLLM", () => {
       const compactionID = SessionMessage.ID.create()
       yield* events.publish(SessionEvent.Compaction.Started, {
         sessionID,
-        messageID: compactionID,
-        timestamp: DateTime.makeUnsafe(1),
         reason: "manual",
       })
       yield* events.publish(SessionEvent.Compaction.Ended, {
         sessionID,
-        messageID: compactionID,
-        timestamp: DateTime.makeUnsafe(2),
         reason: "manual",
         text: "summary",
         recent: "",
@@ -1482,14 +1468,10 @@ describe("SessionRunnerLLM", () => {
       const compactionID = SessionMessage.ID.create()
       yield* events.publish(SessionEvent.Compaction.Started, {
         sessionID,
-        messageID: compactionID,
-        timestamp: DateTime.makeUnsafe(1),
         reason: "manual",
       })
       yield* events.publish(SessionEvent.Compaction.Ended, {
         sessionID,
-        messageID: compactionID,
-        timestamp: DateTime.makeUnsafe(2),
         reason: "manual",
         text: "summary",
         recent: "",
@@ -1686,10 +1668,8 @@ describe("SessionRunnerLLM", () => {
       toolExecutionsReady = 1
       const run = yield* Effect.forkChild(session.resume(sessionID))
       yield* Deferred.await(toolExecutionsStarted)
-      yield* events.publish(SessionEvent.ModelSwitched, {
+      yield* events.publish(SessionEvent.ModelSelected, {
         sessionID,
-        messageID: SessionMessage.ID.create(),
-        timestamp: DateTime.makeUnsafe(1),
         model: { id: ModelV2.ID.make("replacement"), providerID: ProviderV2.ID.make("fake") },
       })
       systemBaseline = "Replacement context"
@@ -2403,27 +2383,23 @@ describe("SessionRunnerLLM", () => {
       yield* events.publish(SessionEvent.Step.Started, {
         sessionID,
         assistantMessageID,
-        timestamp: yield* DateTime.now,
         agent: "build",
         model: { id: ModelV2.ID.make("fake-model"), providerID: ProviderV2.ID.make("fake") },
       })
       yield* events.publish(SessionEvent.Tool.Input.Started, {
         sessionID,
-        timestamp: yield* DateTime.now,
         assistantMessageID,
         callID: "call-interrupted",
         name: "echo",
       })
       yield* events.publish(SessionEvent.Tool.Input.Ended, {
         sessionID,
-        timestamp: yield* DateTime.now,
         assistantMessageID,
         callID: "call-interrupted",
         text: '{"text":"stale"}',
       })
       yield* events.publish(SessionEvent.Tool.Called, {
         sessionID,
-        timestamp: yield* DateTime.now,
         assistantMessageID,
         callID: "call-interrupted",
         tool: "echo",
@@ -2467,27 +2443,23 @@ describe("SessionRunnerLLM", () => {
       yield* events.publish(SessionEvent.Step.Started, {
         sessionID,
         assistantMessageID,
-        timestamp: yield* DateTime.now,
         agent: "build",
         model: { id: ModelV2.ID.make("fake-model"), providerID: ProviderV2.ID.make("fake") },
       })
       yield* events.publish(SessionEvent.Tool.Input.Started, {
         sessionID,
-        timestamp: yield* DateTime.now,
         assistantMessageID,
         callID: "call-hosted-interrupted",
         name: "web_search",
       })
       yield* events.publish(SessionEvent.Tool.Input.Ended, {
         sessionID,
-        timestamp: yield* DateTime.now,
         assistantMessageID,
         callID: "call-hosted-interrupted",
         text: '{"query":"stale"}',
       })
       yield* events.publish(SessionEvent.Tool.Called, {
         sessionID,
-        timestamp: yield* DateTime.now,
         assistantMessageID,
         callID: "call-hosted-interrupted",
         tool: "web_search",
@@ -2527,13 +2499,11 @@ describe("SessionRunnerLLM", () => {
       yield* events.publish(SessionEvent.Step.Started, {
         sessionID,
         assistantMessageID,
-        timestamp: yield* DateTime.now,
         agent: "build",
         model: { id: ModelV2.ID.make("fake-model"), providerID: ProviderV2.ID.make("fake") },
       })
       yield* events.publish(SessionEvent.Tool.Input.Started, {
         sessionID,
-        timestamp: yield* DateTime.now,
         assistantMessageID,
         callID: "call-pending-interrupted",
         name: "echo",
@@ -2578,7 +2548,7 @@ describe("SessionRunnerLLM", () => {
       const events = yield* EventV2.Service
       const defect = new Error("fail after prompt promotion")
       let fail = true
-      yield* events.project(SessionEvent.Prompted, () => (fail ? Effect.die(defect) : Effect.void))
+      yield* events.project(SessionEvent.PromptPromoted, () => (fail ? Effect.die(defect) : Effect.void))
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Recover promoted input" }), resume: false })
 
       expect(yield* session.resume(sessionID).pipe(Effect.catchDefect(Effect.succeed))).toBe(defect)
@@ -2603,7 +2573,9 @@ describe("SessionRunnerLLM", () => {
       const session = yield* SessionV2.Service
       const events = yield* EventV2.Service
       yield* events.listen((event) =>
-        event.type === SessionEvent.Prompted.type ? Effect.die("fail after prompt promotion commits") : Effect.void,
+        event.type === SessionEvent.PromptPromoted.type
+          ? Effect.die("fail after prompt promotion commits")
+          : Effect.void,
       )
       yield* session.prompt({
         sessionID,
@@ -3011,9 +2983,9 @@ describe("SessionRunnerLLM", () => {
       expect(requests).toHaveLength(1)
       expect(yield* session.context(sessionID)).toMatchObject([
         { type: "user", text: "Interrupt provider" },
-        { type: "assistant", finish: "error", error: { type: "unknown", message: "Provider turn interrupted" } },
+        { type: "assistant", finish: "error", error: { type: "unknown", message: "Step interrupted" } },
       ])
-      expect(yield* recordedEventTypes(sessionID)).toContain("session.next.step.failed.2")
+      expect(yield* recordedEventTypes(sessionID)).toContain("step.failed.1")
       yield* session.interrupt(sessionID)
     }),
   )
@@ -3035,7 +3007,7 @@ describe("SessionRunnerLLM", () => {
       ]
 
       const runner = yield* SessionRunner.Service
-      const run = yield* runner.run({ sessionID, force: true }).pipe(Effect.forkChild)
+      const run = yield* runner.drain({ sessionID, force: true }).pipe(Effect.forkChild)
       yield* Deferred.await(toolExecutionsStarted)
       yield* Fiber.interrupt(run)
       toolExecutionGate = undefined
@@ -3046,7 +3018,7 @@ describe("SessionRunnerLLM", () => {
         {
           type: "assistant",
           finish: "error",
-          error: { type: "unknown", message: "Provider turn interrupted" },
+          error: { type: "unknown", message: "Step interrupted" },
           content: [
             {
               type: "tool",
@@ -3057,8 +3029,8 @@ describe("SessionRunnerLLM", () => {
         },
       ])
       const eventTypes = yield* recordedEventTypes(sessionID)
-      expect(eventTypes).toContain("session.next.step.failed.2")
-      expect(eventTypes).not.toContain("session.next.step.ended.2")
+      expect(eventTypes).toContain("step.failed.1")
+      expect(eventTypes).not.toContain("step.ended.1")
     }),
   )
 
@@ -3424,9 +3396,10 @@ describe("SessionRunnerLLM", () => {
       streamStarted = undefined
       response = [LLMEvent.textStart({ id: "text-1" }), LLMEvent.textStart({ id: "text-1" })]
 
-      expect(yield* session.resume(sessionID).pipe(Effect.catchDefect(Effect.succeed))).toBe(
-        "Duplicate text start: text-1",
-      )
+      const defect = yield* session.resume(sessionID).pipe(Effect.catchDefect(Effect.succeed))
+      expect(defect).toBeInstanceOf(Error)
+      if (!(defect instanceof Error)) return
+      expect(defect.message).toBe("Duplicate text start: text-1")
     }),
   )
 
@@ -3468,9 +3441,10 @@ describe("SessionRunnerLLM", () => {
       streamStarted = undefined
       response = [LLMEvent.toolInputDelta({ id: "call-1", name: "read", text: "{}" })]
 
-      expect(yield* session.resume(sessionID).pipe(Effect.catchDefect(Effect.succeed))).toBe(
-        "Tool input delta before start: call-1",
-      )
+      const defect = yield* session.resume(sessionID).pipe(Effect.catchDefect(Effect.succeed))
+      expect(defect).toBeInstanceOf(Error)
+      if (!(defect instanceof Error)) return
+      expect(defect.message).toBe("Tool input delta before start: call-1")
     }),
   )
 })

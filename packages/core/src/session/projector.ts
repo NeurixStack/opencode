@@ -25,7 +25,7 @@ import type { DeepMutable } from "../schema"
 import { Slug } from "../util/slug"
 
 type DatabaseService = Database.Interface["db"]
-type MessageEvent = Exclude<SessionEvent.Event, typeof SessionEvent.Forked.Type>
+type MessageEvent = Exclude<SessionEvent.DurableEvent, typeof SessionEvent.Forked.Type>
 
 const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Message)
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
@@ -157,22 +157,19 @@ const projectFork = Effect.fn("SessionProjector.projectFork")(function* (
     .where(eq(SessionTable.id, event.data.parentID))
     .get()
     .pipe(Effect.orDie)
-  if (!parent) return yield* Effect.die(`Fork parent session not found: ${event.data.parentID}`)
-  const boundary = event.data.messageID
+  if (!parent) return yield* Effect.die(new Error(`Fork parent session not found: ${event.data.parentID}`))
+  const boundary = event.data.from
     ? yield* db
         .select({ seq: SessionMessageTable.seq })
         .from(SessionMessageTable)
         .where(
-          and(
-            eq(SessionMessageTable.session_id, event.data.parentID),
-            eq(SessionMessageTable.id, event.data.messageID),
-          ),
+          and(eq(SessionMessageTable.session_id, event.data.parentID), eq(SessionMessageTable.id, event.data.from)),
         )
         .get()
         .pipe(Effect.orDie)
     : undefined
-  if (event.data.messageID && !boundary)
-    return yield* Effect.die(`Fork boundary message not found: ${event.data.messageID}`)
+  if (event.data.from && !boundary)
+    return yield* Effect.die(new Error(`Fork boundary message not found: ${event.data.from}`))
   const copied = yield* db
     .select({ seq: SessionMessageTable.seq })
     .from(SessionMessageTable)
@@ -208,8 +205,8 @@ const projectFork = Effect.fn("SessionProjector.projectFork")(function* (
       tokens_reasoning: 0,
       tokens_cache_read: 0,
       tokens_cache_write: 0,
-      time_created: DateTime.toEpochMillis(event.data.timestamp),
-      time_updated: DateTime.toEpochMillis(event.data.timestamp),
+      time_created: DateTime.toEpochMillis(event.created),
+      time_updated: DateTime.toEpochMillis(event.created),
     })
     .onConflictDoNothing()
     .returning({ sessionID: SessionTable.id })
@@ -341,7 +338,8 @@ function run(db: DatabaseService, event: MessageEvent) {
     const decodeRow = (row: typeof SessionMessageTable.$inferSelect) =>
       decodeMessage({ ...row.data, id: row.id, type: row.type })
     const updateMessage = (message: SessionMessage.Message) => {
-      if (event.durable === undefined) return Effect.die("Durable Session event is missing aggregate sequence")
+      if (event.durable === undefined)
+        return Effect.die(new Error("Durable Session event is missing aggregate sequence"))
       const encoded = encodeMessage(message)
       const { id, type, ...data } = encoded
       return db
@@ -360,7 +358,7 @@ function run(db: DatabaseService, event: MessageEvent) {
     const adapter: SessionMessageUpdater.Adapter = {
       getCurrentAssistant() {
         return Effect.gen(function* () {
-          // A newer turn supersedes stale incomplete rows; never resume an older assistant projection.
+          // A newer step supersedes stale incomplete rows; never resume an older assistant projection.
           const row = yield* db
             .select()
             .from(SessionMessageTable)
@@ -417,8 +415,8 @@ function run(db: DatabaseService, event: MessageEvent) {
   })
 }
 
-function insertMessage(db: DatabaseService, event: SessionEvent.Event, message: SessionMessage.Message) {
-  if (event.durable === undefined) return Effect.die("Durable Session event is missing aggregate sequence")
+function insertMessage(db: DatabaseService, event: SessionEvent.DurableEvent, message: SessionMessage.Message) {
+  if (event.durable === undefined) return Effect.die(new Error("Durable Session event is missing aggregate sequence"))
   const encoded = encodeMessage(message)
   const { id, type, ...data } = encoded
   return db
@@ -438,7 +436,7 @@ function insertMessage(db: DatabaseService, event: SessionEvent.Event, message: 
 const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const events = yield* EventV2.Service
-    const { db } = yield* Database.Service
+    const db = (yield* Database.Service).db
     yield* events.project(SessionV1.Event.Created, (event) =>
       Effect.gen(function* () {
         const stored = yield* db
@@ -473,9 +471,9 @@ const layer = Layer.effectDiscard(
           .update(SessionTable)
           .set({
             directory: event.data.location.directory,
-            path: event.data.subdirectory,
+            path: event.data.subpath,
             workspace_id: event.data.location.workspaceID ? WorkspaceV2.ID.make(event.data.location.workspaceID) : null,
-            time_updated: DateTime.toEpochMillis(event.data.timestamp),
+            time_updated: DateTime.toEpochMillis(event.created),
           })
           .where(eq(SessionTable.id, event.data.sessionID))
           .run()
@@ -555,19 +553,19 @@ const layer = Layer.effectDiscard(
         if (next) yield* applyUsage(db, sessionID, next)
       }),
     )
-    yield* events.project(SessionEvent.AgentSwitched, (event) =>
+    yield* events.project(SessionEvent.AgentSelected, (event) =>
       db
         .update(SessionTable)
-        .set({ agent: event.data.agent, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
+        .set({ agent: event.data.agent, time_updated: DateTime.toEpochMillis(event.created) })
         .where(eq(SessionTable.id, event.data.sessionID))
         .run()
         .pipe(Effect.orDie, Effect.andThen(run(db, event))),
     )
-    yield* events.project(SessionEvent.ModelSwitched, (event) =>
+    yield* events.project(SessionEvent.ModelSelected, (event) =>
       Effect.gen(function* () {
         yield* db
           .update(SessionTable)
-          .set({ model: event.data.model, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
+          .set({ model: event.data.model, time_updated: DateTime.toEpochMillis(event.created) })
           .where(eq(SessionTable.id, event.data.sessionID))
           .run()
           .pipe(Effect.orDie)
@@ -577,36 +575,43 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.Renamed, (event) =>
       db
         .update(SessionTable)
-        .set({ title: event.data.title, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
+        .set({ title: event.data.title, time_updated: DateTime.toEpochMillis(event.created) })
         .where(eq(SessionTable.id, event.data.sessionID))
         .run()
         .pipe(Effect.orDie),
     )
     yield* events.project(SessionEvent.Forked, (event) => projectFork(db, event))
-    yield* events.project(SessionEvent.Prompted, (event) =>
+    yield* events.project(SessionEvent.PromptPromoted, (event) =>
       Effect.gen(function* () {
-        if (event.durable === undefined) return yield* Effect.die("Durable Session event is missing aggregate sequence")
-        yield* SessionInput.projectPrompted(db, {
-          id: event.data.messageID,
+        if (event.durable === undefined)
+          return yield* Effect.die(new Error("Durable Session event is missing aggregate sequence"))
+        const input = yield* SessionInput.projectPromptPromoted(db, {
+          id: event.data.inputID,
           sessionID: event.data.sessionID,
-          prompt: event.data.prompt,
-          delivery: event.data.delivery,
-          timeCreated: event.data.timestamp,
           promotedSeq: event.durable.seq,
         })
-        yield* run(db, event)
+        yield* insertMessage(db, event, {
+          id: input.id,
+          type: "user",
+          metadata: event.metadata,
+          text: input.prompt.text,
+          files: input.prompt.files,
+          agents: input.prompt.agents,
+          time: { created: event.created },
+        })
       }),
     )
     yield* events.project(SessionEvent.PromptAdmitted, (event) =>
       Effect.gen(function* () {
-        if (event.durable === undefined) return yield* Effect.die("Durable Session event is missing aggregate sequence")
+        if (event.durable === undefined)
+          return yield* Effect.die(new Error("Durable Session event is missing aggregate sequence"))
         yield* SessionInput.projectAdmitted(db, {
           admittedSeq: event.durable.seq,
-          id: event.data.messageID,
+          id: event.data.inputID,
           sessionID: event.data.sessionID,
           prompt: event.data.prompt,
           delivery: event.data.delivery,
-          timeCreated: event.data.timestamp,
+          timeCreated: event.created,
         })
       }),
     )
@@ -614,11 +619,11 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.Synthetic, (event) => run(db, event))
     yield* events.project(SessionEvent.Skill.Activated, (event) =>
       insertMessage(db, event, {
-        id: event.data.messageID,
+        id: SessionMessage.ID.fromEvent(event.id),
         type: "skill",
         name: event.data.name,
         text: event.data.text,
-        time: { created: event.data.timestamp },
+        time: { created: event.created },
       }),
     )
     yield* events.project(SessionEvent.Shell.Started, (event) => run(db, event))
@@ -643,7 +648,7 @@ const layer = Layer.effectDiscard(
         .update(SessionTable)
         .set({
           revert: { ...event.data.revert, files: event.data.revert.files ? [...event.data.revert.files] : undefined },
-          time_updated: DateTime.toEpochMillis(event.data.timestamp),
+          time_updated: DateTime.toEpochMillis(event.created),
         })
         .where(eq(SessionTable.id, event.data.sessionID))
         .run()
@@ -652,7 +657,7 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.RevertEvent.Cleared, (event) =>
       db
         .update(SessionTable)
-        .set({ revert: null, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
+        .set({ revert: null, time_updated: DateTime.toEpochMillis(event.created) })
         .where(eq(SessionTable.id, event.data.sessionID))
         .run()
         .pipe(Effect.orDie, Effect.asVoid),
@@ -670,7 +675,7 @@ const layer = Layer.effectDiscard(
           )
           .get()
           .pipe(Effect.orDie)
-        if (!boundary) return yield* Effect.die(`Revert boundary message not found: ${event.data.messageID}`)
+        if (!boundary) return yield* Effect.die(new Error(`Revert boundary message not found: ${event.data.messageID}`))
         yield* db
           .delete(SessionMessageTable)
           .where(
@@ -690,7 +695,7 @@ const layer = Layer.effectDiscard(
           .pipe(Effect.orDie)
         yield* db
           .update(SessionTable)
-          .set({ revert: null, time_updated: DateTime.toEpochMillis(event.data.timestamp) })
+          .set({ revert: null, time_updated: DateTime.toEpochMillis(event.created) })
           .where(eq(SessionTable.id, event.data.sessionID))
           .run()
           .pipe(Effect.orDie)

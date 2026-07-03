@@ -50,7 +50,11 @@ function ok<T>(data: T) {
 }
 
 function connected(id = "evt_connected") {
-  return { id, type: "server.connected", data: {} } satisfies RunV2Event
+  return { id, created: 0, type: "server.connected", data: {} } satisfies RunV2Event
+}
+
+function durable(sessionID: string, seq = 0, version = 1) {
+  return { aggregateID: sessionID, seq, version }
 }
 
 function footer() {
@@ -94,7 +98,10 @@ function sdk(input: {
   const client = new OpencodeClient()
   let subscription = 0
   spyOn(client.v2.event, "subscribe").mockImplementation(
-    () => Promise.resolve({ stream: input.streams[subscription++]?.stream ?? feed().stream }) as ReturnType<typeof client.v2.event.subscribe>,
+    () =>
+      Promise.resolve({ stream: input.streams[subscription++]?.stream ?? feed().stream }) as ReturnType<
+        typeof client.v2.event.subscribe
+      >,
   )
   spyOn(client.v2.session, "messages").mockImplementation((request) =>
     ok({
@@ -118,22 +125,20 @@ function sdk(input: {
   spyOn(client.v2.session, "switchModel").mockImplementation(() => ok(undefined))
   // The generated methods have conditional return types for throwOnError; the
   // minimal shapes below are enough for family discovery and model fallback.
-  spyOn(client.v2.session, "list").mockImplementation(
-    (request) => {
-      const parentID = request?.parentID
-      return ok({
-        location: { directory: "/tmp", project: { id: "proj_1", directory: "/tmp" } },
-        data:
-          input.sessions?.filter((session) =>
-            parentID === undefined
-              ? true
-              : parentID === null
-                ? session.parentID === undefined
-                : session.parentID === parentID,
-          ) ?? [],
-      }) as never
-    },
-  )
+  spyOn(client.v2.session, "list").mockImplementation((request) => {
+    const parentID = request?.parentID
+    return ok({
+      location: { directory: "/tmp", project: { id: "proj_1", directory: "/tmp" } },
+      data:
+        input.sessions?.filter((session) =>
+          parentID === undefined
+            ? true
+            : parentID === null
+              ? session.parentID === undefined
+              : session.parentID === parentID,
+        ) ?? [],
+    }) as never
+  })
   spyOn(client.v2.model, "default").mockImplementation(
     () =>
       ok({
@@ -193,32 +198,32 @@ describe("V2 mini transport", () => {
     })
     while (!admitted) await Bun.sleep(0)
     events.push({
-        id: "evt_prompted",
-        type: "session.next.prompted",
-        data: {
-          timestamp: 2,
-          sessionID: "ses_1",
-          messageID: "msg_prompt",
-          prompt: { text: "hello" },
-          delivery: "steer",
-        },
-      })
-      events.push({
-        id: "evt_text",
-        type: "session.next.text.delta",
-        data: {
-          timestamp: 3,
-          sessionID: "ses_1",
-          assistantMessageID: "msg_assistant",
-          textID: "txt_1",
-          delta: "answer",
-        },
-      })
-      events.push({
-        id: "evt_settled",
-        type: "session.next.execution.settled",
-        data: { timestamp: 4, sessionID: "ses_1", outcome: "success" },
-      })
+      id: "evt_prompted",
+      created: 0,
+      type: "prompt.promoted",
+      durable: durable("ses_1"),
+      data: {
+        sessionID: "ses_1",
+        inputID: "msg_prompt",
+      },
+    })
+    events.push({
+      id: "evt_text",
+      created: 0,
+      type: "text.delta",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_assistant",
+        textID: "txt_1",
+        delta: "answer",
+      },
+    })
+    events.push({
+      id: "evt_settled",
+      created: 0,
+      type: "execution.settled",
+      data: { sessionID: "ses_1", outcome: "success" },
+    })
     await turn
 
     expect(ui.commits.map((item) => item.text)).toEqual(["previous prompt", "answer"])
@@ -245,9 +250,7 @@ describe("V2 mini transport", () => {
       limits: () => ({}),
       footer: ui.api,
     })
-    let request:
-      | Parameters<OpencodeClient["v2"]["session"]["prompt"]>[0]
-      | undefined
+    let request: Parameters<OpencodeClient["v2"]["session"]["prompt"]>[0] | undefined
     // The generated method has conditional return types for throwOnError; this mock represents the successful branch.
     // @ts-expect-error successful SDK response is valid for both modes at runtime
     spyOn(client.v2.session, "prompt").mockImplementation((input) => {
@@ -255,19 +258,19 @@ describe("V2 mini transport", () => {
       queueMicrotask(() => {
         events.push({
           id: "evt_prompted",
-          type: "session.next.prompted",
+          created: 0,
+          type: "prompt.promoted",
+          durable: durable("ses_1"),
           data: {
-            timestamp: 2,
             sessionID: "ses_1",
-            messageID: "msg_prompt",
-            prompt: { text: input.prompt?.text ?? "" },
-            delivery: "steer",
+            inputID: "msg_prompt",
           },
         })
         events.push({
           id: "evt_settled",
-          type: "session.next.execution.settled",
-          data: { timestamp: 3, sessionID: "ses_1", outcome: "success" },
+          created: 0,
+          type: "execution.settled",
+          data: { sessionID: "ses_1", outcome: "success" },
         })
       })
       return ok({
@@ -341,9 +344,7 @@ describe("V2 mini transport", () => {
       limits: () => ({}),
       footer: ui.api,
     })
-    let request:
-      | Parameters<OpencodeClient["v2"]["session"]["prompt"]>[0]
-      | undefined
+    let request: Parameters<OpencodeClient["v2"]["session"]["prompt"]>[0] | undefined
     // The generated method has conditional return types for throwOnError; this mock represents the successful branch.
     // @ts-expect-error successful SDK response is valid for both modes at runtime
     spyOn(client.v2.session, "prompt").mockImplementation((input) => {
@@ -351,19 +352,19 @@ describe("V2 mini transport", () => {
       queueMicrotask(() => {
         events.push({
           id: "evt_prompted",
-          type: "session.next.prompted",
+          created: 0,
+          type: "prompt.promoted",
+          durable: durable("ses_1"),
           data: {
-            timestamp: 2,
             sessionID: "ses_1",
-            messageID: "msg_prompt",
-            prompt: { text: input.prompt?.text ?? "" },
-            delivery: "steer",
+            inputID: "msg_prompt",
           },
         })
         events.push({
           id: "evt_settled",
-          type: "session.next.execution.settled",
-          data: { timestamp: 3, sessionID: "ses_1", outcome: "success" },
+          created: 0,
+          type: "execution.settled",
+          data: { sessionID: "ses_1", outcome: "success" },
         })
       })
       return ok({
@@ -440,9 +441,7 @@ describe("V2 mini transport", () => {
       limits: () => ({}),
       footer: ui.api,
     })
-    let request:
-      | Parameters<OpencodeClient["v2"]["session"]["prompt"]>[0]
-      | undefined
+    let request: Parameters<OpencodeClient["v2"]["session"]["prompt"]>[0] | undefined
     // The generated method has conditional return types for throwOnError; this mock represents the successful branch.
     // @ts-expect-error successful SDK response is valid for both modes at runtime
     spyOn(client.v2.session, "prompt").mockImplementation((input) => {
@@ -450,19 +449,19 @@ describe("V2 mini transport", () => {
       queueMicrotask(() => {
         events.push({
           id: "evt_prompted",
-          type: "session.next.prompted",
+          created: 0,
+          type: "prompt.promoted",
+          durable: durable("ses_1"),
           data: {
-            timestamp: 2,
             sessionID: "ses_1",
-            messageID: "msg_prompt",
-            prompt: { text: input.prompt?.text ?? "" },
-            delivery: "steer",
+            inputID: "msg_prompt",
           },
         })
         events.push({
           id: "evt_settled",
-          type: "session.next.execution.settled",
-          data: { timestamp: 3, sessionID: "ses_1", outcome: "success" },
+          created: 0,
+          type: "execution.settled",
+          data: { sessionID: "ses_1", outcome: "success" },
         })
       })
       return ok({
@@ -523,6 +522,7 @@ describe("V2 mini transport", () => {
     })
     events.push({
       id: "evt_permission",
+      created: 0,
       type: "permission.v2.asked",
       data: { id: "per_1", sessionID: "ses_1", action: "read", resources: ["/tmp/file"] },
     })
@@ -593,7 +593,9 @@ describe("V2 mini transport", () => {
       const messageID = request.id ?? "msg_prompt"
       const prompt = request.prompt ?? { text: "" }
       admitted = true
-      return ok({ data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 } })
+      return ok({
+        data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 },
+      })
     })
 
     const turn = transport.runPromptTurn({
@@ -663,7 +665,9 @@ describe("V2 mini transport", () => {
       const messageID = request.id ?? "msg_prompt"
       const prompt = request.prompt ?? { text: "" }
       admitted = true
-      return ok({ data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 } })
+      return ok({
+        data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 },
+      })
     })
 
     const turn = transport.runPromptTurn({
@@ -719,9 +723,9 @@ describe("V2 mini transport", () => {
     const replay = transport.replayOnResize({ localRows: () => [], reset: () => resetting })
     events.push({
       id: "evt_text",
-      type: "session.next.text.delta",
+      created: 0,
+      type: "text.delta",
       data: {
-        timestamp: 3,
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
         textID: "txt_1",
@@ -804,9 +808,10 @@ describe("V2 mini transport", () => {
     })
     events.push({
       id: "evt_reasoning",
-      type: "session.next.reasoning.ended",
+      created: 0,
+      type: "reasoning.ended",
+      durable: durable("ses_1"),
       data: {
-        timestamp: 3,
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
         reasoningID: "reasoning_1",
@@ -841,7 +846,9 @@ describe("V2 mini transport", () => {
       const messageID = request.id ?? "msg_prompt"
       const prompt = request.prompt ?? { text: "" }
       admitted = true
-      return ok({ data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 } })
+      return ok({
+        data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 },
+      })
     })
     const interrupted = spyOn(client.v2.session, "interrupt").mockImplementation(() => ok(undefined))
 
@@ -857,8 +864,9 @@ describe("V2 mini transport", () => {
     await transport.interruptActiveTurn()
     events.push({
       id: "evt_settled",
-      type: "session.next.execution.settled",
-      data: { timestamp: 3, sessionID: "ses_1", outcome: "interrupted" },
+      created: 0,
+      type: "execution.settled",
+      data: { sessionID: "ses_1", outcome: "success" },
     })
     await turn
 
@@ -896,7 +904,9 @@ describe("V2 mini transport", () => {
       const messageID = request.id ?? "msg_prompt"
       const prompt = request.prompt ?? { text: "" }
       admitted = true
-      return ok({ data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 } })
+      return ok({
+        data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 },
+      })
     })
 
     const turn = transport.runPromptTurn({
@@ -910,19 +920,19 @@ describe("V2 mini transport", () => {
     while (!admitted) await Bun.sleep(0)
     events.push({
       id: "evt_prompted",
-      type: "session.next.prompted",
+      created: 0,
+      type: "prompt.promoted",
+      durable: durable("ses_1"),
       data: {
-        timestamp: 2,
         sessionID: "ses_1",
-        messageID: "msg_prompt",
-        prompt: { text: "hello" },
-        delivery: "steer",
+        inputID: "msg_prompt",
       },
     })
     events.push({
       id: "evt_settled",
-      type: "session.next.execution.settled",
-      data: { timestamp: 3, sessionID: "ses_1", outcome: "success" },
+      created: 0,
+      type: "execution.settled",
+      data: { sessionID: "ses_1", outcome: "success" },
     })
     await turn
 
@@ -952,7 +962,9 @@ describe("V2 mini transport", () => {
       const messageID = request.id ?? "msg_prompt"
       const prompt = request.prompt ?? { text: "" }
       admitted = true
-      return ok({ data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 } })
+      return ok({
+        data: { admittedSeq: 1, id: messageID, sessionID: "ses_1", prompt, delivery: "steer" as const, timeCreated: 2 },
+      })
     })
     const interrupted = spyOn(client.v2.session, "interrupt").mockImplementation(() => ok(undefined))
     const controller = new AbortController()
@@ -968,21 +980,21 @@ describe("V2 mini transport", () => {
     while (!admitted) await Bun.sleep(0)
     events.push({
       id: "evt_prompted",
-      type: "session.next.prompted",
+      created: 0,
+      type: "prompt.promoted",
+      durable: durable("ses_1"),
       data: {
-        timestamp: 2,
         sessionID: "ses_1",
-        messageID: "msg_prompt",
-        prompt: { text: "hello" },
-        delivery: "steer",
+        inputID: "msg_prompt",
       },
     })
     await Bun.sleep(0)
     controller.abort()
     events.push({
       id: "evt_settled",
-      type: "session.next.execution.settled",
-      data: { timestamp: 3, sessionID: "ses_1", outcome: "interrupted" },
+      created: 0,
+      type: "execution.settled",
+      data: { sessionID: "ses_1", outcome: "success" },
     })
     await turn
 
@@ -1031,15 +1043,15 @@ describe("V2 mini transport", () => {
       limits: () => ({}),
       footer: ui.api,
     })
-    const states = () =>
-      ui.events.flatMap((event) => (event.type === "stream.subagent" ? [event.state] : []))
+    const states = () => ui.events.flatMap((event) => (event.type === "stream.subagent" ? [event.state] : []))
     transport.selectSubagent("ses_child")
 
     events.push({
       id: "evt_child_step",
-      type: "session.next.step.started",
+      created: 0,
+      type: "step.started",
+      durable: durable("ses_child"),
       data: {
-        timestamp: 2,
         sessionID: "ses_child",
         assistantMessageID: "msg_child_a",
         agent: "explore",
@@ -1054,9 +1066,9 @@ describe("V2 mini transport", () => {
 
     events.push({
       id: "evt_child_text",
-      type: "session.next.text.delta",
+      created: 0,
+      type: "text.delta",
       data: {
-        timestamp: 3,
         sessionID: "ses_child",
         assistantMessageID: "msg_child_a",
         textID: "txt_child",
@@ -1068,8 +1080,9 @@ describe("V2 mini transport", () => {
 
     events.push({
       id: "evt_child_settled",
-      type: "session.next.execution.settled",
-      data: { timestamp: 4, sessionID: "ses_child", outcome: "success" },
+      created: 0,
+      type: "execution.settled",
+      data: { sessionID: "ses_child", outcome: "success" },
     })
     while (!states().some((state) => state.tabs.some((tab) => tab.status === "completed"))) await Bun.sleep(0)
     await transport.close()
@@ -1107,15 +1120,15 @@ describe("V2 mini transport", () => {
       limits: () => ({}),
       footer: ui.api,
     })
-    const states = () =>
-      ui.events.flatMap((event) => (event.type === "stream.subagent" ? [event.state] : []))
+    const states = () => ui.events.flatMap((event) => (event.type === "stream.subagent" ? [event.state] : []))
 
     // Both events arrive while session.get is still in flight.
     events.push({
       id: "evt_child_step",
-      type: "session.next.step.started",
+      created: 0,
+      type: "step.started",
+      durable: durable("ses_child"),
       data: {
-        timestamp: 2,
         sessionID: "ses_child",
         assistantMessageID: "msg_child_a",
         agent: "explore",
@@ -1124,8 +1137,9 @@ describe("V2 mini transport", () => {
     })
     events.push({
       id: "evt_child_settled",
-      type: "session.next.execution.settled",
-      data: { timestamp: 3, sessionID: "ses_child", outcome: "interrupted" },
+      created: 0,
+      type: "execution.settled",
+      data: { sessionID: "ses_child", outcome: "interrupted" },
     })
     await Bun.sleep(0)
     resolveGet?.()
@@ -1165,15 +1179,15 @@ describe("V2 mini transport", () => {
       limits: () => ({}),
       footer: ui.api,
     })
-    const states = () =>
-      ui.events.flatMap((event) => (event.type === "stream.subagent" ? [event.state] : []))
+    const states = () => ui.events.flatMap((event) => (event.type === "stream.subagent" ? [event.state] : []))
 
     // Child event arrives first and gets buffered behind the gated session.get.
     events.push({
       id: "evt_child_step",
-      type: "session.next.step.started",
+      created: 0,
+      type: "step.started",
+      durable: durable("ses_child"),
       data: {
-        timestamp: 2,
         sessionID: "ses_child",
         assistantMessageID: "msg_child_a",
         agent: "explore",
@@ -1183,9 +1197,10 @@ describe("V2 mini transport", () => {
     // Parent's background subagent tool.success adopts the child mid-discovery.
     events.push({
       id: "evt_parent_call",
-      type: "session.next.tool.called",
+      created: 0,
+      type: "tool.called",
+      durable: durable("ses_1"),
       data: {
-        timestamp: 3,
         sessionID: "ses_1",
         assistantMessageID: "msg_parent_a",
         callID: "call_sub",
@@ -1196,9 +1211,10 @@ describe("V2 mini transport", () => {
     })
     events.push({
       id: "evt_parent_success",
-      type: "session.next.tool.success",
+      created: 0,
+      type: "tool.success",
+      durable: durable("ses_1", 1),
       data: {
-        timestamp: 4,
         sessionID: "ses_1",
         assistantMessageID: "msg_parent_a",
         callID: "call_sub",
@@ -1210,8 +1226,9 @@ describe("V2 mini transport", () => {
     // The settled event arrives after adoption, so it applies directly.
     events.push({
       id: "evt_child_settled",
-      type: "session.next.execution.settled",
-      data: { timestamp: 5, sessionID: "ses_child", outcome: "interrupted" },
+      created: 0,
+      type: "execution.settled",
+      data: { sessionID: "ses_child", outcome: "interrupted" },
     })
     while (!states().some((state) => state.tabs.some((tab) => tab.status === "cancelled"))) await Bun.sleep(0)
 

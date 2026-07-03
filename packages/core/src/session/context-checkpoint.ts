@@ -1,13 +1,12 @@
 export * as SessionContextCheckpoint from "./context-checkpoint"
 
 import { eq } from "drizzle-orm"
-import { DateTime, Effect, Option, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import type { Database } from "../database/database"
 import { EventV2 } from "../event"
 import { SystemContext } from "../system-context/index"
 import { SessionEvent } from "./event"
 import { SessionHistory } from "./history"
-import { SessionMessage } from "./message"
 import { SessionSchema } from "./schema"
 import { SessionContextCheckpointTable } from "./sql"
 
@@ -19,7 +18,7 @@ const decodeApplied = Schema.decodeUnknownOption(SystemContext.Applied)
  * Loads or creates the session's durable context checkpoint, narrating any
  * drift since the model was last told as a chronological update. Completed
  * compaction rebaselines; nothing else rewrites the baseline. Runs before
- * input promotion so a blocked first turn leaves pending inputs untouched.
+ * input promotion so a blocked first step leaves pending inputs untouched.
  */
 export const prepare = Effect.fn("SessionContextCheckpoint.prepare")(function* (
   db: DatabaseService,
@@ -50,7 +49,7 @@ export const prepare = Effect.fn("SessionContextCheckpoint.prepare")(function* (
 
   yield* events.publish(
     SessionEvent.ContextUpdated,
-    { sessionID, messageID: SessionMessage.ID.create(), timestamp: yield* DateTime.now, text: result.text },
+    { sessionID, text: result.text },
     { commit: () => advance(db, sessionID, result.applied).pipe(Effect.orDie) },
   )
   return { baseline: stored.baseline, baselineSeq: stored.baseline_seq }
@@ -112,7 +111,7 @@ const rewrite = Effect.fnUntraced(function* (
     .returning({ sessionID: SessionContextCheckpointTable.session_id })
     .get()
     .pipe(Effect.orDie)
-  if (!updated) return yield* Effect.die("Context checkpoint not found")
+  if (!updated) return yield* Effect.die(new Error("Context checkpoint not found"))
 })
 
 const advance = Effect.fnUntraced(function* (
@@ -127,5 +126,5 @@ const advance = Effect.fnUntraced(function* (
     .returning({ sessionID: SessionContextCheckpointTable.session_id })
     .get()
     .pipe(Effect.orDie)
-  if (!updated) return yield* Effect.die("Context checkpoint not found")
+  if (!updated) return yield* Effect.die(new Error("Context checkpoint not found"))
 })

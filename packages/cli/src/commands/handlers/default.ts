@@ -1,9 +1,9 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { Commands } from "../commands"
 import { Runtime } from "../../framework/runtime"
-import { Effect, Option } from "effect"
+import { Effect, Option, Redacted } from "effect"
 import { Service } from "@opencode-ai/client/effect"
-import type { Transport } from "@opencode-ai/client/effect"
+import { Env } from "../../env"
 import { ServiceConfig } from "../../services/service-config"
 import { Standalone } from "../../services/standalone"
 import { Updater } from "../../services/updater"
@@ -19,11 +19,29 @@ export default Runtime.handler(Commands, (input) =>
       return yield* Effect.fail(new Error("--server and --standalone cannot be combined"))
     const transport = yield* Effect.gen(function* () {
       if (server !== undefined) {
-        const password = process.env["OPENCODE_SERVER_PASSWORD"]
-        return {
+        const password = yield* Env.password
+        const explicit = {
           url: server,
-          headers: password ? { authorization: "Basic " + btoa("opencode:" + password) } : undefined,
-        } satisfies Transport
+          headers: password
+            ? { authorization: "Basic " + btoa("opencode:" + Redacted.value(password)) }
+            : undefined,
+        } satisfies Service.Transport
+        // Fail loudly before entering the TUI: an explicit server that is
+        // unreachable or rejects auth should not present as reconnect churn.
+        const response = yield* Effect.tryPromise(() =>
+          fetch(new URL("/api/health", server), { headers: explicit.headers, signal: AbortSignal.timeout(5_000) }),
+        ).pipe(Effect.mapError((cause) => new Error(`Could not reach server at ${server}`, { cause })))
+        if (response.status === 401)
+          return yield* Effect.fail(
+            new Error(
+              password
+                ? `Server at ${server} rejected the password`
+                : `Server at ${server} requires a password; set OPENCODE_PASSWORD`,
+            ),
+          )
+        if (!response.ok)
+          return yield* Effect.fail(new Error(`Server at ${server} responded with status ${response.status}`))
+        return explicit
       }
       if (input.standalone) return yield* Standalone.transport()
       const options = yield* ServiceConfig.options()
@@ -45,6 +63,24 @@ export default Runtime.handler(Commands, (input) =>
             }).pipe(Effect.provide(NodeFileSystem.layer)),
           )
       : () => Promise.resolve(transport)
-    yield* runTui(transport, { continue: input.continue, sessionID: Option.getOrUndefined(input.session) }, discover)
+    // Restart the managed service in place; start() resolves once the
+    // replacement is healthy and the reconnect loop reattaches on its own.
+    // Only meaningful in service mode: --server is not ours to restart and a
+    // standalone child cannot be respawned.
+    const reload = serviceOptions
+      ? () =>
+          Effect.runPromise(
+            Effect.gen(function* () {
+              yield* Service.stop(serviceOptions)
+              yield* Service.start(serviceOptions)
+            }).pipe(Effect.provide(NodeFileSystem.layer)),
+          )
+      : undefined
+    yield* runTui(
+      transport,
+      { continue: input.continue, sessionID: Option.getOrUndefined(input.session) },
+      discover,
+      reload,
+    )
   }),
 )

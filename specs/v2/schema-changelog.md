@@ -1,5 +1,25 @@
 # V2 Schema Changelog
 
+## 2026-07-03: Require Durable Envelope On Durable Events
+
+- Make the wire `durable` envelope required on durable event definitions.
+- Remove the `durable` envelope field from live-only event definitions.
+
+Compatibility:
+
+- No stored event row, database, or runtime publish behavior change; runtime already attaches the envelope only after durable commit/replay.
+- Generated clients now model the existing invariant: durable events carry `durable`, live-only events do not.
+
+## 2026-07-03: Declare Event Durability At Definition Level
+
+- Add explicit `Event.durable(...)` and `Event.ephemeral(...)` definition constructors.
+- Preserve the existing durable and live-only event classifications while deriving durable inventories from definition metadata instead of hand-maintained lists.
+
+Compatibility:
+
+- No wire payload, stored event row, database, or behavior change.
+- Generated clients were regenerated from the unchanged public event schemas.
+
 ## 2026-07-02: Rename Session Log Replay Marker
 
 - Rename the replay boundary marker from `log.caught_up` / `EventLog.CaughtUp` to `log.synced` / `EventLog.Synced`.
@@ -884,3 +904,17 @@ Compatibility:
 
 - Existing Context Epoch rows migrate in place by dropping the obsolete selection and pending-replacement columns.
 - Model and agent switches no longer discard earlier chronological System Context updates by forcing a new baseline.
+
+## 2026-07-03: Normalize Session Event Names And Envelope Time
+
+- Drop the experimental `session.next.` prefix from current Session event names.
+- Rename `agent.switched` to `agent.selected`, `model.switched` to `model.selected`, and `prompted` to `prompt.promoted`; add `prompt.admitted` as the durable prompt admission record.
+- Add an envelope-level `created` timestamp stored on each event row; payload-level `timestamp` fields are removed.
+- Remove projection-only `messageID` fields from selected/message-producing events; projected message IDs derive from the event ID. `revert.committed.messageID` remains, and `forked.messageID` is now `forked.from`.
+- Rename `session.moved.subdirectory` to `subpath` and normalize event-related schema identifiers.
+
+Compatibility:
+
+- V2 durable events and projections are experimental and are reset by `20260703090000_reset_v2_event_rename_sweep`; existing V2 event rows, event sequences, projected session messages, and admitted inputs are wiped.
+- All renamed durable event types restart at version 1 under their normalized names.
+- Generated Promise, Effect, and legacy JavaScript SDK surfaces were regenerated from the normalized schemas.
