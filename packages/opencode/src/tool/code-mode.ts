@@ -1,5 +1,5 @@
 import * as Tool from "./tool"
-import type { Tool as AITool } from "ai"
+import type { Tool as AITool, ToolExecutionOptions } from "ai"
 import type { Tool as MCPToolDef } from "@modelcontextprotocol/sdk/types.js"
 import { Cause, Effect, Schema } from "effect"
 import {
@@ -12,7 +12,6 @@ import {
 } from "@opencode-ai/codemode"
 import { MCP } from "@/mcp"
 import { McpCatalog } from "@/mcp/catalog"
-import { McpInvoke } from "@/mcp/invoke"
 import { Agent } from "@/agent/agent"
 import { Session } from "@/session/session"
 import { Permission } from "@/permission"
@@ -294,6 +293,41 @@ const toCatchable = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     }),
   )
 
+const invokeChildTool = Effect.fn("CodeMode.invokeChildTool")(function* <R>(input: {
+  plugin: Plugin.Interface
+  entry: CatalogEntry
+  args: any
+  callID: string
+  options: ToolExecutionOptions
+  ctx: Tool.Context
+  execute: (args: any, options: ToolExecutionOptions) => R | PromiseLike<R>
+}) {
+  yield* input.plugin.trigger(
+    "tool.execute.before",
+    { tool: input.entry.key, sessionID: input.ctx.sessionID, callID: input.callID },
+    { args: input.args },
+  )
+  const result: R = yield* Effect.gen(function* () {
+    yield* input.ctx.ask({ permission: input.entry.key, metadata: {}, patterns: ["*"], always: ["*"] })
+    return yield* Effect.promise(() => Promise.resolve(input.execute(input.args, input.options)))
+  }).pipe(
+    Effect.withSpan("Tool.execute", {
+      attributes: {
+        "tool.name": input.entry.key,
+        "tool.call_id": input.callID,
+        "session.id": input.ctx.sessionID,
+        "message.id": input.ctx.messageID,
+      },
+    }),
+  )
+  yield* input.plugin.trigger(
+    "tool.execute.after",
+    { tool: input.entry.key, sessionID: input.ctx.sessionID, callID: input.callID, args: input.args },
+    result,
+  )
+  return result
+})
+
 export const CodeModeTool = Tool.define(
   CODE_MODE_TOOL,
   Effect.gen(function* () {
@@ -336,11 +370,10 @@ export const CodeModeTool = Tool.define(
         // tool part shows each child call appearing and resolving while the program runs.
         const publish = () => ctx.metadata({ title: CODE_MODE_TOOL, metadata: { toolCalls: calls.map((c) => ({ ...c })) } })
 
-        // One CodeMode tool per MCP tool, running the same shared middle as legacy
-        // per-tool registration (McpInvoke.invoke: plugin before hook → permission
-        // ask → Tool.execute span → dispatch through the ai-sdk wrapper, which owns
-        // callTool timeouts/progress and turns an MCP isError into a thrown Error →
-        // plugin after hook), so plugins observe child calls too. Each child gets a
+        // One CodeMode tool per MCP tool: plugin before hook → permission ask →
+        // Tool.execute span → dispatch through the ai-sdk wrapper, which owns callTool
+        // timeouts/progress and turns an MCP isError into a thrown Error → plugin after
+        // hook. This keeps plugins aware of child calls. Each child gets a
         // synthetic hook/span callID `${parentCallID}/${n}` (per-execution counter,
         // opaque — nothing parses it); the ai-sdk toolCallId is unchanged. Failures —
         // hook, denial, or tool — fail only that child call as a safe, catchable
@@ -350,16 +383,14 @@ export const CodeModeTool = Tool.define(
           toCatchable(
             Effect.gen(function* () {
               childCalls += 1
-              const raw = yield* McpInvoke.invoke({
+              const raw = yield* invokeChildTool({
                 plugin,
-                key: entry.key,
-                execute: entry.tool.execute!,
+                entry,
                 args: input ?? {},
                 callID: `${ctx.callID ?? entry.key}/${childCalls}`,
                 options: { toolCallId: ctx.callID ?? entry.key, abortSignal: ctx.abort, messages: [] },
-                sessionID: ctx.sessionID,
-                messageID: ctx.messageID,
-                ask: ctx.ask,
+                ctx,
+                execute: entry.tool.execute!,
               })
               return toSandboxResult(raw, collect)
             }),
