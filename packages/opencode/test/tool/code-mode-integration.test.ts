@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test"
-import { CodeModeTool, catalogInstructions } from "@/tool/code-mode"
+import { CodeModeTool, describeCatalog } from "@/tool/code-mode"
 import { McpCatalog } from "@/mcp/catalog"
 import { Agent } from "@/agent/agent"
 import { MCP } from "@/mcp"
@@ -161,7 +161,7 @@ async function buildTool() {
   )
   return {
     tool: await Effect.runPromise(CodeModeTool.pipe(Effect.flatMap(Tool.init), Effect.provide(layer))),
-    description: catalogInstructions(mcpTools, mcpDefs, [SERVER]),
+    description: describeCatalog(mcpTools, mcpDefs, [SERVER]),
   }
 }
 

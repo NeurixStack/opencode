@@ -88,22 +88,16 @@ export function groupByServer(
   return groups
 }
 
-export function buildCatalog(
-  mcpTools: Record<string, AITool>,
-  mcpDefs: Record<string, MCPToolDef>,
-  servers: readonly string[],
-): CatalogEntry[] {
-  return [...groupByServer(mcpTools, servers, mcpDefs).values()].flat().filter((entry) => entry.tool.execute !== undefined)
-}
-
-export function catalogInstructions(
+export function describeCatalog(
   mcpTools: Record<string, AITool>,
   mcpDefs: Record<string, MCPToolDef>,
   servers: readonly string[],
 ): string {
-  const catalog = buildCatalog(mcpTools, mcpDefs, servers)
   return CodeMode.make({
-    tools: toolTree(catalog, () => () => Effect.fail(toolError("Tool preview is not executable."))),
+    tools: toolTree(
+      [...groupByServer(mcpTools, servers, mcpDefs).values()].flat().filter((entry) => entry.tool.execute !== undefined),
+      () => () => Effect.fail(toolError("Tool preview is not executable.")),
+    ),
   }).instructions()
 }
 
@@ -288,7 +282,9 @@ export const CodeModeTool = Tool.define(
         const ruleset = Permission.merge(agent.permission, session.permission ?? [])
         const mcpTools = Permission.visibleTools(yield* mcp.tools(), ruleset)
         const servers = Object.keys(yield* mcp.clients()).map(McpCatalog.sanitize)
-        const catalog = buildCatalog(mcpTools, yield* mcp.defs(), servers)
+        const catalog = [...groupByServer(mcpTools, servers, yield* mcp.defs()).values()]
+          .flat()
+          .filter((entry) => entry.tool.execute !== undefined)
 
         const calls: CallEntry[] = []
         const attachments: Attachment[] = []

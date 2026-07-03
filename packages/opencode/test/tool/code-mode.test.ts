@@ -3,7 +3,7 @@ import {
   CODE_MODE_TOOL,
   CodeModeTool,
   Parameters,
-  catalogInstructions,
+  describeCatalog,
   formatValue,
   groupByServer,
   toSandboxResult,
@@ -100,7 +100,7 @@ function describeFor(
   servers?: string[],
   permission: PermissionV1.Rule[] = [],
 ) {
-  return catalogInstructions(Permission.visibleTools(mcpTools, permission), defs, serverNames(mcpTools, servers))
+  return describeCatalog(Permission.visibleTools(mcpTools, permission), defs, serverNames(mcpTools, servers))
 }
 
 describe("code mode execute", () => {
