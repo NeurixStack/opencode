@@ -28,7 +28,7 @@ import { createSignal, onCleanup } from "solid-js"
 
 export type DataSessionStatus = "idle" | "running"
 
-export type FormInfo = FormFormInfo | FormUrlInfo
+export type FormInfo = (FormFormInfo | FormUrlInfo) & { readonly location?: LocationRef }
 
 type LocationData = {
   agent?: AgentV2Info[]
@@ -577,7 +577,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           if (store.session.form[event.data.form.sessionID]?.some((form) => form.id === event.data.form.id)) break
           setStore("session", "form", event.data.form.sessionID, [
             ...(store.session.form[event.data.form.sessionID] ?? []),
-            mutable(event.data.form),
+            mutable({ ...event.data.form, location: event.location }),
           ])
           break
         case "form.replied":
@@ -668,10 +668,15 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           registerSession(sessionID)
         },
         async refreshChildren(sessionID: string) {
-          for (const session of mutable((await sdk.api.session.list({ parentID: sessionID, limit: 200 })).data)) {
-            setStore("session", "info", session.id, session)
-            registerSession(session.id)
+          const visit = async (parentID: string, seen: Set<string>): Promise<void> => {
+            const children = mutable((await sdk.api.session.list({ parentID, limit: 200 })).data).filter(
+              (session) => !seen.has(session.id),
+            )
+            for (const session of children) setStore("session", "info", session.id, session)
+            for (const session of children) registerSession(session.id)
+            await Promise.all(children.map((session) => visit(session.id, new Set([...seen, session.id]))))
           }
+          await visit(sessionID, new Set([sessionID]))
         },
         message: {
           ids(sessionID: string) {
@@ -719,6 +724,23 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return store.session.form[sessionID]
           },
           async refresh(sessionID: string) {
+            if (sessionID === "global") {
+              const result = await sdk.api.form.listRequests({ location: locationQuery(defaultLocation()) })
+              setStore(
+                "session",
+                "form",
+                sessionID,
+                mutable(
+                  result.data
+                    .filter((form) => form.sessionID === "global")
+                    .map((form) => ({
+                      ...form,
+                      location: { directory: result.location.directory, workspaceID: result.location.workspaceID },
+                    })),
+                ),
+              )
+              return
+            }
             setStore("session", "form", sessionID, mutable(await sdk.api.form.list({ sessionID })))
           },
         },
