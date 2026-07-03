@@ -182,9 +182,10 @@ export function Session() {
     )
   })
   const forms = createMemo(() => {
-    if (session()?.parentID) return []
     return [
-      ...[route.sessionID, ...descendantSessionIDs()].flatMap((sessionID) => data.session.form.list(sessionID) ?? []),
+      ...[route.sessionID, ...(session()?.parentID ? [] : descendantSessionIDs())].flatMap(
+        (sessionID) => data.session.form.list(sessionID) ?? [],
+      ),
       ...(data.session.form.list("global") ?? []),
     ]
   })
@@ -251,12 +252,7 @@ export function Session() {
   createEffect(() => {
     const sessionID = route.sessionID
     void (async () => {
-      await Promise.all([
-        data.session.refresh(sessionID),
-        data.session.permission.refresh(sessionID),
-        data.session.form.refresh(sessionID),
-        data.session.form.refresh("global"),
-      ])
+      await data.session.refresh(sessionID)
       const info = data.session.get(sessionID)
       if (!info) {
         toast.show({
@@ -267,6 +263,12 @@ export function Session() {
         navigate({ type: "home" })
         return
       }
+      if (!info.parentID) await data.session.refreshChildren(sessionID)
+      await Promise.all([
+        data.session.permission.refresh(sessionID),
+        data.session.form.refresh(sessionID),
+        data.session.form.refresh("global"),
+      ])
 
       project.workspace.set(info.location.workspaceID)
       editor.reconnect(info.location.directory)
@@ -944,7 +946,6 @@ export function Session() {
                   onClose={() => setComposer("open", false)}
                 />
                 <Switch>
-                  <Match when={composer.open || !!session()?.parentID}>{null}</Match>
                   <Match when={permissions().length > 0}>
                     <PermissionPrompt request={permissions()[0]} directory={session()?.location.directory} />
                   </Match>
@@ -953,6 +954,7 @@ export function Session() {
                       {(form) => <FormPrompt form={form} />}
                     </Show>
                   </Match>
+                  <Match when={composer.open || !!session()?.parentID}>{null}</Match>
                   <Match when={!disabled()}>
                     <pluginRuntime.Slot
                       name="session_prompt"

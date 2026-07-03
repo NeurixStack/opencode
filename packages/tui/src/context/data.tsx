@@ -667,6 +667,12 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           setStore("session", "info", sessionID, mutable(await sdk.api.session.get({ sessionID })))
           registerSession(sessionID)
         },
+        async refreshChildren(sessionID: string) {
+          for (const session of mutable((await sdk.api.session.list({ parentID: sessionID, limit: 200 })).data)) {
+            setStore("session", "info", session.id, session)
+            registerSession(session.id)
+          }
+        },
         message: {
           ids(sessionID: string) {
             return (store.session.message[sessionID] ?? []).map((message) => message.id)

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import Notifications from "../../../../src/feature-plugins/system/notifications"
-import type { PermissionRequest, Session, V2Event } from "@opencode-ai/sdk/v2"
+import type { PermissionV2Request, Session, V2Event } from "@opencode-ai/sdk/v2"
 import type { TuiAttentionNotifyInput } from "@opencode-ai/plugin/tui"
 import { createTuiPluginApi } from "../../../fixture/tui-plugin"
 
@@ -76,14 +76,13 @@ function form(id: string, sessionID = "session"): Extract<V2Event, { type: "form
   }
 }
 
-function permission(id: string, sessionID = "session"): PermissionRequest {
+function permission(id: string, sessionID = "session"): PermissionV2Request {
   return {
     id,
     sessionID,
-    permission: "edit",
-    patterns: [],
+    action: "edit",
+    resources: [],
     metadata: {},
-    always: [],
   }
 }
 
@@ -101,17 +100,14 @@ function stepStarted(id: string, sessionID = "session"): V2Event {
   }
 }
 
-function stepEnded(id: string, sessionID = "session", finish = "stop"): V2Event {
+function executionSettled(id: string, sessionID = "session"): V2Event {
   return {
     id,
-    type: "session.next.step.ended",
+    type: "session.next.execution.settled",
     data: {
       sessionID,
-      assistantMessageID: `msg_${id}`,
       timestamp: 0,
-      finish,
-      cost: 0,
-      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      outcome: "success",
     },
   }
 }
@@ -148,7 +144,7 @@ describe("internal notifications TUI plugin", () => {
     const harness = await setup()
 
     harness.emit({ id: "event-1", type: "form.created", data: { form: form("form-1") } })
-    harness.emit({ id: "event-2", type: "permission.asked", data: permission("permission-1") })
+    harness.emit({ id: "event-2", type: "permission.v2.asked", data: permission("permission-1") })
 
     expect(harness.notifications).toEqual([formNotification, permissionNotification])
   })
@@ -165,14 +161,14 @@ describe("internal notifications TUI plugin", () => {
     })
     harness.emit({ id: "event-4", type: "form.created", data: { form: form("form-1") } })
 
-    harness.emit({ id: "event-5", type: "permission.asked", data: permission("permission-1") })
-    harness.emit({ id: "event-6", type: "permission.asked", data: permission("permission-1") })
+    harness.emit({ id: "event-5", type: "permission.v2.asked", data: permission("permission-1") })
+    harness.emit({ id: "event-6", type: "permission.v2.asked", data: permission("permission-1") })
     harness.emit({
       id: "event-7",
-      type: "permission.replied",
+      type: "permission.v2.replied",
       data: { sessionID: "session", requestID: "permission-1", reply: "once" },
     })
-    harness.emit({ id: "event-8", type: "permission.asked", data: permission("permission-1") })
+    harness.emit({ id: "event-8", type: "permission.v2.asked", data: permission("permission-1") })
 
     expect(harness.notifications).toEqual([
       formNotification,
@@ -185,9 +181,9 @@ describe("internal notifications TUI plugin", () => {
   test("notifies when an active session becomes idle and suppresses no-op idle", async () => {
     const harness = await setup()
 
-    harness.emit(stepEnded("event-1"))
+    harness.emit(executionSettled("event-1"))
     harness.emit(stepStarted("event-2"))
-    harness.emit(stepEnded("event-3"))
+    harness.emit(executionSettled("event-3"))
 
     expect(harness.notifications).toEqual([
       {
@@ -204,7 +200,7 @@ describe("internal notifications TUI plugin", () => {
 
     harness.emit({ id: "event-1", type: "form.created", data: { form: form("form-1", "subagent") } })
     harness.emit(stepStarted("event-2", "subagent"))
-    harness.emit(stepEnded("event-3", "subagent"))
+    harness.emit(executionSettled("event-3", "subagent"))
 
     expect(harness.notifications).toEqual([
       {
@@ -227,7 +223,7 @@ describe("internal notifications TUI plugin", () => {
 
     harness.emit(stepStarted("event-1"))
     harness.emit(stepFailed("event-2"))
-    harness.emit(stepEnded("event-3"))
+    harness.emit(executionSettled("event-3"))
 
     expect(harness.notifications).toEqual([
       {

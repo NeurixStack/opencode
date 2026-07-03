@@ -52,6 +52,14 @@ function validateText(field: Field, text: string): string | undefined {
   if (field.format === "date-time" && Number.isNaN(new Date(text).getTime())) return "Expected a date and time"
 }
 
+function validateSelection(field: Field, value: FormValue | undefined) {
+  if (field.type !== "multiselect" || value === undefined) return
+  if (!Array.isArray(value)) return "Expected selections"
+  if (field.required && value.length === 0) return "Select at least one option"
+  if (field.minItems !== undefined && value.length < field.minItems) return `Select at least ${field.minItems}`
+  if (field.maxItems !== undefined && value.length > field.maxItems) return `Select at most ${field.maxItems}`
+}
+
 function fieldRows(field: Field): { value: FormValue; label: string; description?: string }[] {
   if (field.type === "boolean")
     return [
@@ -187,6 +195,7 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
   })
   const single = createMemo(() => {
     const list = fields()
+    if (props.form.fields.length !== 1) return false
     if (list.length !== 1) return false
     const field = list[0]!
     return field.type === "boolean" || (field.type === "string" && field.options !== undefined)
@@ -199,7 +208,12 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
     )
     return width <= dimensions().width - 8
   })
-  const answered = createMemo(() => fields().filter((item) => store.answers[item.key] !== undefined).length)
+  const answered = createMemo(() =>
+    fields().filter((item) => {
+      const value = store.answers[item.key]
+      return Array.isArray(value) ? value.length > 0 : value !== undefined
+    }).length,
+  )
   const field = createMemo(() => fields()[Math.min(store.tab, fields().length - 1)])
   const confirm = createMemo(() => !single() && store.tab >= fields().length)
   const rows = createMemo(() => (field() ? fieldRows(field()!) : []))
@@ -285,7 +299,7 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
     const index = list.indexOf(value)
     if (index === -1) list.push(value)
     if (index !== -1) list.splice(index, 1)
-    answer(current.key, list)
+    answer(current.key, list.length === 0 ? undefined : list)
   }
 
   function selectTab(index: number) {
@@ -426,7 +440,7 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
               if (prev) {
                 const existing = store.answers[current.key]
                 const list = Array.isArray(existing) ? existing.filter((item) => item !== prev) : []
-                answer(current.key, list)
+                answer(current.key, list.length === 0 ? undefined : list)
                 setStore("custom", { ...store.custom, [current.key]: "" })
               }
               setStore("editing", false)
@@ -521,6 +535,11 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
                 desc: "Submit form",
                 group: "Form",
                 cmd: () => {
+                  const invalid = fields().find((field) => validateSelection(field, store.answers[field.key]))
+                  if (invalid) {
+                    setStore("error", validateSelection(invalid, store.answers[invalid.key]) ?? "Invalid answer")
+                    return
+                  }
                   sdk.api.form
                     .reply({
                       sessionID: props.form.sessionID,
@@ -824,14 +843,18 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
             <For each={fields()}>
               {(item) => {
                 const value = () => display(item, store.answers[item.key])
-                const answered = () => store.answers[item.key] !== undefined
+                const answered = () => {
+                  const value = store.answers[item.key]
+                  return Array.isArray(value) ? value.length > 0 : value !== undefined
+                }
                 const missing = () => !answered() && item.required === true
+                const invalid = () => validateSelection(item, store.answers[item.key])
                 return (
                   <box paddingLeft={1}>
                     <text>
                       <span style={{ fg: theme.textMuted }}>{truncate(fieldLabel(item), 40)}:</span>{" "}
-                      <span style={{ fg: answered() ? theme.text : missing() ? theme.error : theme.textMuted }}>
-                        {answered() ? value() : missing() ? "(required)" : "(not answered)"}
+                      <span style={{ fg: invalid() || missing() ? theme.error : answered() ? theme.text : theme.textMuted }}>
+                        {invalid() ?? (answered() ? value() : missing() ? "(required)" : "(not answered)")}
                       </span>
                     </text>
                   </box>

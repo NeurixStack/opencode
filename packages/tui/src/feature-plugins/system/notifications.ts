@@ -46,13 +46,13 @@ const tui: TuiPlugin = async (api) => {
     forms.delete(event.data.id)
   })
 
-  api.event.on("permission.asked", (event) => {
+  api.event.on("permission.v2.asked", (event) => {
     if (permissions.has(event.data.id)) return
     permissions.add(event.data.id)
     notify(api, event.data.sessionID, "Permission needs input", "permission")
   })
 
-  api.event.on("permission.replied", (event) => {
+  api.event.on("permission.v2.replied", (event) => {
     permissions.delete(event.data.requestID)
   })
 
@@ -79,9 +79,12 @@ const tui: TuiPlugin = async (api) => {
   api.event.on("session.next.step.started", (event) => started(event.data.sessionID))
   api.event.on("session.next.retried", (event) => started(event.data.sessionID))
   api.event.on("session.next.compaction.started", (event) => started(event.data.sessionID))
-  api.event.on("session.next.shell.ended", (event) => ended(event.data.sessionID))
-  api.event.on("session.next.step.ended", (event) => {
-    if (event.data.finish === "tool-calls") return
+  api.event.on("session.next.execution.settled", (event) => {
+    if (event.data.outcome === "failure" && active.has(event.data.sessionID) && !errored.has(event.data.sessionID)) {
+      errored.add(event.data.sessionID)
+      notify(api, event.data.sessionID, "Session error", "error")
+    }
+    if (event.data.outcome === "interrupted") errored.add(event.data.sessionID)
     ended(event.data.sessionID)
   })
   api.event.on("session.next.step.failed", (event) => {

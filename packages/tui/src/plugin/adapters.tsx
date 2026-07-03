@@ -120,10 +120,19 @@ function stateApi(sync: ReturnType<typeof useSync>, data: ReturnType<typeof useD
     },
     session: {
       count() {
-        return sync.data.session.length
+        return data.session.list().length
       },
       get(sessionID) {
-        return sync.session.get(sessionID)
+        const session = data.session.get(sessionID)
+        if (!session) return
+        return {
+          ...session,
+          slug: session.id,
+          workspaceID: session.location.workspaceID,
+          directory: session.location.directory,
+          path: session.subpath,
+          version: "2",
+        }
       },
       diff(sessionID) {
         return (sync.data.session_diff[sessionID] ?? []).flatMap((item) =>
@@ -140,7 +149,15 @@ function stateApi(sync: ReturnType<typeof useSync>, data: ReturnType<typeof useD
         return data.session.status(sessionID) === "running" ? { type: "busy" } : { type: "idle" }
       },
       permission(sessionID) {
-        return sync.data.permission[sessionID] ?? []
+        return (data.session.permission.list(sessionID) ?? []).map((request) => ({
+          id: request.id,
+          sessionID: request.sessionID,
+          permission: request.action,
+          patterns: request.resources,
+          metadata: request.metadata ?? {},
+          always: request.save ?? [],
+          tool: request.source?.type === "tool" ? { messageID: request.source.messageID, callID: request.source.callID } : undefined,
+        }))
       },
       question(sessionID) {
         return sync.data.question[sessionID] ?? []
