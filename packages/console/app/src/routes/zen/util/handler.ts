@@ -43,7 +43,7 @@ import { createRateLimiter as createKeyRateLimiter } from "./keyRateLimiter"
 import { createTrialLimiter } from "./trialLimiter"
 import { createStickyTracker } from "./stickyProviderTracker"
 import { LiteData } from "@opencode-ai/console-core/lite.js"
-import { Resource } from "@opencode-ai/console-resource"
+import { Resource, waitUntil } from "@opencode-ai/console-resource"
 import { i18n, type Key } from "~/i18n"
 import { localeFromRequest } from "~/lib/language"
 import { createModelTpmLimiter } from "./modelTpmLimiter"
@@ -96,6 +96,7 @@ export async function handler(
   ]
 
   try {
+    const timestampHandlerStart = Date.now()
     const url = input.request.url
     const body = await input.request.json()
     const model = opts.parseModel(url, body)
@@ -288,10 +289,21 @@ export async function handler(
       return { providerInfo, reqBody, res, startTimestamp }
     }
 
+    // Time spent on pre-flight checks (body parse, limiter checks, auth,
+    // sticky lookup) before the first upstream dispatch. Not covered by
+    // time_to_first_byte, which starts at dispatch.
+    logger.metric({ "duration.preflight": Date.now() - timestampHandlerStart })
     const { providerInfo, reqBody, res, startTimestamp } = await retriableRequest()
 
-    // Store sticky provider
-    if (res.status === 200) await stickyTracker?.set(providerInfo.id)
+    // Store sticky provider. Awaited on purpose: subsequent requests of the
+    // same session must observe it (strict sticky providers depend on it),
+    // but it sits between upstream response headers and the client's first
+    // byte, so measure it.
+    if (res.status === 200 && stickyTracker) {
+      const timestampStickySet = Date.now()
+      await stickyTracker.set(providerInfo.id)
+      logger.metric({ "duration.sticky_set": Date.now() - timestampStickySet })
+    }
 
     // Temporarily change 404 to 400 status code b/c solid start automatically override 404 response
     const resStatus = res.status === 404 ? 400 : res.status
@@ -309,18 +321,28 @@ export async function handler(
     // Handle non-streaming response
     if (!isStream || [400, 404, 429].includes(res.status)) {
       const json = await res.json()
-      await rateLimiter?.track()
       const usage = providerInfo.extractUsage(json)
-      if (usage) {
-        const usageInfo = providerInfo.normalizeUsage(usage)
-        const costInfo = calculateCost(modelInfo, usageInfo)
-        await trialLimiter?.track(usageInfo)
-        await modelTpmLimiter?.track(providerInfo.id, providerInfo.model, usageInfo)
-        await providerBudgetTracker?.track(providerInfo.id, providerInfo.budgetPriority, costInfo.totalCostInCent)
-        await trackUsage(sessionId, billingSource, authInfo, modelInfo, providerInfo, usageInfo, costInfo)
-        await reload(billingSource, authInfo, costInfo)
-        json.cost = calculateOccurredCost(billingSource, costInfo)
-      }
+      const usageInfo = usage ? providerInfo.normalizeUsage(usage) : undefined
+      const costInfo = usageInfo ? calculateCost(modelInfo, usageInfo) : undefined
+      if (costInfo) json.cost = calculateOccurredCost(billingSource, costInfo)
+      // Cost math above is pure; the accounting round trips below must not
+      // delay the response, so run them after the response is sent.
+      const timestampAccountingStart = Date.now()
+      waitUntil(
+        (async () => {
+          await rateLimiter?.track()
+          if (usageInfo && costInfo) {
+            await trialLimiter?.track(usageInfo)
+            await modelTpmLimiter?.track(providerInfo.id, providerInfo.model, usageInfo)
+            await providerBudgetTracker?.track(providerInfo.id, providerInfo.budgetPriority, costInfo.totalCostInCent)
+            await trackUsage(sessionId, billingSource, authInfo, modelInfo, providerInfo, usageInfo, costInfo)
+            await reload(billingSource, authInfo, costInfo)
+          }
+          logger.metric({ "duration.accounting": Date.now() - timestampAccountingStart })
+        })().catch((error) => {
+          logger.metric({ "error.accounting": error instanceof Error ? error.message : String(error) })
+        }),
+      )
       if (res.status === 400) {
         logger.metric({ "error.response": JSON.stringify(json) })
       }
@@ -363,32 +385,43 @@ export async function handler(
                   response_length: responseLength,
                   "timestamp.last_byte": timestampLastByte,
                 })
-                await rateLimiter?.track()
                 const usage = usageParser.retrieve()
-                if (usage) {
-                  const usageInfo = providerInfo.normalizeUsage(usage)
-                  const costInfo = calculateCost(modelInfo, usageInfo)
-                  await trialLimiter?.track(usageInfo)
-                  await modelTpmLimiter?.track(providerInfo.id, providerInfo.model, usageInfo)
-                  await modelTpsLimiter?.track(
-                    providerInfo.id,
-                    providerInfo.model,
-                    providerInfo.tpsGoal,
-                    timestampFirstByte,
-                    timestampLastByte,
-                    usageInfo,
-                  )
-                  await providerBudgetTracker?.track(
-                    providerInfo.id,
-                    providerInfo.budgetPriority,
-                    costInfo.totalCostInCent,
-                  )
-                  await trackUsage(sessionId, billingSource, authInfo, modelInfo, providerInfo, usageInfo, costInfo)
-                  await reload(billingSource, authInfo, costInfo)
-                  const cost = calculateOccurredCost(billingSource, costInfo)
-                  c.enqueue(encoder.encode(buildCostChunk(opts.format, cost)))
+                const usageInfo = usage ? providerInfo.normalizeUsage(usage) : undefined
+                const costInfo = usageInfo ? calculateCost(modelInfo, usageInfo) : undefined
+                if (costInfo) {
+                  c.enqueue(encoder.encode(buildCostChunk(opts.format, calculateOccurredCost(billingSource, costInfo))))
                 }
+                // Close the client stream before accounting: the tracking and
+                // billing round trips below used to hold the stream open after
+                // the last token, which the client observes as a hang.
                 c.close()
+                waitUntil(
+                  (async () => {
+                    await rateLimiter?.track()
+                    if (usageInfo && costInfo) {
+                      await trialLimiter?.track(usageInfo)
+                      await modelTpmLimiter?.track(providerInfo.id, providerInfo.model, usageInfo)
+                      await modelTpsLimiter?.track(
+                        providerInfo.id,
+                        providerInfo.model,
+                        providerInfo.tpsGoal,
+                        timestampFirstByte,
+                        timestampLastByte,
+                        usageInfo,
+                      )
+                      await providerBudgetTracker?.track(
+                        providerInfo.id,
+                        providerInfo.budgetPriority,
+                        costInfo.totalCostInCent,
+                      )
+                      await trackUsage(sessionId, billingSource, authInfo, modelInfo, providerInfo, usageInfo, costInfo)
+                      await reload(billingSource, authInfo, costInfo)
+                    }
+                    logger.metric({ "duration.accounting": Date.now() - timestampLastByte })
+                  })().catch((error) => {
+                    logger.metric({ "error.accounting": error instanceof Error ? error.message : String(error) })
+                  }),
+                )
                 return
               }
 
