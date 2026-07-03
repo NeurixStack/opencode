@@ -7,7 +7,7 @@ import { SessionMessage } from "@opencode-ai/core/session/message"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
-import { createLLMEventPublisher } from "@opencode-ai/core/session/runner/publish-llm-event"
+import { createStepLedger } from "@opencode-ai/core/session/runner/step-ledger"
 
 const sessionID = SessionV2.ID.make("ses_tool_event_test")
 const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"
@@ -40,7 +40,7 @@ const capture = () => {
   })
   return {
     published,
-    publisher: createLLMEventPublisher(events, {
+    publisher: createStepLedger(events, {
       sessionID,
       agent: "build",
       model: {

@@ -36,7 +36,7 @@ import { SessionStore } from "../store"
 import { SessionTitle } from "../title"
 import { Service } from "./index"
 import { SessionRunnerModel } from "./model"
-import { createLLMEventPublisher } from "./publish-llm-event"
+import { createStepLedger } from "./step-ledger"
 import { toLLMMessages } from "./to-llm-message"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { SessionRunnerSystemPrompt } from "./system-prompt"
@@ -222,7 +222,7 @@ const layer = Layer.effect(
       if (yield* compaction.compactIfNeeded({ sessionID: session.id, messages: context, request }))
         return { _tag: "RestartAfterCompaction", step: currentStep } as const
       const startSnapshot = yield* snapshots.capture()
-      const publisher = createLLMEventPublisher(events, {
+      const ledger = createStepLedger(events, {
         sessionID: session.id,
         agent: agent.id,
         // The selected catalog identity, not model.id: route-level ids are provider API
@@ -235,14 +235,14 @@ const layer = Layer.effect(
       // mid-event.
       const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) => publication.withPermit(effect)
       const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = []) =>
-        serialized(publisher.publish(event, outputPaths))
+        serialized(ledger.publish(event, outputPaths))
       let overflowFailure: ProviderErrorEvent | undefined
       const providerStream = llm.stream(request).pipe(
         Stream.runForEach((event) =>
           Effect.gen(function* () {
-            if (overflowFailure || publisher.hasProviderError()) return
+            if (overflowFailure || ledger.hasProviderError()) return
             if (LLMEvent.is.providerError(event)) {
-              if (isContextOverflowFailure(event) && !publisher.hasAssistantStarted()) {
+              if (isContextOverflowFailure(event) && !ledger.hasAssistantStarted()) {
                 overflowFailure = event
                 return
               }
@@ -250,11 +250,11 @@ const layer = Layer.effect(
             yield* publish(event)
             if (event.type !== "tool-call" || event.providerExecuted) return
             if (!toolMaterialization) {
-              yield* serialized(publisher.failUnsettledTools("Tools are disabled after the maximum agent steps"))
+              yield* serialized(ledger.failUnsettledTools("Tools are disabled after the maximum agent steps"))
               return
             }
             needsContinuation = true
-            const assistantMessageID = yield* publisher.assistantMessageID(event.id)
+            const assistantMessageID = yield* ledger.assistantMessageID(event.id)
             yield* Effect.uninterruptibleMask((restore) =>
               restore(
                 toolMaterialization.settle({
@@ -279,12 +279,12 @@ const layer = Layer.effect(
             ).pipe(FiberSet.run(toolFibers))
           }),
         ),
-        Effect.ensuring(serialized(publisher.flush())),
+        Effect.ensuring(serialized(ledger.flush())),
       )
 
       // Captures the end snapshot, diffs it against the step's start, and durably ends the
       // assistant step.
-      const publishStepEnd = (settlement: NonNullable<ReturnType<typeof publisher.stepSettlement>>) =>
+      const publishStepEnd = (settlement: NonNullable<ReturnType<typeof ledger.stepSettlement>>) =>
         Effect.gen(function* () {
           const endSnapshot = yield* snapshots.capture()
           const files =
@@ -296,7 +296,7 @@ const layer = Layer.effect(
           yield* serialized(
             events.publish(SessionEvent.Step.Ended, {
               sessionID: session.id,
-              assistantMessageID: yield* publisher.startAssistant(),
+              assistantMessageID: yield* ledger.startAssistant(),
               finish: settlement.finish,
               cost: 0,
               tokens: settlement.tokens,
@@ -319,7 +319,7 @@ const layer = Layer.effect(
           // restart the step instead of surfacing the provider error.
           if (
             recoverOverflow &&
-            !publisher.hasAssistantStarted() &&
+            !ledger.hasAssistantStarted() &&
             isContextOverflowFailure(overflowFailure ?? streamFailure) &&
             (yield* restore(recoverOverflow({ sessionID: session.id, messages: context, request })))
           )
@@ -330,12 +330,12 @@ const layer = Layer.effect(
           // error was already recorded from the stream.
           if (overflowFailure) yield* publish(overflowFailure)
           const llmFailure = streamFailure instanceof LLMError ? streamFailure : undefined
-          if (llmFailure && !publisher.hasProviderError()) {
-            yield* serialized(publisher.failUnsettledTools("Provider did not return a tool result", true))
-            yield* serialized(publisher.failAssistant(llmFailure.reason.message))
+          if (llmFailure && !ledger.hasProviderError()) {
+            yield* serialized(ledger.failUnsettledTools("Provider did not return a tool result", true))
+            yield* serialized(ledger.failAssistant(llmFailure.reason.message))
           }
           // Provider error events only arrive from the stream, so the flag is final here.
-          const providerFailed = publisher.hasProviderError()
+          const providerFailed = ledger.hasProviderError()
 
           // Settle tool fibers: an interrupted stream abandons unstarted tool work first.
           if (streamInterrupted) yield* FiberSet.clear(toolFibers)
@@ -345,8 +345,8 @@ const layer = Layer.effect(
 
           if (questionDismissed || streamInterrupted || toolsInterrupted) {
             yield* FiberSet.clear(toolFibers)
-            yield* serialized(publisher.failUnsettledTools("Tool execution interrupted"))
-            yield* serialized(publisher.failAssistant("Step interrupted"))
+            yield* serialized(ledger.failUnsettledTools("Tool execution interrupted"))
+            yield* serialized(ledger.failAssistant("Step interrupted"))
             // Match V1: dismissing a question halts the loop like an interruption.
             if (questionDismissed) return yield* Effect.interrupt
           }
@@ -360,20 +360,19 @@ const layer = Layer.effect(
           if (settledFailure !== undefined) {
             const failure = infraError ?? Cause.squash(settledFailure)
             const message = failure instanceof Error ? failure.message : String(failure)
-            yield* serialized(publisher.failUnsettledTools(`Tool execution failed: ${message}`))
-            if (infraError !== undefined)
-              yield* serialized(publisher.failAssistant(`Tool execution failed: ${message}`))
+            yield* serialized(ledger.failUnsettledTools(`Tool execution failed: ${message}`))
+            if (infraError !== undefined) yield* serialized(ledger.failAssistant(`Tool execution failed: ${message}`))
           }
 
-          const stepSettlement = publisher.stepSettlement()
+          const stepSettlement = ledger.stepSettlement()
           const stepEndedCleanly =
             !streamInterrupted && !toolsInterrupted && infraError === undefined && !providerFailed
           if (stepSettlement && stepEndedCleanly) yield* publishStepEnd(stepSettlement)
           // A provider error orphans recorded local calls; a clean stream can still leave
           // hosted calls without results.
-          if (providerFailed) yield* serialized(publisher.failUnsettledTools("Tool execution interrupted"))
+          if (providerFailed) yield* serialized(ledger.failUnsettledTools("Tool execution interrupted"))
           if (stream._tag === "Success" && !providerFailed)
-            yield* serialized(publisher.failUnsettledTools("Provider did not return a tool result", true))
+            yield* serialized(ledger.failUnsettledTools("Provider did not return a tool result", true))
 
           if (stream._tag === "Failure") return yield* Effect.failCause(stream.cause)
           if (settled._tag === "Failure" && (toolsInterrupted || infraError !== undefined))

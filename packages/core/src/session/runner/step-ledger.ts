@@ -51,7 +51,7 @@ const settledOutput = (value: ToolOutput | undefined, result: ToolResultValue): 
 }
 
 /** Persist one step without executing tools or starting a continuation step. */
-export const createLLMEventPublisher = (events: EventV2.Interface, input: Input) => {
+export const createStepLedger = (events: EventV2.Interface, input: Input) => {
   const tools = new Map<
     string,
     {
