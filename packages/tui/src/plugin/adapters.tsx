@@ -1,4 +1,5 @@
 import type { TuiDialogSelectOption, TuiPluginApi, TuiSlotProps } from "@opencode-ai/plugin/tui"
+import type { Message } from "@opencode-ai/sdk/v2"
 import type { TuiConfig } from "../config"
 import type { useEvent } from "../context/event"
 import type { useRoute } from "../context/route"
@@ -143,7 +144,43 @@ function stateApi(sync: ReturnType<typeof useSync>, data: ReturnType<typeof useD
         return sync.data.todo[sessionID] ?? []
       },
       messages(sessionID) {
-        return sync.data.message[sessionID] ?? []
+        return data.session.message.list(sessionID).flatMap((message): Message[] => {
+          const session = data.session.get(sessionID)
+          if (message.type === "user")
+            return [
+              {
+                id: message.id,
+                sessionID,
+                role: "user",
+                time: message.time,
+                agent: session?.agent ?? "build",
+                model: session?.model
+                  ? { providerID: session.model.providerID, modelID: session.model.id, variant: session.model.variant }
+                  : { providerID: "", modelID: "" },
+              },
+            ]
+          if (message.type !== "assistant") return []
+          return [
+            {
+              id: message.id,
+              sessionID,
+              role: "assistant" as const,
+              time: message.time,
+              parentID: sessionID,
+              providerID: message.model.providerID,
+              modelID: message.model.id,
+              mode: "build",
+              agent: message.agent,
+              path: {
+                cwd: session?.location.directory ?? "",
+                root: session?.location.directory ?? "",
+              },
+              cost: message.cost ?? 0,
+              tokens: message.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              variant: message.model.variant,
+            },
+          ]
+        })
       },
       status(sessionID) {
         return data.session.status(sessionID) === "running" ? { type: "busy" } : { type: "idle" }
