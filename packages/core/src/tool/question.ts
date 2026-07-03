@@ -94,8 +94,7 @@ export const Plugin = {
                     .pipe(Effect.orDie),
                 ),
                 Effect.flatMap((state) => {
-                  // The runner halts the loop on this exact defect (session/runner/llm.ts).
-                  if (state.status !== "answered") return Effect.die(new QuestionV2.RejectedError())
+                  if (state.status !== "answered") return Effect.die(new Form.CancelledError())
                   return Effect.succeed({
                     answers: input.questions.map((_, index): QuestionV2.Answer => {
                       const value = state.answer[`q${index}`]
