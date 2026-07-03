@@ -99,6 +99,7 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
     if (url.pathname === "/api/mcp") return json({ location: { directory, project: { id: "proj_test", directory: worktree } }, data: [] })
     if (url.pathname === "/api/session") return json({ data: [], cursor: {} })
     if (url.pathname === "/api/session/active") return json({ data: {}, watermarks: {} })
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return json([])
     if (
       ["/api/agent", "/api/model", "/api/provider", "/api/integration", "/api/command", "/api/skill"].includes(
         url.pathname,

@@ -863,7 +863,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             directory: defaultLocation().directory,
             workspace: defaultLocation().workspaceID,
           })
-          .then((response) => {
+          .then(async (response) => {
             setStore(
               "session",
               "info",
@@ -872,6 +872,18 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               }),
             )
             for (const session of response.data) registerSession(session.id)
+            await Promise.all(
+              Object.values(store.session.info).flatMap((session) =>
+                session.parentID ? [] : [result.session.refreshChildren(session.id)],
+              ),
+            )
+            await Promise.all([
+              ...Object.keys(store.session.info).flatMap((sessionID) => [
+                result.session.permission.refresh(sessionID),
+                result.session.form.refresh(sessionID),
+              ]),
+              result.session.form.refresh("global"),
+            ])
           }),
         sdk.api.session
           .active()
