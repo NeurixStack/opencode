@@ -184,7 +184,7 @@ export function Session() {
   })
   const questions = createMemo(() => {
     if (session()?.parentID) return []
-    return data.session.question.list(route.sessionID) ?? []
+    return [route.sessionID, ...descendantSessionIDs()].flatMap((sessionID) => data.session.question.list(sessionID) ?? [])
   })
   const forms = createMemo(() => {
     if (session()?.parentID) return []
@@ -247,6 +247,7 @@ export function Session() {
       void Promise.all(
         sessionIDs.flatMap((sessionID) => [
           data.session.permission.refresh(sessionID),
+          data.session.question.refresh(sessionID),
           data.session.form.refresh(sessionID),
         ]),
       )
