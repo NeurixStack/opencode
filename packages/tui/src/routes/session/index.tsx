@@ -58,7 +58,6 @@ import { usePromptRef } from "../../context/prompt"
 import { useEpilogue } from "../../context/epilogue"
 import { normalizePath } from "../../util/path"
 import { PermissionPrompt } from "./permission"
-import { QuestionPrompt } from "./question"
 import { FormPrompt } from "./form"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import { sessionEpilogue } from "../../util/presentation"
@@ -182,10 +181,6 @@ export function Session() {
       (sessionID) => data.session.permission.list(sessionID) ?? [],
     )
   })
-  const questions = createMemo(() => {
-    if (session()?.parentID) return []
-    return [route.sessionID, ...descendantSessionIDs()].flatMap((sessionID) => data.session.question.list(sessionID) ?? [])
-  })
   const forms = createMemo(() => {
     if (session()?.parentID) return []
     return [
@@ -197,7 +192,7 @@ export function Session() {
     open: false,
     tab: undefined as string | undefined,
   })
-  const disabled = createMemo(() => permissions().length > 0 || questions().length > 0 || forms().length > 0)
+  const disabled = createMemo(() => permissions().length > 0 || forms().length > 0)
 
   const pending = createMemo(() => {
     const completed = messages().findLast((x) => x.type === "assistant" && x.time.completed)?.id
@@ -247,7 +242,6 @@ export function Session() {
       void Promise.all(
         sessionIDs.flatMap((sessionID) => [
           data.session.permission.refresh(sessionID),
-          data.session.question.refresh(sessionID),
           data.session.form.refresh(sessionID),
         ]),
       )
@@ -260,7 +254,6 @@ export function Session() {
       await Promise.all([
         data.session.refresh(sessionID),
         data.session.permission.refresh(sessionID),
-        data.session.question.refresh(sessionID),
         data.session.form.refresh(sessionID),
         data.session.form.refresh("global"),
       ])
@@ -954,9 +947,6 @@ export function Session() {
                   <Match when={composer.open || !!session()?.parentID}>{null}</Match>
                   <Match when={permissions().length > 0}>
                     <PermissionPrompt request={permissions()[0]} directory={session()?.location.directory} />
-                  </Match>
-                  <Match when={questions().length > 0}>
-                    <QuestionPrompt request={questions()[0]} directory={session()?.location.directory} />
                   </Match>
                   <Match when={forms().length > 0}>
                     <Show when={forms()[0]} keyed>

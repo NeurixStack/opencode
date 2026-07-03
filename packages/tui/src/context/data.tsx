@@ -10,7 +10,6 @@ import type {
   PermissionSavedInfo,
   PermissionV2Request,
   ProviderV2Info,
-  QuestionV2Request,
   ReferenceInfo,
   SessionMessage,
   SessionMessageAssistant,
@@ -55,7 +54,6 @@ type Data = {
     status: Record<string, DataSessionStatus>
     message: Record<string, SessionMessage[]>
     permission: Record<string, PermissionV2Request[]>
-    question: Record<string, QuestionV2Request[]>
     // Pending forms keyed by owner: a session ID or the temporary "global" elicitation sentinel.
     form: Record<string, FormInfo[]>
   }
@@ -91,7 +89,6 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         status: {},
         message: {},
         permission: {},
-        question: {},
         form: {},
       },
       project: {
@@ -576,24 +573,6 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             ),
           )
           break
-        case "question.v2.asked":
-          if (store.session.question[event.data.sessionID]?.some((request) => request.id === event.data.id)) break
-          setStore("session", "question", event.data.sessionID, [
-            ...(store.session.question[event.data.sessionID] ?? []),
-            event.data,
-          ])
-          break
-        case "question.v2.replied":
-        case "question.v2.rejected":
-          setStore(
-            "session",
-            "question",
-            event.data.sessionID,
-            (store.session.question[event.data.sessionID] ?? []).filter(
-              (request) => request.id !== event.data.requestID,
-            ),
-          )
-          break
         case "form.created":
           if (store.session.form[event.data.form.sessionID]?.some((form) => form.id === event.data.form.id)) break
           setStore("session", "form", event.data.form.sessionID, [
@@ -727,14 +706,6 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           },
           async refresh(sessionID: string) {
             setStore("session", "permission", sessionID, mutable(await sdk.api.permission.list({ sessionID })))
-          },
-        },
-        question: {
-          list(sessionID: string) {
-            return store.session.question[sessionID]
-          },
-          async refresh(sessionID: string) {
-            setStore("session", "question", sessionID, mutable(await sdk.api.question.list({ sessionID })))
           },
         },
         form: {
