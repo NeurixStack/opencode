@@ -561,14 +561,14 @@ describe("CodeMode public contract", () => {
     expect(instructions.indexOf("## Rules")).toBeLessThan(instructions.indexOf("## Syntax"))
     expect(instructions.indexOf("## Syntax")).toBeLessThan(instructions.indexOf("\n## Available tools (COMPLETE list"))
     // The workflow carries the result-shape guidance; Rules only add content beyond it.
-    expect(instructions).toContain('`const data = typeof res === "string" ? JSON.parse(res) : res` — most tools return JSON as a string')
+    expect(instructions).toContain('`const data = typeof res === "string" ? JSON.parse(res) : res` - most tools return JSON as a string')
     expect(instructions).toContain("Return only the fields you need")
     expect(instructions).toContain("raw payloads get truncated and waste context")
     expect(instructions).toContain("`const res = await tools.<namespace>.<tool>(input)`")
     expect(instructions).toContain("surrounding agent tools are not available unless listed here")
     expect(instructions).toContain("Only tools listed here are available inside `tools`")
     expect(instructions).toContain("bracket notation may appear for names that are not JavaScript identifiers")
-    // Placeholders use the <namespace>.<tool>/<field> style ONLY — no fabricated tool
+    // Placeholders use the <namespace>.<tool>/<field> style ONLY - no fabricated tool
     // names, and no real catalog tools cherry-picked into example lines.
     expect(instructions).toContain("`return { <field>: data.<field> }`")
     expect(instructions).not.toContain("total_count")
@@ -582,7 +582,7 @@ describe("CodeMode public contract", () => {
     // PARTIAL: the workflow starts with search (with query-style guidance that is clearly
     // a query string, never a tool name) and the browse-namespace rule appears.
     expect(partial).toContain(
-      '1. Find a tool (skip when it is already listed below): `const { items } = await tools.$codemode.search({ query: "<intent + key nouns>" })` — short phrases like "list issues" work best.',
+      '1. Find a tool (skip when it is already listed below): `const { items } = await tools.$codemode.search({ query: "<intent + key nouns>" })` - short phrases like "list issues" work best.',
     )
     expect(partial).toContain("Only tools listed here or returned by `tools.$codemode.search` are available inside `tools`")
     expect(partial).toContain('- Browse one namespace: `await tools.$codemode.search({ query: "", namespace: "<name>" })`.')
@@ -635,7 +635,7 @@ describe("CodeMode public contract", () => {
       tools: { thread: { uploadFile: upload, generateImage: generate }, orders: { lookup } },
       discovery: { maxInlineCatalogTokens: 0 },
     })
-    expect(runtime.instructions()).toContain("Available tools (PARTIAL — 0 of 3 shown; find the rest with tools.$codemode.search)")
+    expect(runtime.instructions()).toContain("Available tools (PARTIAL - 0 of 3 shown; find the rest with tools.$codemode.search)")
     expect(runtime.instructions()).toContain("- thread (2 tools, none shown)")
     expect(runtime.instructions()).toContain("- orders (1 tool, none shown)")
     expect(runtime.instructions()).toMatch(/\$codemode\.search/)
@@ -783,7 +783,7 @@ describe("CodeMode public contract", () => {
     })
     const runtime = CodeMode.make({ tools: { files: { upload, other } } })
 
-    // "attachment" appears in neither path nor description — only in the input schema's
+    // "attachment" appears in neither path nor description - only in the input schema's
     // property names, which the searchable text includes.
     const byParameter = await Effect.runPromise(runtime.execute(
       `return await tools.$codemode.search({ query: "attachment" })`,
@@ -817,7 +817,7 @@ describe("CodeMode public contract", () => {
       })
     const runtime = CodeMode.make({
       tools: {
-        // Neither path nor description contains "issues" — only the singular "issue".
+        // Neither path nor description contains "issues" - only the singular "issue".
         tracker: { fetch_all: simple("Fetch every open issue in the project") },
         github: { list_issues: simple("List issues") },
         misc: { rename: simple("Rename the workspace") },
@@ -888,7 +888,7 @@ describe("CodeMode public contract", () => {
       run: () => Effect.succeed("ok"),
     })
     // Round 1 places alpha.cheap (~17 estimated tokens) and beta.cheap (~17); in round 2
-    // alpha.expensive does not fit, which marks only alpha done — it must NOT prevent
+    // alpha.expensive does not fit, which marks only alpha done - it must NOT prevent
     // other namespaces from inlining (beta already got its line in the same round).
     const runtime = CodeMode.make({
       tools: { alpha: { cheap, expensive }, beta: { cheap } },
@@ -896,7 +896,7 @@ describe("CodeMode public contract", () => {
     })
 
     const instructions = runtime.instructions()
-    expect(instructions).toContain("Available tools (PARTIAL — 2 of 3 shown; find the rest with tools.$codemode.search)")
+    expect(instructions).toContain("Available tools (PARTIAL - 2 of 3 shown; find the rest with tools.$codemode.search)")
     expect(instructions).toContain("- alpha (2 tools, 1 shown)")
     expect(instructions).toContain("  - tools.alpha.cheap(input: { q: string }): Promise<string> // Cheap")
     expect(instructions).not.toContain("tools.alpha.expensive(")
@@ -972,7 +972,7 @@ describe("CodeMode public contract", () => {
 
   test("timeoutMs and maxToolCalls have no defaults: absent means unlimited", async () => {
     // 150 tool calls would have exceeded the old default cap of 100; with no limits
-    // provided, there is no cap and no timeout — budgets are host policy.
+    // provided, there is no cap and no timeout - budgets are host policy.
     const counter = Tool.make({
       description: "Count invocations",
       input: Schema.Struct({}),

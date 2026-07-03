@@ -110,7 +110,7 @@ describe("H1: NaN/Infinity flow as intermediates and normalize to null at the bo
     expect(await value(`return parseInt("abc") || 0`)).toBe(0)
     expect(await value(`const x = Number("abc"); return Number.isNaN(x) ? 0 : x`)).toBe(0)
     expect(await value(`const o = {}; o.count = (o.count || 0) + 1; return o.count`)).toBe(1)
-    // average of an empty list, guarded — the classic divide-by-zero that used to throw pre-guard
+    // average of an empty list, guarded - the classic divide-by-zero that used to throw pre-guard
     expect(await value(`const a = []; return a.length ? a.reduce((s,x)=>s+x,0)/a.length : 0`)).toBe(0)
   })
 
@@ -118,7 +118,7 @@ describe("H1: NaN/Infinity flow as intermediates and normalize to null at the bo
     expect(await value(`return 5/0`)).toBeNull()
     expect(await value(`return 0/0`)).toBeNull()
     expect(await value(`return Math.max()`)).toBeNull()
-    // nested, too — normalization walks the returned structure
+    // nested, too - normalization walks the returned structure
     expect(await value(`return { a: Number("x"), b: 2, c: [1/0] }`)).toEqual({ a: null, b: 2, c: [null] })
   })
 

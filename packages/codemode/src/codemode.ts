@@ -65,7 +65,7 @@ export type ExecuteOptions<Tools extends Record<string, unknown> = {}> = {
   /** Source for one program in the supported JavaScript subset. */
   code: string
   /** Explicit tool tree exposed to the program as `tools`. */
-  tools?: Tools & ToolTree<any>
+  tools?: Tools & ToolTree<Services<Tools>>
   /** Per-execution overrides for the default resource limits. */
   limits?: ExecutionLimits
   /** Observes decoded tool input immediately before tool execution. */
@@ -224,7 +224,6 @@ class IntrinsicReference {
   ) {}
 }
 
-// A read-only computed member (e.g. `str.length`, a character index) — not assignable.
 class ComputedValue {
   constructor(readonly value: unknown) {}
 }
@@ -249,7 +248,6 @@ class GlobalMethodReference {
   constructor(readonly namespace: GlobalNamespaceName | "Number" | "String", readonly name: string) {}
 }
 
-// A built-in callable global (`Number`, `String`, `Boolean`, `parseInt`, `parseFloat`).
 class CoercionFunction {
   constructor(readonly name: "Number" | "String" | "Boolean" | "parseInt" | "parseFloat") {}
 }
@@ -258,17 +256,11 @@ class ProgramThrow {
   constructor(readonly value: unknown) {}
 }
 
-// A bound error constructor global (`Error`, `TypeError`, ...): callable with or without
-// `new`, and the recognized right-hand side of `x instanceof Error`.
 class ErrorConstructorReference {
   constructor(readonly name: string) {}
 }
 
-// Error values stay plain `{ name, message }` data objects — they stringify/serialize exactly
-// as before — but carry their constructor name on a non-enumerable symbol key so `instanceof
-// Error` can recognize them. Object.entries/JSON walks (copyIn/copyOut, spread, stringify)
-// never see the brand, and losing it on spread/boundary copies matches JS, where a spread
-// error loses its prototype too.
+// Non-enumerable so spread/copyOut preserve the plain `{ name, message }` data shape.
 const ErrorBrand: unique symbol = Symbol("codemode.error")
 
 const brandError = (errorValue: SafeObject, name: string): SafeObject => {
@@ -347,7 +339,7 @@ const setMethods = new Set(["add", "has", "delete", "clear", "forEach", "keys", 
 const OptionalShortCircuit: unique symbol = Symbol("codemode.optional-short-circuit")
 
 const supportedSyntaxMessage =
-  "Supported orchestration syntax: tools.* calls (they return promises — resolve them with await), data literals, destructuring, optional chaining, template literals, conditionals, switch, loops (incl. for...of and for...in over object/array/tools keys), arrow functions, spread, try/catch, array methods (map/filter/find/findIndex/some/every/reduce/flatMap/forEach/sort/slice/concat/indexOf/lastIndexOf/at/flat/reverse/includes/join), string methods (incl. match/matchAll/replace/split with regular expressions), Date/RegExp/Map/Set, Object/Math/JSON helpers, captured console.log/warn/error/dir/table, and Promise.all/allSettled/race/resolve/reject over arrays mixing promises and plain values for parallel tool calls (promise chaining with .then/.catch is not supported — use await with try/catch)."
+  "Supported orchestration syntax: tools.* calls (they return promises - resolve them with await), data literals, destructuring, optional chaining, template literals, conditionals, switch, loops (incl. for...of and for...in over object/array/tools keys), arrow functions, spread, try/catch, array methods (map/filter/find/findIndex/some/every/reduce/flatMap/forEach/sort/slice/concat/indexOf/lastIndexOf/at/flat/reverse/includes/join), string methods (incl. match/matchAll/replace/split with regular expressions), Date/RegExp/Map/Set, Object/Math/JSON helpers, captured console.log/warn/error/dir/table, and Promise.all/allSettled/race/resolve/reject over arrays mixing promises and plain values for parallel tool calls (promise chaining with .then/.catch is not supported - use await with try/catch)."
 
 const unsupportedSyntax = (kind: string, node: AstNode): InterpreterRuntimeError =>
   new InterpreterRuntimeError(`Syntax '${kind}' is not supported in CodeMode. ${supportedSyntaxMessage}`, node, "UnsupportedSyntax", [supportedSyntaxMessage])
@@ -355,7 +347,7 @@ const unsupportedSyntax = (kind: string, node: AstNode): InterpreterRuntimeError
 /** How many eagerly forked tool calls may run at once. Fixed; not a configurable knob. */
 const TOOL_CALL_CONCURRENCY = 8
 
-/** Console formatting recursion ceiling; deeper values render as "…". Fixed; not a knob. */
+/** Console formatting recursion ceiling; deeper values render as "...". Fixed; not a knob. */
 const MAX_CONSOLE_DEPTH = 32
 
 const validateLimit = <Value extends number | undefined>(name: keyof ExecutionLimits, value: Value, minimum: number): Value => {
@@ -365,7 +357,7 @@ const validateLimit = <Value extends number | undefined>(name: keyof ExecutionLi
   return value
 }
 
-// No limit has a default: absent means no timeout / unlimited calls / no output truncation —
+// No limit has a default: absent means no timeout / unlimited calls / no output truncation -
 // budgets are host policy, not library policy. A host without its own output bounding should
 // pass maxOutputBytes explicitly, or oversized results flood model context.
 const resolveExecutionLimits = (limits?: ExecutionLimits): ResolvedExecutionLimits => ({
@@ -379,7 +371,7 @@ class InterpreterRuntimeError extends Error {
   /**
    * The constructor name a program observes when it catches this failure (`caught.name`, and
    * the brand behind `caught instanceof SyntaxError` etc.). "Error" unless the failing
-   * operation names a standard type in real JS — e.g. JSON.parse and invalid regex patterns
+   * operation names a standard type in real JS - e.g. JSON.parse and invalid regex patterns
    * throw SyntaxError, an unknown identifier is a ReferenceError, a bad normalize form is a
    * RangeError.
    */
@@ -569,21 +561,7 @@ const normalizeError = (error: unknown): Diagnostic => {
   }
 }
 
-// The plain value a program observes for a settled failure — shared by `catch` bindings,
-// `Promise.allSettled` rejection reasons, and race-loser diagnostics. A thrown program value
-// passes through as-is (so `throw new Error(m)` yields its `{ name, message }` object); every
-// other failure becomes a plain `{ name, message }` object, error-branded so `caught
-// instanceof Error` is true for interpreter and tool failures too. When a host failure is a
-// real Error whose constructor name is one of the standard seven (e.g. JSON.parse throwing a
-// SyntaxError), that name is carried through — both as `caught.name` and as the brand, so
-// `caught instanceof SyntaxError` matches real JS. Interpreter diagnostics carry the name the
-// equivalent real-JS failure would have (`errorName`, "Error" unless the throw site says
-// otherwise); tool failures and internal error classes are plain "Error" — internal class
-// names never leak.
-// Interpreter errors use their raw message so the program never sees the transpiled-source
-// "(line N, col N)" coordinates that normalizeError appends — without disturbing a host/tool
-// message that legitimately ends that way. Other error kinds carry no appended location, so
-// normalizeError is used as-is.
+// Shared by catch bindings, Promise.allSettled rejection reasons, and Promise.race losers.
 const caughtErrorValue = (thrown: unknown): unknown => {
   if (thrown instanceof ProgramThrow) return thrown.value
   if (thrown instanceof InterpreterRuntimeError) return createErrorValue(thrown.errorName, thrown.message)
@@ -591,17 +569,6 @@ const caughtErrorValue = (thrown: unknown): unknown => {
   return createErrorValue(name, normalizeError(thrown).message)
 }
 
-// ── Built-in method/global implementations ───────────────────────────────────
-// These mirror the corresponding JavaScript operations over Data Values. They are
-// pure (string/Object/Math/JSON/coercion) and so live as free functions; array
-// Methods that run CodeMode callbacks live on the interpreter (they need invokeFunction).
-
-// The intra-sandbox data checkpoint: copies a value through `copyIn` in preserving mode,
-// which validates the plain-data contract (depth, circularity, plain objects only, blocked
-// properties) while keeping sandbox value instances (Date/RegExp/Map/Set) alive — so values
-// flowing through `Object.*` helpers, coercion inputs, and other in-sandbox checkpoints stay
-// fully usable. Only the HOST boundary (final result, tool-call arguments, JSON.stringify)
-// serializes them to JSON forms via the default `copyIn` mode.
 const boundedData = (value: unknown, label: string): unknown => copyIn(value, label, true)
 
 const isRuntimeReference = (value: unknown): boolean =>
@@ -675,7 +642,7 @@ const instanceofValue = (lhs: unknown, rhs: unknown, node: AstNode): boolean => 
   }
   if (rhs instanceof PromiseNamespace) return lhs instanceof SandboxPromise
   // Number/String/Boolean wrap primitives in JS; no boxed values exist in CodeMode, so
-  // `x instanceof Number` is always false — exactly what it is for primitives in JS.
+  // `x instanceof Number` is always false - exactly what it is for primitives in JS.
   if (rhs instanceof CoercionFunction && (rhs.name === "Number" || rhs.name === "String" || rhs.name === "Boolean")) {
     return false
   }
@@ -718,7 +685,7 @@ const toHostRegex = (arg: unknown, method: string, node: AstNode, extraFlags = "
 
 // A host match result as a sandbox value: a plain array of the full match and captures, with
 // `index` and named `groups` attached as own array properties (readable, and dropped at data
-// boundaries exactly like JSON.stringify drops them in JS). `input` is omitted — it duplicates
+// boundaries exactly like JSON.stringify drops them in JS). `input` is omitted - it duplicates
 // the whole subject string per match.
 const matchToValue = (match: RegExpMatchArray): Array<unknown> => {
   const result: Array<unknown> = Array.from(match, (group) => group)
@@ -851,7 +818,7 @@ const invokeStringMethod = (value: string, name: string, args: Array<unknown>, n
     case "substring": result = value.substring(optNum(0) ?? 0, optNum(1)); break
     case "substr": result = value.substr(optNum(0) ?? 0, optNum(1)); break
     // JS charCodeAt returns NaN out of range; NaN flows as an ordinary in-sandbox value
-    // (normalized to null only at the data boundary — see copyOut), so return it as-is.
+    // (normalized to null only at the data boundary - see copyOut), so return it as-is.
     case "charCodeAt": result = value.charCodeAt(optNum(0) ?? 0); break
     case "codePointAt": result = value.codePointAt(optNum(0) ?? 0); break
     case "toString": result = value; break
@@ -947,7 +914,7 @@ const invokeObjectMethod = (name: string, args: Array<unknown>, node: AstNode): 
   const requireObject = (): Record<string, unknown> => {
     const value = boundedData(args[0], `Object.${name} input`)
     // Sandbox values (Date/RegExp/Map/Set) have no own enumerable properties in JS, so the
-    // Object.* helpers see them as empty objects — never their interpreter internals.
+    // Object.* helpers see them as empty objects - never their interpreter internals.
     if (isSandboxValue(value)) return {}
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       throw new InterpreterRuntimeError(`Object.${name} expects a data object.`, node)
@@ -961,7 +928,7 @@ const invokeObjectMethod = (name: string, args: Array<unknown>, node: AstNode): 
   switch (name) {
     case "keys": {
       // Object.keys(array) yields index strings (["0", "1", ...]) exactly as in JS; objects
-      // yield their own enumerable keys. (Tool references never reach here — the interpreter
+      // yield their own enumerable keys. (Tool references never reach here - the interpreter
       // resolves them against the host tool tree first.)
       const value = boundedData(args[0], "Object.keys input")
       if (isSandboxValue(value)) return []
@@ -1054,7 +1021,7 @@ const invokeJsonMethod = (name: string, args: Array<unknown>, node: AstNode): un
         parsed = JSON.parse(text)
       } catch (error) {
         // The engine reason is derived from the program-supplied string (token/position), so
-        // it is safe to surface — and the position is exactly what a model needs to fix it.
+        // it is safe to surface - and the position is exactly what a model needs to fix it.
         throw new InterpreterRuntimeError(
           `JSON.parse received invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
           node,
@@ -1289,7 +1256,7 @@ class Interpreter<R> {
       globalScope.set(name, { mutable: false, value: new ErrorConstructorReference(name) })
     }
     // NaN/Infinity flow as ordinary in-sandbox values (normalized to null only at the data
-    // boundary — see copyOut), so their global bindings must exist too, e.g. `reduce(max, -Infinity)`.
+    // boundary - see copyOut), so their global bindings must exist too, e.g. `reduce(max, -Infinity)`.
     globalScope.set("NaN", { mutable: false, value: NaN })
     globalScope.set("Infinity", { mutable: false, value: Infinity })
   }
@@ -1324,7 +1291,7 @@ class Interpreter<R> {
       if (!returned) value = self.lastValue
 
       // The program body runs inside an implicit async function, so a returned promise
-      // resolves before crossing the data boundary — `return tools.ns.tool(...)` works
+      // resolves before crossing the data boundary - `return tools.ns.tool(...)` works
       // without an explicit await, exactly as in JS.
       if (value instanceof SandboxPromise) value = yield* self.settlePromise(value)
       yield* self.drainPendingSettlements()
@@ -1333,7 +1300,7 @@ class Interpreter<R> {
   }
 
   // Awaits every fiber-backed promise the program abandoned (fire-and-forget tool calls), so
-  // their work completes before the execution ends — mirroring a JS runtime waiting on
+  // their work completes before the execution ends - mirroring a JS runtime waiting on
   // in-flight I/O at exit. A failure nobody could have handled becomes an unhandled-rejection
   // diagnostic (interrupted calls, e.g. Promise.race losers, are ignored).
   private drainPendingSettlements(): Effect.Effect<void, unknown, never> {
@@ -1347,7 +1314,7 @@ class Interpreter<R> {
           `Unhandled rejection from an un-awaited tool call: ${failure.message}`,
           undefined,
           failure.kind,
-          ["Await tool calls — `const result = await tools.ns.tool(...)` — so failures can be caught and handled."],
+          ["Await tool calls - `const result = await tools.ns.tool(...)` - so failures can be caught and handled."],
         )
       }
     })
@@ -1355,8 +1322,8 @@ class Interpreter<R> {
 
   // Eagerly starts a tool call on a supervised child fiber (so the execution timeout and
   // scope teardown interrupt it) gated by the concurrency semaphore, and wraps the fiber in a
-  // first-class promise value. `startImmediately` makes the runtime admit the call — charging
-  // the tool-call budget and firing onToolCallStart — at the call site, before any await.
+  // first-class promise value. `startImmediately` makes the runtime admit the call - charging
+  // the tool-call budget and firing onToolCallStart - at the call site, before any await.
   private createToolCallPromise(path: ReadonlyArray<string>, args: Array<unknown>): Effect.Effect<SandboxPromise, never, R> {
     const self = this
     return Effect.map(
@@ -1738,7 +1705,7 @@ class Interpreter<R> {
 
   // Own enumerable string keys of a value, shared by `for...in` and `Object.keys` over tool
   // references: plain data objects enumerate their own keys, arrays their index strings (plus
-  // any own non-index properties, e.g. match results' index/groups — exactly Object.keys in
+  // any own non-index properties, e.g. match results' index/groups - exactly Object.keys in
   // JS), and a tool reference the namespace/tool names at its path in the host tool tree.
   // Returns undefined for everything else so callers can raise a contextual error.
   private enumerableKeys(value: unknown): Array<string> | undefined {
@@ -1763,7 +1730,7 @@ class Interpreter<R> {
 
       // Keys are snapshotted up front (mutation during iteration is safe): plain objects
       // enumerate their own keys, arrays their index strings, and tool references the
-      // namespace/tool names at that node — the same enumeration Object.keys performs.
+      // namespace/tool names at that node - the same enumeration Object.keys performs.
       // Anything else (strings, Maps, Sets, numbers, null, ...) is a deliberate error rather
       // than real JS's surprising behavior (indices for strings, zero iterations for
       // Maps/Sets/null): the hint points at the constructs that do what the program means.
@@ -1864,7 +1831,7 @@ class Interpreter<R> {
           return Effect.failCause(cause)
         }
 
-        // The program sees a plain { message } error (or the thrown value itself) — see
+        // The program sees a plain { message } error (or the thrown value itself) - see
         // caughtErrorValue, shared with Promise.allSettled rejection reasons.
         const caught = caughtErrorValue(Cause.squash(cause))
         const parameter = getOptionalNode(handler, "param")
@@ -1923,7 +1890,7 @@ class Interpreter<R> {
         return
       }
 
-      // Default values: `x = expr` / `{ a = 1 }` — the default is evaluated only when the value is undefined.
+      // Default values: `x = expr` / `{ a = 1 }` - the default is evaluated only when the value is undefined.
       if (pattern.type === "AssignmentPattern") {
         const resolved = value === undefined ? yield* self.evaluateExpression(getNode(pattern, "right")) : value
         yield* self.declarePattern(getNode(pattern, "left"), resolved, mutable, node)
@@ -1939,7 +1906,7 @@ class Interpreter<R> {
         for (const propertyValue of getArray(pattern, "properties")) {
           const property = asNode(propertyValue, "properties")
 
-          // Object rest: `{ a, ...others }` — gather the not-yet-consumed own keys.
+          // Object rest: `{ a, ...others }` - gather the not-yet-consumed own keys.
           if (property.type === "RestElement") {
             const rest: SafeObject = Object.create(null) as SafeObject
             for (const [key, item] of Object.entries(value as SafeObject)) {
@@ -1972,7 +1939,7 @@ class Interpreter<R> {
         for (const [index, item] of getArray(pattern, "elements").entries()) {
           if (item === null) continue
           const element = asNode(item, `elements[${index}]`)
-          // Array rest: `[head, ...tail]` — binds the remaining elements (must be last).
+          // Array rest: `[head, ...tail]` - binds the remaining elements (must be last).
           if (element.type === "RestElement") {
             yield* self.declarePattern(getNode(element, "argument"), value.slice(index), mutable, element)
             break
@@ -2051,7 +2018,7 @@ class Interpreter<R> {
     const self = this
     if (name === "Promise") {
       throw new InterpreterRuntimeError(
-        "new Promise(...) is not supported in CodeMode; tool calls already return promises — call the tool and await the result.",
+        "new Promise(...) is not supported in CodeMode; tool calls already return promises - call the tool and await the result.",
         node,
         "UnsupportedSyntax",
         [supportedSyntaxMessage],
@@ -2086,7 +2053,7 @@ class Interpreter<R> {
       if (typeof arg === "string") return new SandboxDate(Date.parse(arg))
       return new SandboxDate(Number.NaN)
     }
-    // new Date(year, month, day?, hours?, ...) — local-time component form.
+    // new Date(year, month, day?, hours?, ...) - local-time component form.
     const parts = args.map((arg) => coerceToNumber(arg))
     return new SandboxDate(new Date(...(parts as [number, number])).getTime())
   }
@@ -2161,8 +2128,8 @@ class Interpreter<R> {
     const operator = getString(node, "operator")
     const self = this
     return Effect.gen(function*() {
-      const lhs = (yield* self.evaluateExpression(getNode(node, "left"))) as any
-      const rhs = (yield* self.evaluateExpression(getNode(node, "right"))) as any
+      const lhs = yield* self.evaluateExpression(getNode(node, "left"))
+      const rhs = yield* self.evaluateExpression(getNode(node, "right"))
       // Like `typeof`, `instanceof` observes any value without coercing it (a promise or
       // function operand is a legitimate question, not an error), so it is handled before
       // the data-only operand check.
@@ -2176,7 +2143,7 @@ class Interpreter<R> {
    * semantics. Shared by binary expressions and compound assignment (`x op= y` must behave
    * exactly like `x = x op y`, coercion included).
    */
-  private applyBinaryOperator(operator: string, lhs: any, rhs: any, node: AstNode): unknown {
+  private applyBinaryOperator(operator: string, lhs: unknown, rhs: unknown, node: AstNode): unknown {
     if (containsOpaqueReference(lhs) || containsOpaqueReference(rhs)) {
       throw new InterpreterRuntimeError("Binary operators require data values in CodeMode.", node, "InvalidDataValue")
     }
@@ -2184,37 +2151,37 @@ class Interpreter<R> {
     // "No default value" TypeError when an operator coerces them. Coerce to their JS string
     // form first (as String(x) / template literals do) so operators behave like JavaScript.
     // A Date follows its ToPrimitive hints: string for `+` (concatenation), its time value
-    // for arithmetic and ordering — so `end - start` and `a < b` work as in JS.
+    // for arithmetic and ordering - so `end - start` and `a < b` work as in JS.
     // Identity (=== / !==) and the right operand of `in` keep their raw object value.
     const coerceOperand = (operand: unknown): unknown => {
       if (operand instanceof SandboxDate) return operator === "+" ? coerceToString(operand) : operand.time
       return operand !== null && typeof operand === "object" ? coerceToString(operand) : operand
     }
     const bothObjects = lhs !== null && typeof lhs === "object" && rhs !== null && typeof rhs === "object"
-    const l = coerceOperand(lhs) as any
-    const r = coerceOperand(rhs) as any
+    const l = coerceOperand(lhs)
+    const r = coerceOperand(rhs)
     switch (operator) {
-      case "+": return l + r
-      case "-": return l - r
-      case "*": return l * r
-      case "/": return l / r
-      case "%": return l % r
-      case "**": return l ** r
+      case "+": return (l as string) + (r as string)
+      case "-": return (l as number) - (r as number)
+      case "*": return (l as number) * (r as number)
+      case "/": return (l as number) / (r as number)
+      case "%": return (l as number) % (r as number)
+      case "**": return (l as number) ** (r as number)
       // Two objects compare by identity in JS (no ToPrimitive); only object-vs-primitive coerces.
       case "==": return bothObjects ? lhs === rhs : l == r
       case "===": return lhs === rhs
       case "!=": return bothObjects ? lhs !== rhs : l != r
       case "!==": return lhs !== rhs
-      case "<": return l < r
-      case "<=": return l <= r
-      case ">": return l > r
-      case ">=": return l >= r
-      case "&": return l & r
-      case "|": return l | r
-      case "^": return l ^ r
-      case "<<": return l << r
-      case ">>": return l >> r
-      case ">>>": return l >>> r
+      case "<": return (l as string) < (r as string)
+      case "<=": return (l as string) <= (r as string)
+      case ">": return (l as string) > (r as string)
+      case ">=": return (l as string) >= (r as string)
+      case "&": return (l as number) & (r as number)
+      case "|": return (l as number) | (r as number)
+      case "^": return (l as number) ^ (r as number)
+      case "<<": return (l as number) << (r as number)
+      case ">>": return (l as number) >> (r as number)
+      case ">>>": return (l as number) >>> (r as number)
       case "in":
         if (rhs === null || typeof rhs !== "object") {
           throw new InterpreterRuntimeError("The 'in' operator requires a data object on the right-hand side.", node)
@@ -2245,27 +2212,26 @@ class Interpreter<R> {
       return Effect.succeed("undefined")
     }
     return Effect.map(this.evaluateExpression(argument), (value) => {
-      // `typeof` and `!` never throw in JS — they observe any value (functions and runtime
+      // `typeof` and `!` never throw in JS - they observe any value (functions and runtime
       // references included) without coercing it, so feature detection and negation work.
       if (operator === "typeof") return typeofValue(value)
       if (operator === "!") return !value
       if (containsOpaqueReference(value)) {
         throw new InterpreterRuntimeError("Unary operators require data values in CodeMode.", node, "InvalidDataValue")
       }
-      const rhs = value as any
       // Numeric/bitwise unary operators ToPrimitive their operand; a Date yields its time value
       // (`+date` is the epoch-ms idiom), other null-prototype data objects/arrays coerce to
       // their JS string form first (see evaluateBinaryExpression).
-      const operand = rhs instanceof SandboxDate
-        ? (rhs.time as any)
-        : rhs !== null && typeof rhs === "object"
-          ? (coerceToString(rhs) as any)
-          : rhs
+      const operand = value instanceof SandboxDate
+        ? value.time
+        : value !== null && typeof value === "object"
+          ? coerceToString(value)
+          : value
       let result: unknown
       switch (operator) {
-        case "+": result = +operand; break
-        case "-": result = -operand; break
-        case "~": result = ~operand; break
+        case "+": result = +(operand as number); break
+        case "-": result = -(operand as number); break
+        case "~": result = ~(operand as number); break
         default: throw new InterpreterRuntimeError(`Unsupported unary operator '${operator}'.`, node)
       }
       return boundedData(result, "Unary expression result")
@@ -2398,7 +2364,7 @@ class Interpreter<R> {
   }
 
   // Object.* over a tool reference: `Object.keys(tools)` / `Object.keys(tools.ns)` enumerate
-  // namespace/tool names from the host tool tree — the discovery idiom a model reaches for
+  // namespace/tool names from the host tool tree - the discovery idiom a model reaches for
   // first. Every other Object helper cannot produce data from a tool reference, so it fails
   // with a pointer at the working idioms instead of the generic plain-objects-only message.
   private invokeObjectMethodOnTools(name: string, ref: ToolReference, node: AstNode): unknown {
@@ -2426,11 +2392,11 @@ class Interpreter<R> {
   }
 
   // Console arguments format deeply and totally: values render as a debugger would show them
-  // rather than as boundary JSON — numbers keep NaN/Infinity (JSON would say null), sandbox
+  // rather than as boundary JSON - numbers keep NaN/Infinity (JSON would say null), sandbox
   // values keep their friendly forms at ANY depth (ISO date, /regex/flags, Map(n) [...],
   // Set(n) [...]), opaque runtime references become "[CodeMode reference]" markers in place,
   // and plain objects/arrays render JSON-style. Formatting never fails the program: cycles
-  // render "[Circular]" and extreme depth degrades to "…".
+  // render "[Circular]" and extreme depth degrades to "...".
   private formatConsoleArgument(value: unknown): string {
     if (value === undefined) return "undefined"
     // A top-level string prints bare; nested strings are JSON-quoted (see formatConsoleValue).
@@ -2448,7 +2414,7 @@ class Interpreter<R> {
     if (value instanceof SandboxPromise) return "[Promise (await it to get its value)]"
     if (value instanceof SandboxDate) return coerceToString(value)
     if (value instanceof SandboxRegExp) return coerceToString(value)
-    if (depth > MAX_CONSOLE_DEPTH) return "…"
+    if (depth > MAX_CONSOLE_DEPTH) return "..."
     if (seen.has(value)) return "[Circular]"
     if (value instanceof SandboxMap) {
       seen.add(value)
@@ -2544,8 +2510,8 @@ class Interpreter<R> {
   }
 
   // Promise.* over ordinary runtime values. Combinators accept ANY array (or spreadable
-  // collection) mixing promise values and plain data — built inline, beforehand, via spread,
-  // whatever — because tool calls already run eagerly on their own fibers; the combinators
+  // collection) mixing promise values and plain data - built inline, beforehand, via spread,
+  // whatever - because tool calls already run eagerly on their own fibers; the combinators
   // only observe settlements. Joining is therefore sequential (no extra fibers) without
   // costing parallelism, and the concurrency cap stays where the work is: the fork semaphore.
   private invokePromiseMethod(ref: PromiseMethodReference, args: Array<unknown>, node: AstNode): Effect.Effect<unknown, unknown, R> {
@@ -2638,7 +2604,7 @@ class Interpreter<R> {
       const run = Effect.gen(function*() {
         // Seed every parameter name into the scope as a TDZ slot first, so a default that
         // references another parameter resolves to that (uninitialized) param rather than
-        // silently falling through to an outer binding of the same name — matching JS.
+        // silently falling through to an outer binding of the same name - matching JS.
         const paramScope = self.currentScope()
         for (const parameter of fn.parameters) {
           for (const name of collectPatternNames(parameter)) {
@@ -2858,7 +2824,7 @@ class Interpreter<R> {
         : self.invokeFunction(callback, callbackArgs)
     return Effect.gen(function*() {
       // Iterate a snapshot taken at call time so a callback that mutates the array can't
-      // self-extend the loop — matching JS, where elements appended during iteration are not visited.
+      // self-extend the loop - matching JS, where elements appended during iteration are not visited.
       const items = target.slice()
       switch (name) {
         case "map": {
@@ -2976,7 +2942,7 @@ class Interpreter<R> {
         let rightIndex = 0
         while (leftIndex < left.length && rightIndex < right.length) {
           // Coerce the comparator's result like JS ToNumber (data objects -> NaN, never a host
-          // crash) and treat NaN as 0 — the spec's "no consistent order" → keep the left element.
+          // crash) and treat NaN as 0 - the spec's "no consistent order" -> keep the left element.
           const order = coerceToNumber(yield* self.invokeFunction(comparator, [left[leftIndex], right[rightIndex]]))
           if (Number.isNaN(order) || order <= 0) merged.push(left[leftIndex++])
           else merged.push(right[rightIndex++])
@@ -3174,7 +3140,7 @@ class Interpreter<R> {
         if (typeof key === "string" && /^\d+$/.test(key)) return new ComputedValue(objectValue[Number(key)])
         if (typeof key === "string" && stringMethods.has(key)) return new IntrinsicReference(objectValue, key)
         // Unknown property on a string reads as `undefined`, matching JS (`"x".foo === undefined`),
-        // instead of throwing — so defensive access like `result?.login ?? result` on a JSON-string
+        // instead of throwing - so defensive access like `result?.login ?? result` on a JSON-string
         // tool result doesn't crash. (Optional chaining only guards null/undefined receivers, so a
         // real string still reaches here.) Only the method allowlist above yields callables.
         return new ComputedValue(undefined)
@@ -3225,14 +3191,14 @@ class Interpreter<R> {
       if (objectValue instanceof SandboxPromise) {
         if (key === "then" || key === "catch" || key === "finally") {
           throw new InterpreterRuntimeError(
-            `Promise.prototype.${String(key)} is not supported in CodeMode; use await instead (with try/catch to handle failures) — e.g. \`const result = await tools.ns.tool(...)\`.`,
+            `Promise.prototype.${String(key)} is not supported in CodeMode; use await instead (with try/catch to handle failures) - e.g. \`const result = await tools.ns.tool(...)\`.`,
             propertyNode,
             "UnsupportedSyntax",
             [supportedSyntaxMessage],
           )
         }
         throw new InterpreterRuntimeError(
-          "This value is an un-awaited Promise and has no readable properties; await it first — e.g. `const result = await tools.ns.tool(...)`.",
+          "This value is an un-awaited Promise and has no readable properties; await it first - e.g. `const result = await tools.ns.tool(...)`.",
           objectNode,
           "InvalidDataValue",
         )
@@ -3258,7 +3224,7 @@ class Interpreter<R> {
             return new ComputedValue((objectValue as Record<string, unknown> & Array<unknown>)[key])
           }
           // Unknown property on an array reads as `undefined`, matching JS (`[1,2].foo === undefined`),
-          // instead of throwing — so defensive access under optional chaining behaves as expected.
+          // instead of throwing - so defensive access under optional chaining behaves as expected.
           return new ComputedValue(undefined)
         }
         return { target: objectValue, key }
@@ -3294,7 +3260,7 @@ class Interpreter<R> {
   }
 
   // Resolves the member reference EXACTLY ONCE (so a side-effecting object/key expression
-  // runs once), then lets `compute` decide whether to write — enabling compound assignment,
+  // runs once), then lets `compute` decide whether to write - enabling compound assignment,
   // updates, plain writes, and short-circuiting logical assignment to share one safe path.
   private modifyMember(
     node: AstNode,
@@ -3329,7 +3295,7 @@ class Interpreter<R> {
   }
 
   // Rejects inserting a value that (transitively) contains the container it is being inserted
-  // into — the mutation that would create a circular structure no later walk could survive.
+  // into - the mutation that would create a circular structure no later walk could survive.
   private rejectCircularInsertion(container: object, value: unknown, label: string, node: AstNode, seen = new Set<object>()): void {
     if (value === container) throw new InterpreterRuntimeError(`${label} contains a circular value.`, node, "InvalidDataValue")
     if (value === null || typeof value !== "object" || isRuntimeReference(value) || seen.has(value)) return
@@ -3384,7 +3350,7 @@ class Interpreter<R> {
       throw new InterpreterRuntimeError(`Unknown identifier '${name}'.`, node).as("ReferenceError")
     }
 
-    // A parameter default that forward-references a later (not-yet-bound) parameter — JS TDZ.
+    // A parameter default that forward-references a later (not-yet-bound) parameter - JS TDZ.
     if (binding.initialized === false) {
       throw new InterpreterRuntimeError(`Cannot access '${name}' before initialization.`, node).as("ReferenceError")
     }
@@ -3532,7 +3498,7 @@ const utf8Truncate = (value: string, maxBytes: number): string => {
  * Oversized values are replaced by their truncated serialized text with an explanatory marker,
  * and logs are kept from the start until the remaining budget is exhausted. Truncation never
  * fails the execution; `truncated: true` marks affected results. Only runs when the host set
- * `maxOutputBytes` — with the limit absent, output passes through unbounded.
+ * `maxOutputBytes` - with the limit absent, output passes through unbounded.
  */
 const boundOutput = (result: ExecuteResult, maxOutputBytes: number): ExecuteResult => {
   let truncated = false

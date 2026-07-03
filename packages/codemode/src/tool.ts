@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect"
  * JSON Schema subset accepted for render-only tool schemas.
  *
  * A JSON-Schema-described side of a tool is used to generate the model-visible TypeScript
- * signature only — CodeMode performs no validation against it. This is the natural shape for
+ * signature only - CodeMode performs no validation against it. This is the natural shape for
  * adapter-provided tools (e.g. MCP definitions) whose schemas arrive as JSON Schema documents.
  */
 export type JsonSchema = {
@@ -63,7 +63,7 @@ const isEffectSchema = (schema: ToolSchema): schema is Schema.Decoder<unknown> &
 const renderLiteral = (value: unknown): string => JSON.stringify(value) ?? "unknown"
 
 /**
- * Bare TypeScript identifier — usable unquoted as an object key (and, in the tool runtime,
+ * Bare TypeScript identifier - usable unquoted as an object key (and, in the tool runtime,
  * with dot access as a tool-path segment). Anything else must be quoted/bracketed.
  */
 export const identifierSegment = /^[A-Za-z_$][A-Za-z0-9_$]*$/
@@ -77,7 +77,7 @@ const effectNumberSentinel = (schema: JsonSchema) =>
 
 /**
  * Recursion ceiling for schema rendering. Object, array, and union recursion all increment
- * depth, so this bounds every recursion path — pathological or structurally cyclic schemas
+ * depth, so this bounds every recursion path - pathological or structurally cyclic schemas
  * degrade to `unknown` instead of overflowing the stack (rendering must never throw).
  */
 const MAX_RENDER_DEPTH = 8
@@ -111,7 +111,7 @@ const docTags = (schema: JsonSchema): Array<string> => {
 
 /**
  * Format a schema `description` plus `tags` as a JSDoc comment at the given indent,
- * preserving multi-line text (a single line stays `/** … *\/`; multiple lines become a
+ * preserving multi-line text (a single line stays `/** ... *\/`; multiple lines become a
  * `*`-prefixed block). `*\/` is neutralized so nothing can close the comment early, and
  * blank leading/trailing lines are trimmed. Returns "" (else a trailing newline) so
  * callers can prepend it directly to the field line.
@@ -220,7 +220,7 @@ export type InputProperty = {
 }
 
 /**
- * The property names, descriptions, and required flags of a tool's input schema — the raw
+ * The property names, descriptions, and required flags of a tool's input schema - the raw
  * material for search text. Best-effort: Effect Schemas go through their
  * JSON Schema document (the same emission signature rendering uses); JSON Schemas are read
  * directly, resolving a trivial top-level `$ref` into `$defs`/`definitions` when present.
@@ -299,7 +299,7 @@ export const decodeOutput = <R>(definition: Definition<R>, value: unknown): unkn
  * document. Effect Schema input is decoded before `run` is invoked, and `run` returns the
  * encoded representation of an Effect Schema `output`, which CodeMode decodes before returning
  * it to the program. JSON Schemas only shape the model-visible signature; values pass through
- * unvalidated. `output` is optional — without it the signature advertises `unknown` and the
+ * unvalidated. `output` is optional - without it the signature advertises `unknown` and the
  * host result is exposed as-is. The host tool remains responsible for authorization and
  * durable side-effect handling.
  *

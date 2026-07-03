@@ -118,9 +118,9 @@ export const isBlockedMember = (name: string): boolean => blockedMemberNames.has
  * objects only, blocked properties, data-only leaves).
  *
  * Two modes share the walk:
- * - **Boundary** (`preserveSandboxValues` false, the default): the host↔sandbox boundary —
+ * - **Boundary** (`preserveSandboxValues` false, the default): the host<->sandbox boundary -
  *   final results, tool-call arguments, `JSON.stringify`. Sandbox value types serialize
- *   exactly as JSON.stringify would: Date → ISO string (invalid → null), RegExp/Map/Set → {}.
+ *   exactly as JSON.stringify would: Date -> ISO string (invalid -> null), RegExp/Map/Set -> {}.
  * - **Intra-sandbox checkpoint** (`preserveSandboxValues` true; see `boundedData` in
  *   codemode.ts): Date/RegExp/Map/Set instances pass through untouched (treated as leaves,
  *   contents not walked), so values flowing through `Object.*` helpers, coercion inputs, and
@@ -142,7 +142,7 @@ const copyBounded = (value: unknown, label: string, depth: number, seen: Set<obj
     typeof value === "boolean" ||
     // NaN/Infinity are allowed to exist as in-sandbox intermediates (matching real JS and a real
     // engine) so defensive guards like `Number.isNaN(x)` / `parseInt(x) || 0` can run. They are
-    // normalized to `null` when the value leaves the sandbox — see copyOut — exactly as
+    // normalized to `null` when the value leaves the sandbox - see copyOut - exactly as
     // JSON.stringify already does at any tool boundary.
     typeof value === "number"
   ) {
@@ -234,7 +234,7 @@ const copyBounded = (value: unknown, label: string, depth: number, seen: Set<obj
 export const copyOut = (value: unknown, undefinedAsNull = false): unknown => {
   if (value === undefined && undefinedAsNull) return null
   // Normalize non-finite numbers to null as the value crosses out of the sandbox (final return
-  // and tool-call arguments both funnel through here), matching JSON semantics — NaN/Infinity
+  // and tool-call arguments both funnel through here), matching JSON semantics - NaN/Infinity
   // have no JSON representation, so JSON.stringify would produce null anyway.
   if (typeof value === "number" && !Number.isFinite(value)) {
     return null
@@ -311,7 +311,7 @@ const tokenize = (query: string): Array<string> =>
  * A term plus its naive singular variants (trailing "s"/"es" stripped), so a plural
  * query term ("issues") still matches indexed text that only carries the singular
  * ("issue"). Matching is one-directional substring containment, so the variants are
- * needed only on the query side; scoring weights are unchanged — each field check
+ * needed only on the query side; scoring weights are unchanged - each field check
  * passes when ANY form matches.
  */
 const termForms = (term: string): Array<string> => {
@@ -326,7 +326,7 @@ const firstLine = (text: string) => text.split("\n", 1)[0]!.trim()
 /** One-line description used on inline catalog lines; the full text stays in search results. */
 const brief = (text: string, max = 120) => {
   const line = firstLine(text)
-  return line.length > max ? line.slice(0, max - 1) + "…" : line
+  return line.length > max ? line.slice(0, max - 1) + "..." : line
 }
 
 const catalogLine = (tool: ToolDescription) => {
@@ -359,11 +359,11 @@ export const assertValidTools = <R>(tools: HostTools<R>): void => {
 /**
  * Budgeted catalog: every namespace is always listed with its tool count; full call
  * signatures are inlined against the `maxInlineCatalogTokens` budget (estimated tokens,
- * chars/4) round-robin across namespaces — in each round (namespaces alphabetical), every
+ * chars/4) round-robin across namespaces - in each round (namespaces alphabetical), every
  * namespace still holding un-inlined tools attempts to place its next-cheapest line, and
- * a namespace whose next line does not fit is done while the others keep going — so every
+ * a namespace whose next line does not fit is done while the others keep going - so every
  * namespace gets some representation before any namespace gets everything. The section
- * states exactly how comprehensive it is — overall (COMPLETE vs PARTIAL) and per
+ * states exactly how comprehensive it is - overall (COMPLETE vs PARTIAL) and per
  * namespace. Namespace stub lines are never budgeted: every namespace appears with its
  * tool count even at budget 0.
  */
@@ -390,7 +390,7 @@ export const discoveryPlan = <R>(
   // exactly how comprehensive it is. Round-robin fairness: in each round (namespaces
   // alphabetical), every namespace still holding un-inlined tools tries to place its
   // next-cheapest line against the shared budget; a namespace whose next line does not
-  // fit is done — the others keep going — so every namespace gets some representation
+  // fit is done - the others keep going - so every namespace gets some representation
   // before any namespace gets everything.
   const selections = ordered.map(([namespace, group]) => ({
     namespace,
@@ -424,7 +424,7 @@ export const discoveryPlan = <R>(
 
   // Section order is deliberate: workflow first (the top is the least likely part of a long
   // description to be truncated or skimmed away), then rules, then syntax, with the budgeted
-  // catalog at the bottom. Example call forms use explicit `<namespace>.<tool>` placeholders —
+  // catalog at the bottom. Example call forms use explicit `<namespace>.<tool>` placeholders -
   // never a real or fabricated tool name.
   const intro = [
     "Write a CodeMode program to answer the request. Return code only.",
@@ -445,17 +445,17 @@ export const discoveryPlan = <R>(
         "",
         ...(complete
           ? [
-              "1. Pick a tool from the list under `## Available tools` — each line is the exact call signature; use it as-is rather than guessing segments.",
-              "2. Call it using the exact signature shown: `const res = await tools.<namespace>.<tool>(input)` — bracket notation may appear for names that are not JavaScript identifiers.",
-              '3. Parse text results: `const data = typeof res === "string" ? JSON.parse(res) : res` — most tools return JSON as a string.',
-              "4. Return only the fields you need: `return { <field>: data.<field> }` — raw payloads get truncated and waste context.",
+              "1. Pick a tool from the list under `## Available tools` - each line is the exact call signature; use it as-is rather than guessing segments.",
+              "2. Call it using the exact signature shown: `const res = await tools.<namespace>.<tool>(input)` - bracket notation may appear for names that are not JavaScript identifiers.",
+              '3. Parse text results: `const data = typeof res === "string" ? JSON.parse(res) : res` - most tools return JSON as a string.',
+              "4. Return only the fields you need: `return { <field>: data.<field> }` - raw payloads get truncated and waste context.",
             ]
           : [
-              '1. Find a tool (skip when it is already listed below): `const { items } = await tools.$codemode.search({ query: "<intent + key nouns>" })` — short phrases like "list issues" work best.',
-              "2. Read the matches: each item is `{ path, description, signature }` — read the description before using an unfamiliar tool.",
-              "3. Call it with the result's `path` as-is (never guess segments): `const res = await tools.<namespace>.<tool>(input)` — bracket notation may appear for names that are not JavaScript identifiers.",
-              '4. Parse text results: `const data = typeof res === "string" ? JSON.parse(res) : res` — most tools return JSON as a string.',
-              "5. Return only the fields you need: `return { <field>: data.<field> }` — raw payloads get truncated and waste context.",
+              '1. Find a tool (skip when it is already listed below): `const { items } = await tools.$codemode.search({ query: "<intent + key nouns>" })` - short phrases like "list issues" work best.',
+              "2. Read the matches: each item is `{ path, description, signature }` - read the description before using an unfamiliar tool.",
+              "3. Call it with the result's `path` as-is (never guess segments): `const res = await tools.<namespace>.<tool>(input)` - bracket notation may appear for names that are not JavaScript identifiers.",
+              '4. Parse text results: `const data = typeof res === "string" ? JSON.parse(res) : res` - most tools return JSON as a string.',
+              "5. Return only the fields you need: `return { <field>: data.<field> }` - raw payloads get truncated and waste context.",
             ]),
       ]
 
@@ -468,8 +468,8 @@ export const discoveryPlan = <R>(
         complete
           ? "- Only tools listed here are available inside `tools`; tools from the surrounding agent/runtime are not implicitly exposed."
           : "- Only tools listed here or returned by `tools.$codemode.search` are available inside `tools`; tools from the surrounding agent/runtime are not implicitly exposed.",
-        "- Filter, aggregate, and transform collections in code — never return them raw or call a tool per item across messages.",
-        "- A result typed `Promise<unknown>` has no guaranteed shape — verify what actually came back before relying on its fields.",
+        "- Filter, aggregate, and transform collections in code - never return them raw or call a tool per item across messages.",
+        "- A result typed `Promise<unknown>` has no guaranteed shape - verify what actually came back before relying on its fields.",
         "- Run independent calls in parallel: `await Promise.all(items.map((item) => tools.<namespace>.<tool>(item)))`.",
         "- `Object.keys(tools)` lists namespaces; `Object.keys(tools.<namespace>)` lists its tools; `for...in` works on both.",
         ...(complete ? [] : ['- Browse one namespace: `await tools.$codemode.search({ query: "", namespace: "<name>" })`.']),
@@ -491,8 +491,8 @@ export const discoveryPlan = <R>(
   } else {
     toolSection.push(
       complete
-        ? "## Available tools (COMPLETE list — every tool is shown below with its full call signature)"
-        : `## Available tools (PARTIAL — ${totalShown} of ${described.length} shown; find the rest with tools.$codemode.search)`,
+        ? "## Available tools (COMPLETE list - every tool is shown below with its full call signature)"
+        : `## Available tools (PARTIAL - ${totalShown} of ${described.length} shown; find the rest with tools.$codemode.search)`,
       "",
     )
     for (const [namespace, group] of ordered) {
@@ -528,8 +528,8 @@ export const discoveryPlan = <R>(
 }
 
 /**
- * The enumerable names at one node of the host tool tree — namespace names at the root,
- * tool/namespace names below — powering `Object.keys(tools)` and `for...in` over tool
+ * The enumerable names at one node of the host tool tree - namespace names at the root,
+ * tool/namespace names below - powering `Object.keys(tools)` and `for...in` over tool
  * references. A callable tool is a leaf and enumerates as `[]` (like `Object.keys` of a
  * function in JS). An unknown path is an `UnknownTool` error pointing at the working
  * discovery idioms, mirroring how calling an unknown tool fails.

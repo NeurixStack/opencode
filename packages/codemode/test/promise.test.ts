@@ -213,7 +213,7 @@ describe("Promise.all over arbitrary arrays", () => {
     )
     expect(result).toEqual([1, 2, 3, 4])
     // maxActive counts truly-overlapping live executions, so > 1 proves real
-    // parallelism deterministically — no wall-clock assertion needed.
+    // parallelism deterministically - no wall-clock assertion needed.
     expect(trace.maxActive).toBeGreaterThan(1)
   })
 
@@ -375,7 +375,7 @@ describe("timeout interruption of forked calls", () => {
     expect(result.ok).toBe(false)
     if (result.ok) return
     expect(result.error.kind).toBe("TimeoutExceeded")
-    // Both calls started; neither escaped the timeout — the awaited one AND the abandoned one.
+    // Both calls started; neither escaped the timeout - the awaited one AND the abandoned one.
     expect(trace.starts).toEqual([1, 2])
     expect(trace.interrupted).toBe(2)
     expect(trace.completed).toBe(0)
