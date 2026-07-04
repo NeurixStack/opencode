@@ -46,8 +46,7 @@ const make = (permission?: string) => {
     description: "Echo text",
     input: Schema.Struct({ text: Schema.String }),
     output: Schema.Struct({ text: Schema.String }),
-    execute: ({ text }) => Effect.succeed({ text }),
-    toModelOutput: ({ output }) => [{ type: "text", text: output.text }],
+    execute: ({ text }) => Effect.succeed({ structured: { text }, content: [{ type: "text" as const, text }] }),
   })
   return permission ? Tool.withPermission(tool, permission) : tool
 }
@@ -244,7 +243,8 @@ describe("ToolRegistry", () => {
           description: "Context",
           input: Schema.Struct({}),
           output: Schema.Struct({ ok: Schema.Boolean }),
-          execute: (_, context) => Effect.sync(() => contexts.push(context)).pipe(Effect.as({ ok: true })),
+          execute: (_, context) =>
+            Effect.sync(() => contexts.push(context)).pipe(Effect.as({ structured: { ok: true }, content: [] })),
         }),
       })
       yield* executeTool(service, {
@@ -276,7 +276,7 @@ describe("ToolRegistry", () => {
     }),
   )
 
-  it.effect("enforces transformed codecs at execution and projection boundaries", () =>
+  it.effect("validates structured output while preserving executor-provided model content", () =>
     Effect.gen(function* () {
       const service = yield* ToolRegistry.Service
       const executed: string[] = []
@@ -291,18 +291,23 @@ describe("ToolRegistry", () => {
           description: "Transform values",
           input: Schema.Struct({ value: Transformed }),
           output: Schema.Struct({ value: Transformed }),
-          execute: ({ value }) => Effect.sync(() => executed.push(value)).pipe(Effect.as({ value })),
-          toModelOutput: ({ output }) => [{ type: "text", text: String(output.value) }],
+          execute: ({ value }) =>
+            Effect.sync(() => executed.push(value)).pipe(
+              Effect.as({ structured: { value }, content: [{ type: "text" as const, text: value }] }),
+            ),
         }),
       })
 
       expect(
-        yield* executeTool(service, {
+        yield* settleTool(service, {
           sessionID,
           ...identity,
           call: { type: "tool-call", id: "transformed", name: "transformed", input: { value: true } },
         }),
-      ).toEqual({ type: "text", value: "true" })
+      ).toEqual({
+        result: { type: "text", value: "yes" },
+        output: { structured: { value: true }, content: [{ type: "text", text: "yes" }] },
+      })
       expect(executed).toEqual(["yes"])
       expect(
         yield* executeTool(service, {
@@ -329,7 +334,7 @@ describe("ToolRegistry", () => {
               }),
             ),
           }),
-          execute: () => Effect.succeed({ value: "invalid" }),
+          execute: () => Effect.succeed({ structured: { value: "invalid" }, content: [] }),
         }),
       })
       expect(
@@ -411,8 +416,10 @@ describe("ToolRegistry", () => {
             input: Schema.Struct({ text: Schema.String }),
             output: Schema.Struct({ text: Schema.String }),
             execute: ({ text }) =>
-              Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(release)), Effect.as({ text })),
-            toModelOutput: ({ output }) => [{ type: "text", text: output.text }],
+              Deferred.succeed(started, undefined).pipe(
+                Effect.andThen(Deferred.await(release)),
+                Effect.as({ structured: { text }, content: [{ type: "text" as const, text }] }),
+              ),
           }),
         })
         .pipe(Scope.provide(scope))

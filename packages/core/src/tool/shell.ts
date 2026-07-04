@@ -45,21 +45,17 @@ const StructuredOutput = Schema.Struct({
   timeout: Schema.Boolean.pipe(Schema.optional),
 })
 
-const Output = Schema.Struct({
-  ...StructuredOutput.fields,
-  output: Schema.String,
-  status: Schema.Literals(["completed", "running"]).pipe(Schema.optional),
-  warnings: Schema.Array(Schema.String).pipe(Schema.optional),
-})
+type Result = typeof StructuredOutput.Type & {
+  readonly output: string
+  readonly status?: "completed" | "running"
+  readonly warnings?: ReadonlyArray<string>
+}
 
-type Output = typeof Output.Type
-
-const modelOutput = (output: Output): string | undefined => {
+const modelOutput = (output: Result): string | undefined => {
   const warnings = output.warnings?.length
     ? `\n\nWarnings:\n${output.warnings.map((warning) => `- ${warning}`).join("\n")}`
     : ""
-  if (output.status === "running")
-    return `${warnings.trimStart()}${warnings ? "\n\n" : ""}${BACKGROUND_INSTRUCTION}`
+  if (output.status === "running") return `${warnings.trimStart()}${warnings ? "\n\n" : ""}${BACKGROUND_INSTRUCTION}`
   if (output.timeout) return `${warnings.trimStart()}${warnings ? "\n\n" : ""}Command timed out before completion.`
   return `${warnings.trimStart()}${warnings ? "\n\n" : ""}Command exited with code ${output.exit}.`
 }
@@ -144,20 +140,7 @@ export const Plugin = {
         [name]: Tool.make({
           description: `Execute one shell command string with the host user's filesystem, process, and network authority. The active Location is the default working directory. Relative workdir values resolve from that Location. External workdir values require external_directory approval; best-effort command-argument path warnings are advisory only. Timeout values are milliseconds (default: ${DEFAULT_TIMEOUT_MS}; maximum: ${MAX_TIMEOUT_MS}). Uses the configured shell when set; otherwise uses /bin/sh on POSIX and COMSPEC or cmd.exe on Windows. Background mode (background=true) launches the command asynchronously and returns immediately; you are notified when it finishes.`,
           input: Input,
-          output: Output,
-          structured: StructuredOutput,
-          toStructuredOutput: ({ output }) => ({
-            truncated: output.truncated,
-            ...(output.exit === undefined ? {} : { exit: output.exit }),
-            ...(output.shellID === undefined ? {} : { shellID: output.shellID }),
-            ...(output.timeout === undefined ? {} : { timeout: output.timeout }),
-          }),
-          toModelOutput: ({ output }) => {
-            const parts: Content[] = [{ type: "text", text: output.output }]
-            const model = modelOutput(output)
-            if (model) parts.push({ type: "text", text: model })
-            return parts
-          },
+          output: StructuredOutput,
           execute: (input, context) =>
             Effect.gen(function* () {
               const source = {
@@ -247,9 +230,9 @@ export const Plugin = {
                 }
               }
 
-              const result = yield* runtime.job.block({ id: job.id, sessionID: context.sessionID }).pipe(
-                Effect.onInterrupt(() => runtime.job.cancel(job.id).pipe(Effect.ignore)),
-              )
+              const result = yield* runtime.job
+                .block({ id: job.id, sessionID: context.sessionID })
+                .pipe(Effect.onInterrupt(() => runtime.job.cancel(job.id).pipe(Effect.ignore)))
               if (result?.type === "backgrounded") {
                 yield* notifyWhenDone(context.sessionID, context.toolCallID, input.command)
                 return {
@@ -260,14 +243,26 @@ export const Plugin = {
                   ...(warnings.length ? { warnings } : {}),
                 }
               }
-              if (result?.info.status === "error") return yield* Effect.fail(new Error(result.info.error ?? "Command failed"))
+              if (result?.info.status === "error")
+                return yield* Effect.fail(new Error(result.info.error ?? "Command failed"))
               if (result?.info.status === "cancelled") return yield* Effect.fail(new Error("Command cancelled"))
 
               return {
                 ...(yield* settleShell()),
                 ...(warnings.length ? { warnings } : {}),
               }
-            }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to execute command: ${input.command}` }))),
+            }).pipe(
+              Effect.mapError(() => new ToolFailure({ message: `Unable to execute command: ${input.command}` })),
+              Effect.map((result) => {
+                const content: Content[] = [{ type: "text", text: result.output }]
+                const model = modelOutput(result)
+                if (model) content.push({ type: "text", text: model })
+                return {
+                  structured: result,
+                  content,
+                }
+              }),
+            ),
         }),
       })
       .pipe(Effect.orDie)

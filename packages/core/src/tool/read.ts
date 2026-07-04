@@ -48,14 +48,6 @@ export const Plugin = {
             "Read a text file or supported image, page through a large UTF-8 text file by line offset, or list a directory page. Relative paths resolve from the current location; absolute paths inside it are accepted, while external absolute paths require external_directory approval.",
           input: Input,
           output: Output,
-          toModelOutput: ({ input, output }) => {
-            if (!("encoding" in output) || output.encoding !== "base64" || !SUPPORTED_IMAGE_MIMES.has(output.mime))
-              return []
-            return [
-              { type: "text", text: "Image read successfully" },
-              { type: "file", data: output.content, mime: output.mime, name: input.path },
-            ]
-          },
           execute: (input, context) => {
             return Effect.gen(function* () {
               const source = {
@@ -106,7 +98,9 @@ export const Plugin = {
                   start: type === "directory" ? resolved : dirname(resolved),
                   stop: root,
                 })
-                const candidates = (yield* Effect.forEach(discovered, fs.resolve)).filter((file) => dirname(file) !== root)
+                const candidates = (yield* Effect.forEach(discovered, fs.resolve)).filter(
+                  (file) => dirname(file) !== root,
+                )
                 if (candidates.length === 0) return
                 yield* sessionInstructions.load({ sessionID: context.sessionID, paths: candidates })
               }).pipe(
@@ -132,6 +126,23 @@ export const Plugin = {
                     : `Unable to read ${input.path}`
                 return new ToolFailure({ message })
               }),
+              Effect.map((structured) => ({
+                structured,
+                content:
+                  "encoding" in structured &&
+                  structured.encoding === "base64" &&
+                  SUPPORTED_IMAGE_MIMES.has(structured.mime)
+                    ? [
+                        { type: "text" as const, text: "Image read successfully" },
+                        {
+                          type: "file" as const,
+                          data: structured.content,
+                          mime: structured.mime,
+                          name: input.path,
+                        },
+                      ]
+                    : [],
+              })),
             )
           },
         }),

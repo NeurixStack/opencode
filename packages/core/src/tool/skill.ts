@@ -64,7 +64,6 @@ export const Plugin = {
           description,
           input: Input,
           output: Output,
-          toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
           execute: (input, context) =>
             Effect.gen(function* () {
               const current = yield* skills.list()
@@ -87,10 +86,14 @@ export const Plugin = {
                         .toSorted()
                         .slice(0, FILE_LIMIT)
                     : []
-                return {
+                const structured = {
                   name: skill.name,
                   directory,
                   output: toModelOutput(skill, files),
+                }
+                return {
+                  structured,
+                  content: [{ type: "text" as const, text: structured.output }],
                 }
               }).pipe(Effect.mapError((error) => unableToLoad(input.name, error)))
             }),

@@ -200,7 +200,6 @@ export const Plugin = {
           description,
           input: Input,
           output: Output,
-          toModelOutput: ({ output }) => [{ type: "text", text: output.text }],
           execute: (input, context) => {
             const provider = selectProvider(context.sessionID, config, config.provider)
             return Effect.gen(function* () {
@@ -243,7 +242,13 @@ export const Plugin = {
                 provider,
                 text: text ?? NO_RESULTS,
               }
-            }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to search the web for ${input.query}` })))
+            }).pipe(
+              Effect.mapError(() => new ToolFailure({ message: `Unable to search the web for ${input.query}` })),
+              Effect.map((structured) => ({
+                structured,
+                content: [{ type: "text", text: structured.text }],
+              })),
+            )
           },
         }),
       })

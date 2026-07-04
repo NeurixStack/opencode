@@ -47,7 +47,7 @@ it.live(
                   description: "Embedded test tool",
                   input: Schema.Struct({}),
                   output: Schema.Struct({ ok: Schema.Boolean }),
-                  execute: () => Effect.succeed({ ok: true }),
+                  execute: () => Effect.succeed({ structured: { ok: true }, content: [] }),
                 }),
               })
               .pipe(Effect.orDie),

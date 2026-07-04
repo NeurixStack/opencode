@@ -135,7 +135,6 @@ const echo = Layer.effectDiscard(
         description: "Echo text",
         input: Schema.Struct({ text: Schema.String }),
         output: Schema.Struct({ text: Schema.String }),
-        toModelOutput: ({ output }) => [{ type: "text", text: output.text }],
         execute: ({ text }, context) =>
           Effect.gen(function* () {
             authorizations.push(context)
@@ -146,7 +145,7 @@ const echo = Layer.effectDiscard(
               yield* Deferred.succeed(toolExecutionsStarted, undefined)
             }
             if (toolExecutionGate) yield* Deferred.await(toolExecutionGate)
-            return { text }
+            return { structured: { text }, content: [{ type: "text" as const, text }] }
           }).pipe(Effect.ensuring(Effect.sync(() => activeToolExecutions--))),
       }),
       defect: Tool.make({
@@ -161,7 +160,7 @@ const echo = Layer.effectDiscard(
         description: "Produce output that cannot be persisted",
         input: Schema.Struct({}),
         output: Schema.Any,
-        execute: () => Effect.succeed({ big: 1n }),
+        execute: () => Effect.succeed({ structured: { big: 1n }, content: [] }),
       }),
     }),
   ),
@@ -608,7 +607,7 @@ describe("SessionRunnerLLM", () => {
           execute: ({ query }, context) =>
             Effect.sync(() => {
               contexts.push(context)
-              return { answer: query.toUpperCase() }
+              return { structured: { answer: query.toUpperCase() }, content: [] }
             }),
         }),
       })
@@ -2834,7 +2833,9 @@ describe("SessionRunnerLLM", () => {
           input: Schema.Struct({}),
           output: Schema.Struct({}),
           execute: (_, context) =>
-            questions.ask({ sessionID: context.sessionID, questions: [] }).pipe(Effect.as({}), Effect.orDie),
+            questions
+              .ask({ sessionID: context.sessionID, questions: [] })
+              .pipe(Effect.as({ structured: {}, content: [] }), Effect.orDie),
         }),
       })
       yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Ask then stop" }), resume: false })

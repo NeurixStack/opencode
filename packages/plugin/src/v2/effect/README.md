@@ -31,6 +31,36 @@ Configuration supplied for the plugin is available as `ctx.options`.
 
 Registrations are owned by the plugin scope. Closing the scope removes them automatically; a registration may also be removed early through `dispose`.
 
+## Tools
+
+Plugins register named tools through `ctx.tool`. The executor returns validated structured output and model-facing content together.
+
+```ts
+import { define, Tool } from "@opencode-ai/plugin/v2/effect"
+import { Effect, Schema } from "effect"
+
+export const Plugin = define({
+  id: "greeting",
+  effect: (ctx) =>
+    ctx.tool
+      .register({
+        greet: Tool.make({
+          description: "Greet someone",
+          input: Schema.Struct({ name: Schema.String }),
+          output: Schema.Struct({ message: Schema.String }),
+          execute: ({ name }) => {
+            const message = `Hello ${name}`
+            return Effect.succeed({
+              structured: { message },
+              content: [{ type: "text", text: message }],
+            })
+          },
+        }),
+      })
+      .pipe(Effect.orDie),
+})
+```
+
 ## Transform Hooks
 
 Transform hooks contribute to stateful domains:

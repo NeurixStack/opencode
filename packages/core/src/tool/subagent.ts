@@ -92,13 +92,17 @@ export const Plugin = {
       )
     })
 
+    const output = (structured: typeof Output.Type) => ({
+      structured,
+      content: [{ type: "text" as const, text: structured.output }],
+    })
+
     yield* ctx.tool
       .register({
         [name]: Tool.make({
           description,
           input: Input,
           output: Output,
-          toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
           execute: (input, context) =>
             Effect.gen(function* () {
               const parent = yield* runtime.session
@@ -146,7 +150,7 @@ export const Plugin = {
               if (background) {
                 yield* runtime.job.background(info.id)
                 yield* notifyWhenDone(context.sessionID, child.id, input.description)
-                return { sessionID: child.id, status: "running" as const, output: BACKGROUND_STARTED }
+                return output({ sessionID: child.id, status: "running", output: BACKGROUND_STARTED })
               }
 
               const result = yield* runtime.job.block({ id: child.id, sessionID: context.sessionID }).pipe(
@@ -158,12 +162,16 @@ export const Plugin = {
               )
               if (result?.type === "backgrounded") {
                 yield* notifyWhenDone(context.sessionID, child.id, input.description)
-                return { sessionID: child.id, status: "running" as const, output: BACKGROUND_STARTED }
+                return output({ sessionID: child.id, status: "running", output: BACKGROUND_STARTED })
               }
               if (result?.info.status === "error")
                 return yield* new ToolFailure({ message: result.info.error ?? "Subagent failed" })
               if (result?.info.status === "cancelled") return yield* new ToolFailure({ message: "Subagent cancelled" })
-              return { sessionID: child.id, status: "completed" as const, output: result?.info.output ?? NO_TEXT }
+              return output({
+                sessionID: child.id,
+                status: "completed",
+                output: result?.info.output ?? NO_TEXT,
+              })
             }),
         }),
       })

@@ -38,32 +38,19 @@ export type Content =
   | { readonly type: "text"; readonly text: string }
   | { readonly type: "file"; readonly data: string; readonly mime: string; readonly name?: string }
 
-type Config<
-  Input extends SchemaType<any>,
-  Output extends SchemaType<any>,
-  Structured extends SchemaType<any> = Output,
-> = {
+export type Result<Structured = unknown> = {
+  readonly structured: Structured
+  readonly content: ReadonlyArray<Content>
+}
+
+type Config<Input extends SchemaType<any>, OutputSchema extends SchemaType<any>> = {
   readonly description: string
   readonly input: Input
-  readonly output: Output
-  readonly structured?: Structured
-  readonly toStructuredOutput?: (input: {
-    readonly input: Schema.Schema.Type<Input>
-    readonly output: Output["Encoded"]
-  }) => Schema.Schema.Type<Structured>
+  readonly output: OutputSchema
   readonly execute: (
     input: Schema.Schema.Type<Input>,
     context: Context,
-  ) => Effect.Effect<Schema.Schema.Type<Output>, ToolFailure>
-  readonly toModelOutput?: (input: {
-    readonly input: Schema.Schema.Type<Input>
-    readonly output: Output["Encoded"]
-  }) => ReadonlyArray<Content>
-}
-
-export type DynamicOutput = {
-  readonly structured: unknown
-  readonly content: ReadonlyArray<Content>
+  ) => Effect.Effect<Result<Schema.Schema.Type<OutputSchema>>, ToolFailure>
 }
 
 /**
@@ -75,7 +62,7 @@ type DynamicConfig = {
   readonly description: string
   readonly jsonSchema: JsonSchema.JsonSchema
   readonly outputSchema?: JsonSchema.JsonSchema
-  readonly execute: (input: unknown, context: Context) => Effect.Effect<DynamicOutput, ToolFailure>
+  readonly execute: (input: unknown, context: Context) => Effect.Effect<Result, ToolFailure>
 }
 
 type Runtime = {
@@ -86,23 +73,19 @@ type Runtime = {
 
 const runtimes = new WeakMap<AnyTool, Runtime>()
 
-export function make<
-  Input extends SchemaType<any>,
-  Output extends SchemaType<any>,
-  Structured extends SchemaType<any> = Output,
->(config: Config<Input, Output, Structured>): Definition<Input, Structured>
+export function make<Input extends SchemaType<any>, OutputSchema extends SchemaType<any>>(
+  config: Config<Input, OutputSchema>,
+): Definition<Input, OutputSchema>
 export function make(config: DynamicConfig): AnyTool
-export function make(config: Config<any, any, any> | DynamicConfig): AnyTool {
+export function make(config: Config<any, any> | DynamicConfig): AnyTool {
   if ("jsonSchema" in config) return makeDynamic(config)
   return makeTyped(config)
 }
 
-function makeTyped<
-  Input extends SchemaType<any>,
-  Output extends SchemaType<any>,
-  Structured extends SchemaType<any> = Output,
->(config: Config<Input, Output, Structured>): Definition<Input, Structured> {
-  const tool = Object.freeze({}) as Definition<Input, Structured>
+function makeTyped<Input extends SchemaType<any>, OutputSchema extends SchemaType<any>>(
+  config: Config<Input, OutputSchema>,
+): Definition<Input, OutputSchema> {
+  const tool = Object.freeze({}) as Definition<Input, OutputSchema>
   const definitions = new Map<string, ToolDefinition>()
   runtimes.set(tool, {
     definition: (name) => {
@@ -112,7 +95,7 @@ function makeTyped<
         name,
         description: config.description,
         inputSchema: toJsonSchema(config.input),
-        outputSchema: toJsonSchema(config.structured ?? config.output),
+        outputSchema: toJsonSchema(config.output),
       })
       definitions.set(name, definition)
       return definition
@@ -123,14 +106,8 @@ function makeTyped<
         Effect.flatMap((input) =>
           config.execute(input, context).pipe(
             Effect.flatMap((output) =>
-              Schema.encodeEffect(config.output)(output).pipe(
-                Effect.flatMap((output) => {
-                  if (!config.structured || !config.toStructuredOutput)
-                    return Effect.succeed({ output, structured: output })
-                  return Schema.encodeEffect(config.structured)(config.toStructuredOutput({ input, output })).pipe(
-                    Effect.map((structured) => ({ output, structured })),
-                  )
-                }),
+              Schema.encodeEffect(config.output)(output.structured).pipe(
+                Effect.map((structured) => ToolOutput.make(structured, output.content.map(toModelContent))),
                 Effect.mapError(
                   (error) =>
                     new ToolFailure({
@@ -139,12 +116,6 @@ function makeTyped<
                 ),
               ),
             ),
-            Effect.map(({ output, structured }) => ({
-              structured,
-              content:
-                config.toModelOutput?.({ input, output }).map(toModelContent) ??
-                (typeof output === "string" ? [{ type: "text" as const, text: output }] : []),
-            })),
           ),
         ),
       ),
@@ -171,7 +142,7 @@ function makeDynamic(config: DynamicConfig): AnyTool {
     settle: (call, context) =>
       config
         .execute(call.input, context)
-        .pipe(Effect.map((output) => ({ structured: output.structured, content: output.content.map(toModelContent) }))),
+        .pipe(Effect.map((output) => ToolOutput.make(output.structured, output.content.map(toModelContent)))),
   })
   return tool
 }

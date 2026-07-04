@@ -4,7 +4,7 @@ This folder owns Core's one local tool representation, process and Location regi
 
 ## Representations
 
-- `tool.ts` defines the opaque canonical `Tool.make({ description, input, output, execute, toModelOutput })` value. Shipped built-ins and plugin tools use the same type.
+- `tool.ts` re-exports the opaque canonical `Tool.make({ description, input, output, execute })` value. Shipped built-ins and plugin tools use the same type.
 - `tools.ts` exposes the registration-only `Tools.Service` view used by Location producers.
 - `registry.ts` stores only canonical Location registrations, derives definitions, invokes tools, and applies generic output bounding.
 
@@ -12,7 +12,7 @@ Do not add a second executable entry type, registry-owned executor, authorizatio
 
 ## Construction
 
-Tool schemas and projection use `input` and `output` terminology. A tool value is opaque: its codecs, executor, definition derivation, and catalog permission declaration are private runtime details.
+Tool schemas use `input` and `output` terminology. Executors return `{ structured, content }` directly. A tool value is opaque: its codecs, executor, definition derivation, and catalog permission declaration are private runtime details.
 
 Location-scoped built-in layers acquire `PermissionV2.Service` and every other required Location service while the layer is constructed. The executor captures those services. Permission sources are always constructed from the canonical invocation context:
 
@@ -46,7 +46,7 @@ Definition filtering is catalog visibility, not execution authorization. A call 
 
 ## Output
 
-Built-ins return complete validated domain output. `ToolRegistry.Materialization.settle` is the only execution and generic model-output bounding boundary and owns managed retention paths.
+Built-ins return complete structured output and model content together. `ToolRegistry.Materialization.settle` validates and encodes the structured value, then applies generic model-output bounding and owns managed retention paths.
 
 Producer capture limits are separate. For example, Bash keeps `AppProcess.maxOutputBytes` and accurately reports stdout/stderr capture loss, but it does not run model-output truncation or return a managed `outputPath`.
 

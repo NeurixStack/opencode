@@ -57,7 +57,6 @@ export const Plugin = {
               "Write content to one file. Relative paths resolve within the active Location. Absolute paths inside the Location are accepted. Explicit external absolute paths require external_directory approval before edit approval.",
             input: Input,
             output: Output,
-            toModelOutput: ({ output }) => [{ type: "text", text: toModelOutput(output) }],
             execute: (input, context) =>
               Effect.gen(function* () {
                 const source = {
@@ -83,7 +82,13 @@ export const Plugin = {
                   source,
                 })
                 return yield* files.writeTextPreservingBom({ target, content: input.content })
-              }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to write ${input.path}` }))),
+              }).pipe(
+                Effect.mapError(() => new ToolFailure({ message: `Unable to write ${input.path}` })),
+                Effect.map((structured) => ({
+                  structured,
+                  content: [{ type: "text", text: toModelOutput(structured) }],
+                })),
+              ),
           }),
           "edit",
         ),

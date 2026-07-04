@@ -108,7 +108,7 @@ describe("PluginV2", () => {
                 description: "Plugin tool",
                 input: Schema.Struct({}),
                 output: Schema.Struct({ ok: Schema.Boolean }),
-                execute: () => Effect.succeed({ ok: true }),
+                execute: () => Effect.succeed({ structured: { ok: true }, content: [] }),
               }),
             })
             .pipe(Effect.orDie),
@@ -146,7 +146,8 @@ describe("PluginV2", () => {
                   description: "Echo",
                   input: Schema.Struct({ text: Schema.String }),
                   output: Schema.Struct({ text: Schema.String }),
-                  execute: ({ text }) => Effect.sync(() => executed.push({ text })).pipe(Effect.as({ text })),
+                  execute: ({ text }) =>
+                    Effect.sync(() => executed.push({ text })).pipe(Effect.as({ structured: { text }, content: [] })),
                 }),
               })
               .pipe(Effect.orDie)

@@ -124,7 +124,6 @@ export const Plugin = {
           description,
           input: Input,
           output: Output,
-          toModelOutput: ({ output }) => [{ type: "text", text: output.output }],
           execute: (input, context) =>
             Effect.gen(function* () {
               yield* Effect.try({
@@ -170,7 +169,13 @@ export const Plugin = {
                 format: input.format,
                 output,
               }
-            }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to fetch ${input.url}` }))),
+            }).pipe(
+              Effect.mapError(() => new ToolFailure({ message: `Unable to fetch ${input.url}` })),
+              Effect.map((structured) => ({
+                structured,
+                content: [{ type: "text", text: structured.output }],
+              })),
+            ),
         }),
       })
       .pipe(Effect.orDie)

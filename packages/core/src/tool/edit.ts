@@ -101,9 +101,6 @@ export const Plugin = {
               "Replace exact text in one file. Relative paths resolve within the active Location. Absolute paths inside the Location are accepted. Explicit external absolute paths require external_directory approval before edit approval.",
             input: Input,
             output: Output,
-            toModelOutput: ({ input, output }) => [
-              { type: "text", text: toModelOutput(output, input.oldString, input.newString) },
-            ],
             execute: (input, context) => {
               const unableToEdit = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
                 effect.pipe(
@@ -204,7 +201,12 @@ export const Plugin = {
                   ],
                   replacements,
                 } satisfies Output
-              })
+              }).pipe(
+                Effect.map((structured) => ({
+                  structured,
+                  content: [{ type: "text", text: toModelOutput(structured, input.oldString, input.newString) }],
+                })),
+              )
             },
           }),
           "edit",

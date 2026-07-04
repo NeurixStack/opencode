@@ -7,30 +7,30 @@ V2 has one opaque type for locally executable tools:
 ```ts
 type Definition<Input, Output>
 type AnyTool = Definition<any, any>
+type Result<Structured = unknown> = {
+  readonly structured: Structured
+  readonly content: ReadonlyArray<Tool.Content>
+}
 
 const make: <
   Input extends Schema.Codec<any, any, never, never>,
-  Output extends Schema.Codec<any, any, never, never>,
+  OutputSchema extends Schema.Codec<any, any, never, never>,
 >(config: {
   readonly description: string
   readonly input: Input
-  readonly output: Output
+  readonly output: OutputSchema
   readonly execute: (
     input: Schema.Type<Input>,
     context: Tool.Context,
-  ) => Effect.Effect<Schema.Type<Output>, ToolFailure>
-  readonly toModelOutput?: (input: {
-    readonly input: Schema.Type<Input>
-    readonly output: Output["Encoded"]
-  }) => ReadonlyArray<Tool.Content>
-}) => Definition<Input, Output>
+  ) => Effect.Effect<Result<Schema.Type<OutputSchema>>, ToolFailure>
+}) => Definition<Input, OutputSchema>
 ```
 
 Application tools, built-ins, and statically authored plugin tools use this same constructor and execution contract.
 
 `Tool.Definition` is opaque and has exactly one executor. Its schemas and executor are not public fields. The Tool module privately derives model definitions and interprets invocations for the registry; callers normally rely on `Tool.make` inference rather than naming the carrier type.
 
-Input and output codecs are self-contained. Schema conversion cannot require services. Tool dependencies are acquired during construction and captured by `execute`.
+Input and structured-output codecs are self-contained. Schema conversion cannot require services. Tool dependencies are acquired during construction and captured by `execute`.
 
 ## Invocation Context
 
@@ -122,7 +122,11 @@ yield *
             metadata: { root: root.resource },
           })
 
-          return yield* filesystem.grep(input, root)
+          const structured = yield* filesystem.grep(input, root)
+          return {
+            structured,
+            content: [{ type: "text", text: formatMatches(structured) }],
+          }
         }).pipe(/* translate expected typed errors to ToolFailure */),
     }),
   })
@@ -139,22 +143,20 @@ The Location-scoped registry owns effective lookup and settlement. For each loca
 1. Resolves one effective named registration.
 2. Decodes provider input with the input codec.
 3. Invokes the tool with the runner-supplied context.
-4. Encodes the returned output with the output codec.
-5. Projects encoded output into model-facing content.
+4. Encodes the returned `structured` value with the output codec.
+5. Preserves the executor-provided model-facing `content`.
 6. Bounds the complete model-facing output.
 7. Returns the settlement and managed-output references to the runner, which persists them durably.
 
-Invalid input never invokes the tool. Invalid output never produces a successful settlement.
-
-`toModelOutput` is pure and total. When omitted, the encoded output remains structured output; an encoded string is also projected as text. Projection does not receive invocation identity because presentation depends only on validated input and output.
+Invalid input never invokes the tool. Invalid structured output never produces a successful settlement.
 
 Step materialization captures the effective registration identity for each advertised name without retaining its handler. Settlement rejects the call as stale if that registration was removed or replaced, including when closing an overlay reveals the previously effective registration. The current handler is captured only after this check; removing or replacing its registration afterward does not affect the running invocation.
 
 ## Output Bounding
 
-Tools return complete validated domain output. They do not truncate model-facing output or manage retention files.
+Tools return complete structured output and model-facing content together. Settlement validates the structured value; tools do not truncate model-facing output or manage retention files.
 
-After projection, one generic settlement boundary bounds the channel actually sent to the provider. When content exists, only its textual parts are measured; structured metadata is retained unchanged without being double-counted, and native media remains unchanged under producer-owned limits. When content is empty, the structured output is measured. Oversized provider-facing text or structured output is retained in managed storage and replaced with a bounded text preview while structured metadata and media are preserved; if complete retention fails, settlement fails operationally rather than publishing lossy success. Managed paths never appear in `Tool.make`, tool output schemas, or projection callbacks solely for retention bookkeeping.
+One generic settlement boundary bounds the channel actually sent to the provider. When content exists, only its textual parts are measured; structured metadata is retained unchanged without being double-counted, and native media remains unchanged under producer-owned limits. When content is empty, the structured output is measured. Oversized provider-facing text or structured output is retained in managed storage and replaced with a bounded text preview while structured metadata and media are preserved; if complete retention fails, settlement fails operationally rather than publishing lossy success. Managed paths never appear in `Tool.make`, tool output schemas, or executors solely for retention bookkeeping.
 
 Model-output bounding is not producer memory management. Processes and streaming sources may need separate capture or spooling limits before a tool result exists. Those limits must be modeled at the producer boundary and must not masquerade as model-output truncation. A producer cannot claim a complete retained output after it has already discarded bytes.
 
@@ -172,7 +174,7 @@ Leaf tools translate only errors they deliberately classify as recoverable. Broa
 ## Laws
 
 - **Single executor:** `Tool.make(config)` can invoke only `config.execute`.
-- **Codec boundary:** execution observes decoded input; projection observes encoded output.
+- **Codec boundary:** execution observes decoded input and returns decoded structured output; settlement validates and encodes that structured output.
 - **Durable identity:** invocation-owned records use the exact Session, agent, assistant message, and call IDs supplied by the runner.
 - **Scoped registration:** closing a Scope removes exactly its registration and reveals any prior active overlay.
 - **Captured execution:** registration changes cannot alter an invocation after effective lookup.

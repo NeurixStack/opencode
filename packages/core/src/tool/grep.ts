@@ -63,17 +63,6 @@ export const Plugin = {
             "Search file contents by regular expression within the active Location or an absolute managed tool-output file. Use a path to narrow the search, include to filter files by glob, and limit to bound the match count. Returns concise file resources, line numbers, and bounded line previews.",
           input: Input,
           output: Output,
-          toModelOutput: ({ output }) => [
-            {
-              type: "text",
-              text: toModelOutput(
-                output.map((match) => ({
-                  ...match,
-                  entry: { ...match.entry, path: path.resolve(location.directory, match.entry.path) },
-                })),
-              ),
-            },
-          ],
           execute: (input, context) =>
             Effect.gen(function* () {
               yield* permission.assert({
@@ -133,6 +122,20 @@ export const Plugin = {
                   ? error
                   : new ToolFailure({ message: `Unable to grep for ${input.pattern}` }),
               ),
+              Effect.map((structured) => ({
+                structured,
+                content: [
+                  {
+                    type: "text",
+                    text: toModelOutput(
+                      structured.map((match) => ({
+                        ...match,
+                        entry: { ...match.entry, path: path.resolve(location.directory, match.entry.path) },
+                      })),
+                    ),
+                  },
+                ],
+              })),
             ),
         }),
       })

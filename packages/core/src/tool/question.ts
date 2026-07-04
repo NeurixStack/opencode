@@ -54,9 +54,6 @@ export const Plugin = {
           description,
           input: Input,
           output: Output,
-          toModelOutput: ({ input, output }) => [
-            { type: "text", text: toModelOutput(input.questions, output.answers) },
-          ],
           execute: (input, context) =>
             permission
               .assert({
@@ -77,7 +74,10 @@ export const Plugin = {
                     })
                     .pipe(Effect.orDie),
                 ),
-                Effect.map((answers) => ({ answers })),
+                Effect.map((answers) => ({
+                  structured: { answers },
+                  content: [{ type: "text", text: toModelOutput(input.questions, answers) }],
+                })),
               ),
         }),
       })
