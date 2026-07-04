@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { Effect, Fiber, Layer, Stream } from "effect"
+import { DateTime, Deferred, Effect, Exit, Fiber, Layer, Scope, Stream } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { Integration } from "@opencode-ai/core/integration"
 import { Credential } from "@opencode-ai/core/credential"
@@ -9,7 +9,10 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { Location } from "@opencode-ai/core/location"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ProjectV2 } from "@opencode-ai/core/project"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { SessionV2 } from "@opencode-ai/core/session"
+import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { location } from "./fixture/location"
 import { testEffect } from "./lib/effect"
 
@@ -27,8 +30,341 @@ const catalogLayer = AppNodeBuilder.build(
   [[Location.node, locationLayer]],
 )
 const it = testEffect(catalogLayer)
+const sessionModelLayer = AppNodeBuilder.build(
+  LayerNode.group([Catalog.node, EventV2.node, Credential.node, Integration.node, SessionRunnerModel.node]),
+  [[Location.node, locationLayer]],
+)
+const sessionModelIt = testEffect(sessionModelLayer)
+
+const session = (providerID?: ProviderV2.ID, modelID?: ModelV2.ID) =>
+  SessionV2.Info.make({
+    id: SessionV2.ID.make("ses_catalog_readiness"),
+    projectID: ProjectV2.ID.global,
+    title: "test",
+    ...(providerID === undefined || modelID === undefined ? {} : { model: { providerID, id: modelID } }),
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: DateTime.makeUnsafe(0), updated: DateTime.makeUnsafe(0) },
+    location: { directory: AbsolutePath.make("test") },
+  })
+
+const addSupportedModel = (catalog: Catalog.Interface, providerID: ProviderV2.ID, modelID: ModelV2.ID) =>
+  catalog.transform((draft) => {
+    draft.provider.update(providerID, (provider) => {
+      provider.api = { type: "aisdk", package: "@ai-sdk/openai", settings: {} }
+    })
+    draft.model.update(providerID, modelID, () => {})
+  })
 
 describe("CatalogV2", () => {
+  it.effect("keeps available snapshots nonblocking during initial catalog work", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const release = yield* Deferred.make<void>()
+      yield* catalog.initial.discover(catalog.initial.source(Deferred.await(release)))
+
+      expect(yield* catalog.model.available()).toEqual([])
+
+      yield* Deferred.succeed(release, undefined)
+    }),
+  )
+
+  it.effect("waits until an explicit model appears", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.make("delayed-provider")
+      const modelID = ModelV2.ID.make("delayed-model")
+      const release = yield* Deferred.make<void>()
+      const completed = yield* Deferred.make<ModelV2.Info | undefined>()
+      yield* catalog.initial.discover(
+        catalog.initial.source(
+          Deferred.await(release).pipe(Effect.andThen(addSupportedModel(catalog, providerID, modelID))),
+        ),
+      )
+      const selected = yield* catalog.model
+        .select(ModelV2.Ref.make({ providerID, id: modelID }), () => true)
+        .pipe(
+          Effect.tap((model) => Deferred.succeed(completed, model)),
+          Effect.forkScoped({ startImmediately: true }),
+        )
+
+      expect(yield* Deferred.isDone(completed)).toBe(false)
+      yield* Deferred.succeed(release, undefined)
+
+      expect((yield* Fiber.join(selected))?.id).toBe(modelID)
+    }),
+  )
+
+  it.effect("waits for discovery contributors before returning an existing explicit model", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.make("overlaid-provider")
+      const modelID = ModelV2.ID.make("overlaid-model")
+      const modelVisible = yield* Deferred.make<void>()
+      const releaseOverlay = yield* Deferred.make<void>()
+      const completed = yield* Deferred.make<ModelV2.Info | undefined>()
+      yield* catalog.initial
+        .discover(
+          Effect.gen(function* () {
+            yield* addSupportedModel(catalog, providerID, modelID)
+            yield* Deferred.succeed(modelVisible, undefined)
+            yield* Deferred.await(releaseOverlay)
+            yield* catalog.transform((draft) =>
+              draft.model.update(providerID, modelID, (model) => {
+                model.name = "Configured model"
+              }),
+            )
+          }),
+        )
+        .pipe(Effect.forkScoped({ startImmediately: true }))
+      yield* Deferred.await(modelVisible)
+      const selected = yield* catalog.model
+        .select(ModelV2.Ref.make({ providerID, id: modelID }), () => true)
+        .pipe(
+          Effect.tap((model) => Deferred.succeed(completed, model)),
+          Effect.forkScoped({ startImmediately: true }),
+        )
+
+      expect(yield* Deferred.isDone(completed)).toBe(false)
+      yield* Deferred.succeed(releaseOverlay, undefined)
+
+      expect((yield* Fiber.join(selected))?.name).toBe("Configured model")
+    }),
+  )
+
+  it.effect("selects an explicit model as soon as it arrives without waiting for unrelated initial work", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.make("ready-provider")
+      const modelID = ModelV2.ID.make("ready-model")
+      const releaseModel = yield* Deferred.make<void>()
+      const releaseUnrelated = yield* Deferred.make<void>()
+      yield* catalog.initial.discover(
+        Effect.gen(function* () {
+          yield* catalog.initial.source(
+            Deferred.await(releaseModel).pipe(Effect.andThen(addSupportedModel(catalog, providerID, modelID))),
+          )
+          yield* catalog.initial.source(Deferred.await(releaseUnrelated))
+        }),
+      )
+      const selected = yield* catalog.model
+        .select(ModelV2.Ref.make({ providerID, id: modelID }), () => true)
+        .pipe(Effect.forkScoped({ startImmediately: true }))
+
+      yield* Deferred.succeed(releaseModel, undefined)
+
+      expect((yield* Fiber.join(selected))?.id).toBe(modelID)
+      expect(yield* Deferred.isDone(releaseUnrelated)).toBe(false)
+      yield* Deferred.succeed(releaseUnrelated, undefined)
+    }),
+  )
+
+  it.effect("waits for a pending source after another initial source fails", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.make("recovering-provider")
+      const modelID = ModelV2.ID.make("recovering-model")
+      const releaseModel = yield* Deferred.make<void>()
+      const completed = yield* Deferred.make<ModelV2.Info | undefined>()
+      yield* catalog.initial.discover(
+        Effect.gen(function* () {
+          yield* catalog.initial.source(Effect.fail(new Error("unrelated source failed")))
+          yield* catalog.initial.source(
+            Deferred.await(releaseModel).pipe(Effect.andThen(addSupportedModel(catalog, providerID, modelID))),
+          )
+        }),
+      )
+      const selected = yield* catalog.model
+        .select(ModelV2.Ref.make({ providerID, id: modelID }), () => true)
+        .pipe(
+          Effect.tap((model) => Deferred.succeed(completed, model)),
+          Effect.forkScoped({ startImmediately: true }),
+        )
+
+      expect(yield* Deferred.isDone(completed)).toBe(false)
+      yield* Deferred.succeed(releaseModel, undefined)
+
+      expect((yield* Fiber.join(selected))?.id).toBe(modelID)
+    }),
+  )
+
+  it.effect("waits for a pending source after discovery fails", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.make("discovery-failure-provider")
+      const modelID = ModelV2.ID.make("discovery-failure-model")
+      const releaseModel = yield* Deferred.make<void>()
+      const completed = yield* Deferred.make<ModelV2.Info | undefined>()
+      yield* catalog.initial.discover(
+        Effect.gen(function* () {
+          yield* catalog.initial.source(
+            Deferred.await(releaseModel).pipe(Effect.andThen(addSupportedModel(catalog, providerID, modelID))),
+          )
+          return yield* Effect.fail(new Error("discovery failed after source registration"))
+        }),
+      )
+      const selected = yield* catalog.model
+        .select(ModelV2.Ref.make({ providerID, id: modelID }), () => true)
+        .pipe(
+          Effect.tap((model) => Deferred.succeed(completed, model)),
+          Effect.forkScoped({ startImmediately: true }),
+        )
+
+      expect(yield* Deferred.isDone(completed)).toBe(false)
+      yield* Deferred.succeed(releaseModel, undefined)
+
+      expect((yield* Fiber.join(selected))?.id).toBe(modelID)
+    }),
+  )
+
+  it.effect("observes discovery settlement completed before lookup subscribes", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      yield* catalog.initial.discover(Effect.void)
+
+      const selected = yield* catalog.model.select(
+        ModelV2.Ref.make({ providerID: ProviderV2.ID.make("missing"), id: ModelV2.ID.make("missing") }),
+        () => true,
+      )
+
+      expect(selected).toBeUndefined()
+    }),
+  )
+
+  it.effect("waits for initial settlement before choosing an omitted model", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const earlyProviderID = ProviderV2.ID.make("early-provider")
+      const earlyModelID = ModelV2.ID.make("early-model")
+      const finalProviderID = ProviderV2.ID.make("final-provider")
+      const finalModelID = ModelV2.ID.make("final-model")
+      const release = yield* Deferred.make<void>()
+      const completed = yield* Deferred.make<ModelV2.Info | undefined>()
+      yield* addSupportedModel(catalog, earlyProviderID, earlyModelID)
+      yield* catalog.initial.discover(
+        catalog.initial.source(
+          Deferred.await(release).pipe(
+            Effect.andThen(
+              catalog.transform((draft) => {
+                draft.provider.update(finalProviderID, (provider) => {
+                  provider.api = { type: "aisdk", package: "@ai-sdk/openai", settings: {} }
+                })
+                draft.model.update(finalProviderID, finalModelID, () => {})
+                draft.model.default.set(finalProviderID, finalModelID)
+              }),
+            ),
+          ),
+        ),
+      )
+      const selected = yield* catalog.model
+        .select(undefined, () => true)
+        .pipe(
+          Effect.tap((model) => Deferred.succeed(completed, model)),
+          Effect.forkScoped({ startImmediately: true }),
+        )
+
+      expect(yield* Deferred.isDone(completed)).toBe(false)
+      yield* Deferred.succeed(release, undefined)
+
+      expect((yield* Fiber.join(selected))?.id).toBe(finalModelID)
+    }),
+  )
+
+  sessionModelIt.effect("reports an unavailable explicit model after successful initial settlement", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const models = yield* SessionRunnerModel.Service
+      const providerID = ProviderV2.ID.make("missing")
+      const modelID = ModelV2.ID.make("missing")
+      yield* catalog.initial.discover(Effect.void)
+
+      const failure = yield* models.resolve(session(providerID, modelID)).pipe(Effect.flip)
+
+      expect(failure).toMatchObject({
+        _tag: "SessionRunnerModel.ModelUnavailableError",
+        providerID,
+        modelID,
+      })
+    }),
+  )
+
+  sessionModelIt.effect("reports catalog incompleteness when a source fails after discovery settles", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const models = yield* SessionRunnerModel.Service
+      const release = yield* Deferred.make<void>()
+      const completed = yield* Deferred.make<SessionRunnerModel.Error>()
+      yield* catalog.initial.discover(
+        catalog.initial.source(
+          Deferred.await(release).pipe(Effect.andThen(Effect.fail(new Error("initial source failed")))),
+        ),
+      )
+      const result = yield* models
+        .resolve(session(ProviderV2.ID.make("missing"), ModelV2.ID.make("missing")))
+        .pipe(
+          Effect.flip,
+          Effect.tap((failure) => Deferred.succeed(completed, failure)),
+          Effect.forkScoped({ startImmediately: true }),
+        )
+
+      expect(yield* Deferred.isDone(completed)).toBe(false)
+      yield* Deferred.succeed(release, undefined)
+
+      const failure = yield* Fiber.join(result)
+
+      expect(failure).toMatchObject({ _tag: "Catalog.IncompleteError" })
+    }),
+  )
+
+  it.effect("settles interrupted initial sources as incomplete", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const sourceScope = yield* Scope.make()
+      const started = yield* Deferred.make<void>()
+      yield* catalog.initial.discover(
+        catalog.initial
+          .source(Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)))
+          .pipe(Scope.provide(sourceScope)),
+      )
+      yield* Deferred.await(started)
+
+      yield* Scope.close(sourceScope, Exit.void)
+
+      const failure = yield* catalog.model
+        .select(
+          ModelV2.Ref.make({ providerID: ProviderV2.ID.make("missing"), id: ModelV2.ID.make("missing") }),
+          () => true,
+        )
+        .pipe(Effect.flip)
+      expect(failure).toMatchObject({ _tag: "Catalog.IncompleteError" })
+    }),
+  )
+
+  sessionModelIt.effect("preserves the supported-model fallback after initial settlement", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const models = yield* SessionRunnerModel.Service
+      const unsupportedProviderID = ProviderV2.ID.make("unsupported-provider")
+      const unsupportedModelID = ModelV2.ID.make("unsupported-model")
+      const supportedProviderID = ProviderV2.ID.make("supported-provider")
+      const supportedModelID = ModelV2.ID.make("supported-model")
+      yield* catalog.transform((draft) => {
+        draft.provider.update(unsupportedProviderID, () => {})
+        draft.model.update(unsupportedProviderID, unsupportedModelID, () => {})
+        draft.model.default.set(unsupportedProviderID, unsupportedModelID)
+        draft.provider.update(supportedProviderID, (provider) => {
+          provider.api = { type: "aisdk", package: "@ai-sdk/openai", settings: {} }
+        })
+        draft.model.update(supportedProviderID, supportedModelID, () => {})
+      })
+      yield* catalog.initial.discover(Effect.void)
+
+      const selected = yield* models.resolve(session())
+
+      expect(selected.ref).toMatchObject({ providerID: supportedProviderID, id: supportedModelID })
+    }),
+  )
+
   it.effect("publishes an updated event after catalog changes", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service

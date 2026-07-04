@@ -1,13 +1,13 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
-import { DateTime, Effect, Equal, Hash, Schema } from "effect"
+import { DateTime, Deferred, Effect, Equal, Hash, Schema } from "effect"
 import { define } from "@opencode-ai/plugin/v2/effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Catalog } from "@opencode-ai/core/catalog"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
-import { LocationServiceMap } from "@opencode-ai/core/location-services"
+import { buildLocationServiceMap, LocationServiceMap } from "@opencode-ai/core/location-services"
 import { Location } from "@opencode-ai/core/location"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -16,6 +16,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
+import { SdkPlugins } from "@opencode-ai/core/plugin/sdk"
 import { tmpdir } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
 import { toolDefinitions, waitForTool } from "./lib/tool"
@@ -27,6 +28,53 @@ import { ToolRegistry } from "../src/tool/registry"
 const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, EventV2.node, LocationServiceMap.node])))
 
 describe("LocationServiceMap", () => {
+  it.live("acquires location services while initial catalog discovery is blocked", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (dir) => Effect.promise(() => dir[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((dir) =>
+        Effect.gen(function* () {
+          const started = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          const store = SdkPlugins.makeStore()
+          store.plugins.set(
+            "blocked-catalog-source",
+            define({
+              id: "blocked-catalog-source",
+              effect: (ctx) =>
+                ctx.catalog
+                  .transform((draft) => draft.provider.update("blocked-catalog-source", () => {}))
+                  .pipe(
+                    Effect.andThen(Deferred.succeed(started, undefined)),
+                    Effect.andThen(Deferred.await(release)),
+                    Effect.asVoid,
+                  ),
+            }),
+          )
+
+          return yield* Effect.gen(function* () {
+            const locations = yield* LocationServiceMap.Service
+            const context = yield* locations.contextEffect(
+              Location.Ref.make({ directory: AbsolutePath.make(dir.path) }),
+            )
+            yield* Deferred.await(started)
+
+            const snapshot = yield* Catalog.Service.use((catalog) => catalog.model.available()).pipe(
+              Effect.provide(context),
+            )
+            expect(Array.isArray(snapshot)).toBe(true)
+            yield* Deferred.succeed(release, undefined)
+          }).pipe(
+            Effect.provide(buildLocationServiceMap([[SdkPlugins.node, SdkPlugins.layerWithStore(store)]]), {
+              local: true,
+            }),
+          )
+        }),
+      ),
+    ),
+  )
+
   it.live("reuses cached services for constructed and decoded location refs", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

@@ -5,6 +5,7 @@ import { define } from "@opencode-ai/plugin/v2/effect/plugin"
 import type { CredentialValue } from "@opencode-ai/sdk/v2/types"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { EventV2 } from "../../event"
+import { Catalog } from "../../catalog"
 import { Credential } from "../../credential"
 import { Integration } from "../../integration"
 import { ModelV2 } from "../../model"
@@ -74,10 +75,11 @@ function oauth(http: HttpClient.HttpClient) {
   } satisfies IntegrationOAuthMethodRegistration
 }
 
-export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | Scope.Scope>({
+export const OpencodePlugin = define<Catalog.Service | HttpClient.HttpClient | EventV2.Service | Scope.Scope>({
   id: "opencode",
   effect: Effect.fn(function* (ctx) {
     const events = yield* EventV2.Service
+    const catalog = yield* Catalog.Service
     const http = yield* HttpClient.HttpClient
     const loading = Semaphore.makeUnsafe(1)
     let connected = false
@@ -89,13 +91,7 @@ export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | S
         ? yield* ctx.integration.connection.resolve(connection).pipe(Effect.catch(() => Effect.succeed(undefined)))
         : undefined
       connected = connection !== undefined
-      providers = credential
-        ? yield* fetchProviders(http, credential).pipe(
-            Effect.catch((cause) =>
-              Effect.logWarning("failed to load OpenCode provider config", { cause }).pipe(Effect.as(undefined)),
-            ),
-          )
-        : undefined
+      providers = credential ? yield* fetchProviders(http, credential) : undefined
     })
 
     yield* ctx.integration.transform((draft) => {
@@ -182,13 +178,16 @@ export const OpencodePlugin = define<HttpClient.HttpClient | EventV2.Service | S
       }
     })
 
-    const refresh = () => loading.withPermit(load().pipe(Effect.andThen(ctx.catalog.reload())))
+    const refresh = () =>
+      loading
+        .withPermit(load().pipe(Effect.andThen(ctx.catalog.reload())))
+        .pipe(Effect.tapCause((cause) => Effect.logWarning("failed to load OpenCode provider config", { cause })))
     yield* events.subscribe(Integration.Event.ConnectionUpdated).pipe(
       Stream.filter((event) => event.data.integrationID === Integration.ID.make("opencode")),
-      Stream.runForEach(refresh),
+      Stream.runForEach(() => refresh().pipe(Effect.ignoreCause)),
       Effect.forkScoped({ startImmediately: true }),
     )
-    yield* refresh().pipe(Effect.forkScoped)
+    yield* catalog.initial.source(refresh())
   }),
 })
 

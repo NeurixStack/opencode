@@ -1,6 +1,7 @@
 import { define } from "./internal"
 import type { ModelV2Info } from "@opencode-ai/sdk/v2/types"
 import { Effect, Stream } from "effect"
+import { Catalog } from "../catalog"
 import { EventV2 } from "../event"
 import { ModelV2 } from "../model"
 import { ModelsDev } from "../models-dev"
@@ -199,9 +200,10 @@ function applyModel(
 export const ModelsDevPlugin = define({
   id: "models-dev",
   effect: Effect.fn(function* (ctx) {
+    const catalog = yield* Catalog.Service
     const modelsDev = yield* ModelsDev.Service
     const events = yield* EventV2.Service
-    const loaded = { data: yield* modelsDev.get() }
+    const loaded: { data: Record<string, ModelsDev.Provider> } = { data: {} }
     yield* ctx.integration.transform((integrations) => {
       for (const item of Object.values(loaded.data)) {
         if (item.env.length === 0) continue
@@ -252,15 +254,16 @@ export const ModelsDevPlugin = define({
         }
       }
     })
+    const refresh = modelsDev.get().pipe(
+      Effect.tap((data) => Effect.sync(() => (loaded.data = data))),
+      Effect.andThen(ctx.integration.reload()),
+      Effect.andThen(ctx.catalog.reload()),
+      Effect.tapCause((cause) => Effect.logError("failed to load models.dev catalog", { cause })),
+    )
     yield* events.subscribe(ModelsDev.Event.Refreshed).pipe(
-      Stream.runForEach(() =>
-        modelsDev.get().pipe(
-          Effect.tap((data) => Effect.sync(() => (loaded.data = data))),
-          Effect.andThen(ctx.integration.reload()),
-          Effect.andThen(ctx.catalog.reload()),
-        ),
-      ),
+      Stream.runForEach(() => refresh.pipe(Effect.ignoreCause)),
       Effect.forkScoped({ startImmediately: true }),
     )
+    yield* catalog.initial.source(refresh)
   }),
 })

@@ -104,8 +104,9 @@ const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const plugin = yield* PluginV2.Service
     const sdkPlugins = yield* SdkPlugins.Service
+    const catalog = yield* Catalog.Service
     const services = Context.mergeAll(
-      Context.make(Catalog.Service, yield* Catalog.Service),
+      Context.make(Catalog.Service, catalog),
       Context.make(CommandV2.Service, yield* CommandV2.Service),
       Context.make(Integration.Service, yield* Integration.Service),
       Context.make(AgentV2.Service, yield* AgentV2.Service),
@@ -139,37 +140,42 @@ const layer = Layer.effectDiscard(
         input.effect(context).pipe(Effect.provide(services)),
       )
 
-    yield* State.batch(
-      Effect.gen(function* () {
-        yield* add(ConfigReferencePlugin.Plugin)
-        yield* add(AgentPlugin.Plugin)
-        yield* add(CommandPlugin.Plugin)
-        yield* add(SkillPlugin.Plugin)
-        yield* add(ModelsDevPlugin)
-        yield* add(ConfigExternalPlugin.Plugin)
-        yield* add(ApplyPatchTool.Plugin)
-        yield* add(EditTool.Plugin)
-        yield* add(GlobTool.Plugin)
-        yield* add(GrepTool.Plugin)
-        yield* add(QuestionTool.Plugin)
-        yield* add(ReadTool.Plugin)
-        yield* add(ShellTool.Plugin)
-        yield* add(SkillTool.Plugin)
-        yield* add(SubagentTool.Plugin)
-        yield* add(TodoWriteTool.Plugin)
-        yield* add(WebFetchTool.Plugin)
-        yield* add(WebSearchTool.Plugin)
-        yield* add(WriteTool.Plugin)
-        yield* add(ConfigAgentPlugin.Plugin)
-        yield* add(ConfigCommandPlugin.Plugin)
-        yield* add(ConfigSkillPlugin.Plugin)
-        for (const item of ProviderPlugins) yield* add(item)
-        yield* add(ConfigProviderPlugin.Plugin)
-        yield* add(VariantPlugin.Plugin)
-        // Embedder-contributed plugins are added last so they layer over config.
-        for (const plugin of sdkPlugins.all()) yield* add(plugin)
-      }),
-    ).pipe(Effect.withSpan("PluginInternal.boot"), Effect.forkScoped({ startImmediately: true }))
+    yield* catalog.initial.discover(
+      State.batch(
+        Effect.gen(function* () {
+          yield* add(ConfigReferencePlugin.Plugin)
+          yield* add(AgentPlugin.Plugin)
+          yield* add(CommandPlugin.Plugin)
+          yield* add(SkillPlugin.Plugin)
+          yield* add(ModelsDevPlugin)
+          yield* add(ConfigExternalPlugin.Plugin)
+          yield* add(ApplyPatchTool.Plugin)
+          yield* add(EditTool.Plugin)
+          yield* add(GlobTool.Plugin)
+          yield* add(GrepTool.Plugin)
+          yield* add(QuestionTool.Plugin)
+          yield* add(ReadTool.Plugin)
+          yield* add(ShellTool.Plugin)
+          yield* add(SkillTool.Plugin)
+          yield* add(SubagentTool.Plugin)
+          yield* add(TodoWriteTool.Plugin)
+          yield* add(WebFetchTool.Plugin)
+          yield* add(WebSearchTool.Plugin)
+          yield* add(WriteTool.Plugin)
+          yield* add(ConfigAgentPlugin.Plugin)
+          yield* add(ConfigCommandPlugin.Plugin)
+          yield* add(ConfigSkillPlugin.Plugin)
+          for (const item of ProviderPlugins) yield* add(item)
+          yield* add(ConfigProviderPlugin.Plugin)
+          yield* add(VariantPlugin.Plugin)
+          // Embedder-contributed plugins are added last so they layer over config.
+          for (const plugin of sdkPlugins.all()) yield* add(plugin)
+        }),
+      ),
+    ).pipe(
+      Effect.withSpan("PluginInternal.boot"),
+      Effect.forkScoped({ startImmediately: true }),
+    )
   }),
 )
 

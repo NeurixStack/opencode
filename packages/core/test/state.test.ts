@@ -56,6 +56,26 @@ describe("State", () => {
     }),
   )
 
+  it.effect("runs committed after the rebuilt state is visible", () =>
+    Effect.gen(function* () {
+      let visible: string[] = []
+      const state = State.create({
+        initial: () => ({ values: [] as string[] }),
+        draft: (draft) => ({ add: (item: string) => draft.values.push(item) }),
+        committed: () =>
+          Effect.sync(() => {
+            visible = [...state.get().values]
+          }),
+      })
+
+      yield* state.transform((editor) => {
+        editor.add("committed")
+      })
+
+      expect(visible).toEqual(["committed"])
+    }),
+  )
+
   it.effect("disposes a transform once and rebuilds remaining state", () =>
     Effect.gen(function* () {
       const state = State.create({

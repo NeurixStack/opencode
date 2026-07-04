@@ -1,7 +1,8 @@
 export * as Catalog from "./catalog"
 
 import { makeLocationNode } from "./effect/app-node"
-import { Array, Context, Effect, Layer, Option, Order, pipe } from "effect"
+import { Array, Context, Effect, Exit, Layer, Option, Order, pipe, Schema, Stream, SubscriptionRef } from "effect"
+import type { Scope } from "effect"
 import { Catalog } from "@opencode-ai/schema/catalog"
 import { ModelV2 } from "./model"
 import { ProviderV2 } from "./provider"
@@ -18,10 +19,30 @@ export type DefaultModel = { providerID: ProviderV2.ID; modelID: ModelV2.ID }
 
 export const Event = Catalog.Event
 
+export class IncompleteError extends Schema.TaggedErrorClass<IncompleteError>()("Catalog.IncompleteError", {}) {
+  override get message() {
+    return "Initial catalog discovery did not complete successfully"
+  }
+}
+
 type Data = {
   providers: Map<ProviderV2.ID, ProviderRecord>
   defaultModel?: DefaultModel
 }
+
+type InitialState = {
+  readonly discovery: "idle" | "pending" | "succeeded" | "failed"
+  readonly pending: number
+  readonly succeeded: number
+  readonly failed: number
+  readonly version: number
+}
+
+type Selection =
+  | { readonly _tag: "pending" }
+  | { readonly _tag: "selected"; readonly model: ModelV2.Info }
+  | { readonly _tag: "absent" }
+  | { readonly _tag: "incomplete" }
 
 export type Draft = {
   provider: {
@@ -42,6 +63,10 @@ export type Draft = {
 }
 
 export interface Interface extends State.Transformable<Draft> {
+  readonly initial: {
+    readonly discover: <A, E, R>(work: Effect.Effect<A, E, R>) => Effect.Effect<void, never, R>
+    readonly source: <A, E, R>(work: Effect.Effect<A, E, R>) => Effect.Effect<void, never, R | Scope.Scope>
+  }
   readonly provider: {
     readonly get: (providerID: ProviderV2.ID) => Effect.Effect<ProviderV2.Info | undefined>
     readonly all: () => Effect.Effect<ProviderV2.Info[]>
@@ -51,6 +76,10 @@ export interface Interface extends State.Transformable<Draft> {
     readonly get: (providerID: ProviderV2.ID, modelID: ModelV2.ID) => Effect.Effect<ModelV2.Info | undefined>
     readonly all: () => Effect.Effect<ModelV2.Info[]>
     readonly available: () => Effect.Effect<ModelV2.Info[]>
+    readonly select: (
+      ref: ModelV2.Ref | undefined,
+      supported: (model: ModelV2.Info) => boolean,
+    ) => Effect.Effect<ModelV2.Info | undefined, IncompleteError>
     readonly default: () => Effect.Effect<ModelV2.Info | undefined>
     readonly small: (providerID: ProviderV2.ID) => Effect.Effect<ModelV2.Info | undefined>
   }
@@ -63,6 +92,67 @@ const layer = Layer.effect(
   Effect.gen(function* () {
     const events = yield* EventV2.Service
     const integrations = yield* Integration.Service
+    const initial = yield* SubscriptionRef.make<InitialState>({
+      discovery: "idle",
+      pending: 0,
+      succeeded: 0,
+      failed: 0,
+      version: 0,
+    })
+
+    const updateInitial = (update: (state: InitialState) => Omit<InitialState, "version">) =>
+      SubscriptionRef.update(initial, (state) => ({ ...update(state), version: state.version + 1 }))
+
+    const discover: Interface["initial"]["discover"] = Effect.fn("CatalogV2.initial.discover")(function* (work) {
+      yield* Effect.acquireUseRelease(
+        SubscriptionRef.modify(initial, (state) => [
+          state.discovery === "idle",
+          state.discovery === "idle"
+            ? { ...state, discovery: "pending" as const, version: state.version + 1 }
+            : state,
+        ]),
+        () => work,
+        (tracked, exit) =>
+          tracked
+            ? updateInitial((state) => ({
+                discovery: Exit.isSuccess(exit) ? "succeeded" : "failed",
+                pending: state.pending,
+                succeeded: state.succeeded,
+                failed: state.failed,
+              }))
+            : Effect.void,
+      ).pipe(
+        Effect.tapCause((cause) => Effect.logError("initial catalog discovery failed", { cause })),
+        Effect.ignoreCause,
+      )
+    })
+
+    const source: Interface["initial"]["source"] = Effect.fn("CatalogV2.initial.source")(function* (work) {
+      yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const tracked = yield* SubscriptionRef.modify(initial, (state) => [
+            state.discovery === "pending",
+            state.discovery === "pending"
+              ? { ...state, pending: state.pending + 1, version: state.version + 1 }
+              : state,
+          ])
+          yield* restore(work).pipe(
+            tracked
+              ? Effect.onExit((exit) =>
+                  updateInitial((state) => ({
+                    discovery: state.discovery,
+                    pending: state.pending - 1,
+                    succeeded: state.succeeded + (Exit.isSuccess(exit) ? 1 : 0),
+                    failed: state.failed + (Exit.isFailure(exit) ? 1 : 0),
+                  })),
+                )
+              : (effect) => effect,
+            Effect.ignoreCause,
+            Effect.forkScoped({ startImmediately: true }),
+          )
+        }),
+      )
+    })
 
     const available = (provider: ProviderV2.Info, integration: Integration.Info | undefined) => {
       if (provider.disabled) return false
@@ -157,10 +247,16 @@ const layer = Layer.effect(
       finalize: Effect.fn("CatalogV2.finalize")(function* (catalog) {
         yield* events.publish(Event.Updated, {})
       }),
+      committed: () => updateInitial((state) => state),
     })
     const result: Interface = {
       transform: state.transform,
       reload: state.reload,
+
+      initial: {
+        discover,
+        source,
+      },
 
       provider: {
         get: Effect.fn("CatalogV2.provider.get")(function* (providerID) {
@@ -200,6 +296,45 @@ const layer = Layer.effect(
         available: Effect.fn("CatalogV2.model.available")(function* () {
           const providers = new Set((yield* result.provider.available()).map((provider) => provider.id))
           return (yield* result.model.all()).filter((model) => providers.has(model.providerID) && model.enabled)
+        }),
+
+        select: Effect.fn("CatalogV2.model.select")(function* (ref, supported) {
+          const inspect: () => Effect.Effect<Selection> = Effect.fnUntraced(function* () {
+            const status = yield* SubscriptionRef.get(initial)
+
+            if (ref) {
+              const selected = (yield* result.model.available()).find(
+                (model) => model.providerID === ref.providerID && model.id === ref.id,
+              )
+              if (selected && status.discovery !== "idle" && status.discovery !== "pending")
+                return { _tag: "selected", model: selected }
+            }
+
+            if (status.discovery === "idle" || status.discovery === "pending") return { _tag: "pending" }
+            if (status.pending > 0) return { _tag: "pending" }
+            if (status.discovery === "failed" || status.failed > 0) return { _tag: "incomplete" }
+            if (ref) return { _tag: "absent" }
+
+            const defaultModel = yield* result.model.default()
+            if (defaultModel && supported(defaultModel)) return { _tag: "selected", model: defaultModel }
+            const selected = (yield* result.model.available()).find(supported)
+            return selected ? { _tag: "selected", model: selected } : { _tag: "absent" }
+          })
+          const resolve = (selection: Selection): Effect.Effect<ModelV2.Info | undefined, IncompleteError> => {
+            if (selection._tag === "selected") return Effect.succeed(selection.model)
+            if (selection._tag === "incomplete") return Effect.fail(new IncompleteError())
+            return Effect.succeed(undefined)
+          }
+
+          const observed = yield* SubscriptionRef.changes(initial).pipe(
+            Stream.mapEffect(() => inspect()),
+            Stream.filter((selection) => selection._tag !== "pending"),
+            Stream.runHead,
+          )
+          return yield* Option.match(observed, {
+            onNone: () => Effect.die(new Error("Catalog readiness stream ended before initial settlement")),
+            onSome: resolve,
+          })
         }),
 
         default: Effect.fn("CatalogV2.model.default")(function* () {

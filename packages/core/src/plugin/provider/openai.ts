@@ -4,6 +4,7 @@ import { define } from "@opencode-ai/plugin/v2/effect/plugin"
 import { Deferred, Effect, Option, Schema, Semaphore, Stream } from "effect"
 import type { Scope } from "effect"
 import { Credential } from "../../credential"
+import { Catalog } from "../../catalog"
 import { EventV2 } from "../../event"
 import { InstallationVersion } from "../../installation/version"
 import { Integration } from "../../integration"
@@ -162,14 +163,13 @@ export const OpenAIPlugin = define({
   id: "openai",
   effect: Effect.fn(function* (ctx) {
     const events = yield* EventV2.Service
+    const catalog = yield* Catalog.Service
     const loading = Semaphore.makeUnsafe(1)
     let chatgpt = false
 
     const load = Effect.fn("OpenAIPlugin.load")(function* () {
       const connection = yield* ctx.integration.connection.active("openai")
-      const credential = connection
-        ? yield* ctx.integration.connection.resolve(connection).pipe(Effect.catch(() => Effect.succeed(undefined)))
-        : undefined
+      const credential = connection ? yield* ctx.integration.connection.resolve(connection) : undefined
       chatgpt = OpenAICodex.isChatGPT(credential)
     })
 
@@ -204,13 +204,16 @@ export const OpenAIPlugin = define({
       }
     })
 
-    const refresh = () => loading.withPermit(load().pipe(Effect.andThen(ctx.catalog.reload())))
+    const refresh = () =>
+      loading
+        .withPermit(load().pipe(Effect.andThen(ctx.catalog.reload())))
+        .pipe(Effect.tapCause((cause) => Effect.logWarning("failed to refresh OpenAI catalog", { cause })))
     yield* events.subscribe(Integration.Event.ConnectionUpdated).pipe(
       Stream.filter((event) => event.data.integrationID === Integration.ID.make("openai")),
-      Stream.runForEach(refresh),
+      Stream.runForEach(() => refresh().pipe(Effect.ignoreCause)),
       Effect.forkScoped({ startImmediately: true }),
     )
-    yield* refresh().pipe(Effect.forkScoped)
+    yield* catalog.initial.source(refresh())
     yield* ctx.aisdk.sdk(
       Effect.fn(function* (evt) {
         if (evt.package !== "@ai-sdk/openai") return
