@@ -9,6 +9,7 @@ import {
   compile as compileContract,
   emitEffect,
   emitEffectImported,
+  emitEffectShape,
   emitPromise,
   generate,
   GenerationError,
@@ -86,6 +87,43 @@ describe("HttpApiCodegen.generate", () => {
     expect(output.files.find((file) => file.path === "client.ts")?.content).toContain(
       "HttpApiClient.ForApi<typeof Api>",
     )
+  })
+
+  test("emits authoritative schema types in the Effect API shape", () => {
+    const ID = Schema.String.pipe(Schema.brand("SessionID"))
+    const Info = Schema.Struct({ id: Schema.String }).annotate({ identifier: "Session.Info" })
+    const output = emitEffectShape(
+      compileContract(
+        api(
+          HttpApiEndpoint.get("get", "/session/:id", {
+            params: { id: ID },
+            success: Schema.Struct({ data: Info }),
+          }),
+        ),
+      ),
+      {
+        module: "@example/api",
+        api: "Api",
+        typeReferences: [
+          {
+            schema: ID,
+            name: "Session.ID",
+            import: 'import type { Session } from "@example/schema"',
+          },
+          {
+            schema: Info,
+            name: "Session.Info",
+            import: 'import type { Session } from "@example/schema"',
+          },
+        ],
+      },
+    )
+    const source = output.files.find((file) => file.path === "api.ts")?.content
+
+    expect(source).toContain('import type { Session } from "@example/schema"')
+    expect(source).toContain('export type Endpoint0_0Input = { readonly "id": Session.ID }')
+    expect(source).toContain("export type Endpoint0_0Output = Session.Info")
+    expect(source).toContain("Effect.Effect<Session.Info, E>")
   })
 
   test("projects imported endpoint constants into a generated API", () => {

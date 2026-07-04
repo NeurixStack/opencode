@@ -35,6 +35,14 @@ export type Contract = {
   readonly groups: ReadonlyArray<Group>
 }
 
+export type EffectTypeReference = {
+  readonly schema: Schema.Top
+  readonly name: string
+  readonly import: string
+}
+
+type ResolvedEffectTypeReference = Omit<EffectTypeReference, "schema"> & { readonly ast: SchemaAST.AST }
+
 export class GenerationError extends Schema.TaggedErrorClass<GenerationError>()("GenerationError", {
   reason: Schema.String,
 }) {
@@ -268,7 +276,11 @@ export function emitEffectImported(
 
 export function emitEffectShape(
   contract: Contract,
-  options: { readonly module: string; readonly api: string },
+  options: {
+    readonly module: string
+    readonly api: string
+    readonly typeReferences?: ReadonlyArray<EffectTypeReference>
+  },
 ): Output {
   return {
     operations: operations(contract.groups),
@@ -307,7 +319,16 @@ export function emitPromise(
   }
 }
 
-function renderEffectShape(groups: ReadonlyArray<Group>, options: { readonly module: string; readonly api: string }) {
+function renderEffectShape(
+  groups: ReadonlyArray<Group>,
+  options: {
+    readonly module: string
+    readonly api: string
+    readonly typeReferences?: ReadonlyArray<EffectTypeReference>
+  },
+) {
+  const references = effectTypeReferences(options.typeReferences ?? [])
+  const imports = new Set<string>()
   const endpointTypes = groups.map((group, groupIndex) => {
     const rawGroup = group.endpoints[0]?.topLevel ? "RawClient" : `RawClient[${JSON.stringify(group.sourceIdentifier)}]`
     const endpoints = group.endpoints.map((endpoint, endpointIndex) => {
@@ -317,21 +338,29 @@ function renderEffectShape(groups: ReadonlyArray<Group>, options: { readonly mod
           ? ""
           : `type ${prefix}Request = Parameters<${rawGroup}[${JSON.stringify(endpoint.endpoint.name)}]>[0]`
       const input = endpoint.input
-        .map(
-          (field) =>
-            `readonly ${JSON.stringify(field.name)}${field.optional ? "?" : ""}: ${prefix}Request[${JSON.stringify(field.source)}][${JSON.stringify(field.name)}]`,
-        )
+        .map((field) => {
+          const schema = effectInputSchema(endpoint, field)
+          const type = schema === undefined ? undefined : effectType(schema, references, imports)?.source
+          return `readonly ${JSON.stringify(field.name)}${field.optional ? "?" : ""}: ${type ?? `${prefix}Request[${JSON.stringify(field.source)}][${JSON.stringify(field.name)}]`}`
+        })
         .join("; ")
       const inputType = endpoint.operation.inputMode === "none" ? "" : `export type ${prefix}Input = { ${input} }`
       const rawOutput = `EffectValue<ReturnType<${rawGroup}[${JSON.stringify(endpoint.endpoint.name)}]>>`
-      const outputType = isStreamSchema(endpoint.successes[0])
-        ? `export type ${prefix}Output = StreamValue<${rawOutput}>`
-        : `export type ${prefix}Output = ${endpoint.unwrapData ? `(${rawOutput})["data"]` : rawOutput}`
+      const schema = effectOutputSchema(endpoint)
+      const rendered = schema === undefined ? undefined : effectType(schema, references, imports)
+      const type = rendered?.source
+      const fallback = isStreamSchema(endpoint.successes[0])
+        ? `StreamValue<${rawOutput}>`
+        : endpoint.unwrapData
+          ? `(${rawOutput})["data"]`
+          : rawOutput
+      const outputType = `export type ${prefix}Output = ${type ?? fallback}`
+      const operationOutput = rendered?.authoritative ? rendered.source : `${prefix}Output`
       return [
         request,
         endpoint.operation.inputMode === "none" ? "" : inputType,
         outputType,
-        `export type ${groupShapeTypeName(group, endpoint)}<E = never> = (${endpoint.operation.inputMode === "none" ? "" : `input${endpoint.operation.inputMode === "optional" ? "?" : ""}: ${prefix}Input`}) => ${endpoint.operation.success === "stream" ? `Stream.Stream<${prefix}Output, E>` : `Effect.Effect<${prefix}Output, E>`}`,
+        `export type ${groupShapeTypeName(group, endpoint)}<E = never> = (${endpoint.operation.inputMode === "none" ? "" : `input${endpoint.operation.inputMode === "optional" ? "?" : ""}: ${prefix}Input`}) => ${endpoint.operation.success === "stream" ? `Stream.Stream<${operationOutput}, E>` : `Effect.Effect<${operationOutput}, E>`}`,
       ]
         .filter(Boolean)
         .join("\n")
@@ -355,6 +384,7 @@ function renderEffectShape(groups: ReadonlyArray<Group>, options: { readonly mod
 import type { Effect, Stream } from "effect"
 import type { HttpApiClient } from "effect/unstable/httpapi"
 import type { ${options.api} } from ${JSON.stringify(options.module)}
+${[...imports].join("\n")}
 
 type RawClient = HttpApiClient.ForApi<typeof ${options.api}>
 type EffectValue<A> = A extends Effect.Effect<infer Success, any, any> ? Success : never
@@ -366,6 +396,102 @@ export interface AppApi<E = never> {
 ${clientFields.join("\n")}
 }
 `
+}
+
+function effectTypeReferences(input: ReadonlyArray<EffectTypeReference>) {
+  const names = new Map<string, ResolvedEffectTypeReference>()
+  const asts = new Map<SchemaAST.AST, ResolvedEffectTypeReference>()
+  const brands = new Map<string, ResolvedEffectTypeReference>()
+  for (const reference of input) {
+    const value = { name: reference.name, import: reference.import, ast: reference.schema.ast }
+    asts.set(reference.schema.ast, value)
+    asts.set(Schema.toType(reference.schema).ast, value)
+    const document = SchemaRepresentation.toCodeDocument(
+      SchemaRepresentation.fromASTs([Schema.toType(reference.schema).ast]),
+    )
+    const name = document.codes[0]?.Type
+    const type =
+      name === undefined
+        ? undefined
+        : (document.references.nonRecursives.find((item) => item.$ref === name)?.code.Type ?? name)
+    if (type?.includes("Brand.Brand<") && !brands.has(type)) brands.set(type, value)
+    if (name === undefined || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) continue
+    const previous = names.get(name)
+    if (previous !== undefined) {
+      if (previous.ast !== reference.schema.ast) {
+        throw new GenerationError({ reason: `Conflicting Effect type reference: ${name}` })
+      }
+      continue
+    }
+    names.set(name, value)
+  }
+  return { names, asts, brands }
+}
+
+function effectType(schema: Schema.Top, references: ReturnType<typeof effectTypeReferences>, imports: Set<string>) {
+  const projected = Schema.toType(schema)
+  const direct = references.asts.get(schema.ast) ?? references.asts.get(projected.ast)
+  if (direct !== undefined) {
+    imports.add(direct.import)
+    return { source: direct.name, authoritative: true }
+  }
+  const document = SchemaRepresentation.toCodeDocument(SchemaRepresentation.fromASTs([projected.ast]))
+  const source = new Map(document.references.nonRecursives.map((reference) => [reference.$ref, reference.code.Type]))
+  const expand = (type: string, seen = new Set<string>()): string => {
+    for (const [name, value] of source) {
+      const pattern = typeReferencePattern(name)
+      if (!pattern.test(type)) continue
+      const reference = references.names.get(name)
+      if (reference !== undefined) {
+        imports.add(reference.import)
+        type = type.replace(typeReferencePattern(name), reference.name)
+        continue
+      }
+      if (seen.has(name)) return type
+      type = type.replace(typeReferencePattern(name), `(${expand(value, new Set([...seen, name]))})`)
+    }
+    return type
+  }
+  const root = document.codes[0].Type
+  const authoritative = references.names.has(root)
+  let type = expand(root)
+  for (const [brand, reference] of references.brands) {
+    if (!type.includes(brand)) continue
+    imports.add(reference.import)
+    type = type.replaceAll(brand, reference.name)
+  }
+  if (/\b(?:Brand|Schema)\./.test(type)) return undefined
+  return { source: type, authoritative }
+}
+
+function effectInputSchema(endpoint: Endpoint, field: InputField) {
+  const schema =
+    field.source === "params"
+      ? endpoint.params
+      : field.source === "query"
+        ? endpoint.query
+        : field.source === "headers"
+          ? endpoint.headers
+          : endpoint.payloads[0]
+  if (schema === undefined) return undefined
+  const ast = Schema.toType(schema).ast
+  if (!SchemaAST.isObjects(ast)) return undefined
+  const property = ast.propertySignatures.find((property) => property.name === field.name)
+  return property === undefined ? undefined : Schema.make(property.type)
+}
+
+function effectOutputSchema(endpoint: Endpoint) {
+  const schema = endpoint.successes[0]
+  if (HttpApiSchema.isNoContent(schema.ast)) return undefined
+  if (isStreamSchema(schema)) {
+    if (schema._tag === "StreamUint8Array") return undefined
+    return schema.sseMode === "data" ? streamDataSchema(schema) : schema.events
+  }
+  if (!endpoint.unwrapData) return schema
+  const ast = Schema.toType(schema).ast
+  if (!SchemaAST.isObjects(ast)) return undefined
+  const data = ast.propertySignatures.find((property) => property.name === "data")
+  return data === undefined ? undefined : Schema.make(data.type)
 }
 
 function groupShapeName(group: Group) {
