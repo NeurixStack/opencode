@@ -28,11 +28,11 @@ await Effect.runPromise(
         fileURLToPath(new URL("../src/promise/generated", import.meta.url)),
       ),
       write(
-        emitEffectImported(effectContract, { module: "../../contract", api: "ClientApi" }),
+        emitEffectImported(effectContract, { module: "../../contract.js", api: "ClientApi" }),
         fileURLToPath(new URL("../src/effect/generated", import.meta.url)),
       ),
       write(
-        emitEffectShape(effectContract, { module: "../../contract", api: "ClientApi" }),
+        emitEffectShape(effectContract, { module: "../../contract.js", api: "ClientApi" }),
         fileURLToPath(new URL("../src/effect/api", import.meta.url)),
       ),
     ],
