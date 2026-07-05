@@ -100,6 +100,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       directory: process.cwd(),
     })
     const messageIndex = new Map<string, Map<string, number>>()
+    const appliedEventSeq = new Map<string, number>()
     let connectionGeneration = 0
     let statusChanges: Set<string> | undefined
     let bootstrapping: Promise<void> | undefined
@@ -208,6 +209,11 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     }
 
     function handleEvent(event: V2Event) {
+      if ("durable" in event && event.durable)
+        appliedEventSeq.set(
+          event.durable.aggregateID,
+          Math.max(appliedEventSeq.get(event.durable.aggregateID) ?? -1, event.durable.seq),
+        )
       switch (event.type) {
         case "session.created":
           void result.session.refresh(event.data.sessionID)
@@ -382,7 +388,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.text.started":
           message.update(event.data.sessionID, (draft, index) => {
-            message.assistant(draft, index, event.data.assistantMessageID)?.content.push({
+            const assistant = message.assistant(draft, index, event.data.assistantMessageID)
+            if (!assistant || message.latestText(assistant, event.data.textID)) return
+            assistant.content.push({
               type: "text",
               id: event.data.textID,
               text: "",
@@ -409,7 +417,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.tool.input.started":
           message.update(event.data.sessionID, (draft, index) => {
-            message.assistant(draft, index, event.data.assistantMessageID)?.content.push({
+            const assistant = message.assistant(draft, index, event.data.assistantMessageID)
+            if (!assistant || message.latestTool(assistant, event.data.callID)) return
+            assistant.content.push({
               type: "tool",
               id: event.data.callID,
               name: event.data.name,
@@ -442,7 +452,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               message.assistant(draft, index, event.data.assistantMessageID),
               event.data.callID,
             )
-            if (!match) return
+            if (match?.state.status !== "pending") return
             match.time.ran = event.created
             match.provider = event.data.provider
             match.state = { status: "running", input: event.data.input, structured: {}, content: [] }
@@ -506,7 +516,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "session.reasoning.started":
           message.update(event.data.sessionID, (draft, index) => {
-            message.assistant(draft, index, event.data.assistantMessageID)?.content.push({
+            const assistant = message.assistant(draft, index, event.data.assistantMessageID)
+            if (!assistant || message.latestReasoning(assistant, event.data.reasoningID)) return
+            assistant.content.push({
               type: "reasoning",
               id: event.data.reasoningID,
               text: "",
@@ -693,23 +705,24 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return position === undefined ? undefined : messages?.[position]
           },
           async refresh(sessionID: string) {
+            const response = await sdk.api.message.list({ sessionID, limit: 200, order: "desc" })
+            const loaded = mutable(response.data).toReversed()
             const live = [...(store.session.message[sessionID] ?? [])]
-            setStore("session", "message", sessionID, [])
-            messageIndex.set(sessionID, new Map())
-            const loaded = mutable(
-              (await sdk.api.message.list({ sessionID, limit: 200, order: "desc" })).data,
-            ).toReversed()
             const loadedIDs = new Set(loaded.map((message) => message.id))
             const liveByID = new Map(live.map((message) => [message.id, message]))
+            const snapshotIsCurrent =
+              response.watermark !== undefined && response.watermark >= (appliedEventSeq.get(sessionID) ?? -1)
             const messages = [
               ...loaded.map((message) => {
                 if (message.type === "user") return message
+                if (snapshotIsCurrent) return message
                 const live = liveByID.get(message.id)
                 if (!live || ("completed" in message.time && message.time.completed !== undefined)) return message
                 return live
               }),
               ...live.filter((message) => !loadedIDs.has(message.id)),
             ].toSorted((a, b) => a.time.created - b.time.created)
+            if (snapshotIsCurrent) appliedEventSeq.set(sessionID, response.watermark)
             messageIndex.set(sessionID, new Map(messages.map((message, index) => [message.id, index])))
             setStore("session", "message", sessionID, messages)
           },
@@ -927,6 +940,8 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         if (details.type === "server.connected") {
           refreshActive()
           void bootstrap()
+          for (const sessionID of Object.keys(store.session.message))
+            void result.session.message.refresh(sessionID).catch(() => undefined)
           return
         }
         handleEvent(details)

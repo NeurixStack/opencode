@@ -108,12 +108,14 @@ test("refreshes resources into reactive getters", async () => {
   }
 })
 
-test("refresh replaces stale completed messages with the terminal server projection", async () => {
+test("refresh reconciles messages by durable snapshot watermark", async () => {
   const events = createEventStream()
   const sessionID = "session-stale-tool"
   const messageID = "message-stale-tool"
+  const liveMessageID = "message-live-tool"
+  let requests = 0
   const calls = createFetch((url) => {
-    if (url.pathname === `/api/session/${sessionID}/message`)
+    if (url.pathname === `/api/session/${sessionID}/message` && ++requests === 1)
       return json({
         data: [
           {
@@ -142,6 +144,30 @@ test("refresh replaces stale completed messages with the terminal server project
             time: { created: 1, completed: 3 },
           },
         ],
+        watermark: 2,
+        cursor: {},
+      })
+    if (url.pathname === `/api/session/${sessionID}/message`)
+      return json({
+        data: [
+          {
+            id: liveMessageID,
+            type: "assistant",
+            agent: "build",
+            model: { id: "model", providerID: "provider" },
+            content: [
+              {
+                type: "tool",
+                id: "call-read",
+                name: "read",
+                state: { status: "pending", input: "" },
+                time: { created: 4 },
+              },
+            ],
+            time: { created: 3 },
+          },
+        ],
+        watermark: 4,
         cursor: {},
       })
     return undefined
@@ -201,6 +227,18 @@ test("refresh replaces stale completed messages with the terminal server project
         error: { type: "unknown", message: "Step interrupted" },
       },
     })
+    emitEvent(events, {
+      id: "evt_prompt_after_stale_tool",
+      created: 4,
+      type: "session.prompt.admitted",
+      durable: durable(sessionID, 3),
+      data: {
+        sessionID,
+        inputID: "message-after-stale-tool",
+        prompt: { text: "Continue" },
+        delivery: "steer",
+      },
+    })
 
     await wait(() => {
       const message = data.session.message.get(sessionID, messageID)
@@ -212,6 +250,91 @@ test("refresh replaces stale completed messages with the terminal server project
     expect(message?.type).toBe("assistant")
     if (message?.type !== "assistant") return
     expect(message.content[0]).toMatchObject({ type: "tool", state: { status: "error" } })
+    emitEvent(events, {
+      id: "evt_tool_started_stale_replay",
+      created: 2,
+      type: "session.tool.input.started",
+      durable: durable(sessionID, 1),
+      data: {
+        sessionID,
+        assistantMessageID: messageID,
+        callID: "call-write",
+        name: "write",
+      },
+    })
+    emitEvent(events, {
+      id: "evt_tool_called_stale_replay",
+      created: 2,
+      type: "session.tool.called",
+      durable: durable(sessionID, 2),
+      data: {
+        sessionID,
+        assistantMessageID: messageID,
+        callID: "call-write",
+        tool: "write",
+        input: { path: "README.md" },
+        provider: { executed: false },
+      },
+    })
+    await Bun.sleep(10)
+    const replayed = data.session.message.get(sessionID, messageID)
+    expect(replayed?.type).toBe("assistant")
+    if (replayed?.type !== "assistant") return
+    expect(replayed.content).toHaveLength(1)
+    expect(replayed.content[0]).toMatchObject({ type: "tool", state: { status: "error" } })
+
+    emitEvent(events, {
+      id: "evt_step_started_live_tool",
+      created: 5,
+      type: "session.step.started",
+      durable: durable(sessionID, 4),
+      data: {
+        sessionID,
+        assistantMessageID: liveMessageID,
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+      },
+    })
+    emitEvent(events, {
+      id: "evt_tool_started_live_tool",
+      created: 6,
+      type: "session.tool.input.started",
+      durable: durable(sessionID, 5),
+      data: {
+        sessionID,
+        assistantMessageID: liveMessageID,
+        callID: "call-read",
+        name: "read",
+      },
+    })
+    emitEvent(events, {
+      id: "evt_tool_called_live_tool",
+      created: 7,
+      type: "session.tool.called",
+      durable: durable(sessionID, 6),
+      data: {
+        sessionID,
+        assistantMessageID: liveMessageID,
+        callID: "call-read",
+        tool: "read",
+        input: { path: "README.md" },
+        provider: { executed: false },
+      },
+    })
+    await wait(() => {
+      const message = data.session.message.get(sessionID, liveMessageID)
+      return (
+        message?.type === "assistant" &&
+        message.content[0]?.type === "tool" &&
+        message.content[0].state.status === "running"
+      )
+    })
+    await data.session.message.refresh(sessionID)
+
+    const live = data.session.message.get(sessionID, liveMessageID)
+    expect(live?.type).toBe("assistant")
+    if (live?.type !== "assistant") return
+    expect(live.content[0]).toMatchObject({ type: "tool", state: { status: "running" } })
   } finally {
     app.renderer.destroy()
   }
@@ -219,7 +342,7 @@ test("refresh replaces stale completed messages with the terminal server project
 
 test("reconnects the event stream and bootstraps fresh data", async () => {
   const events = createEventStream()
-  const requests = { active: 0, event: 0, model: 0 }
+  const requests = { active: 0, event: 0, message: 0, model: 0 }
   let resolveActive!: (response: Response) => void
   const calls = createFetch((url) => {
     if (url.pathname === "/api/event") {
@@ -231,6 +354,40 @@ test("reconnects the event stream and bootstraps fresh data", async () => {
       if (requests.active === 1) return json({ data: { "session-stale": { type: "running" } }, watermarks: {} })
       return new Promise<Response>((resolve) => {
         resolveActive = resolve
+      })
+    }
+    if (url.pathname === "/api/session/session-reconnect/message") {
+      requests.message++
+      return json({
+        data: [
+          {
+            id: "message-reconnect",
+            type: "assistant",
+            agent: "build",
+            model: { id: "model", providerID: "provider" },
+            content: [
+              {
+                type: "tool",
+                id: "call-reconnect",
+                name: "write",
+                provider: { executed: false },
+                state: {
+                  status: "error",
+                  input: {},
+                  content: [],
+                  structured: {},
+                  error: { type: "unknown", message: "Tool execution interrupted" },
+                },
+                time: { created: 1, completed: 2 },
+              },
+            ],
+            finish: "error",
+            error: { type: "unknown", message: "Step interrupted" },
+            time: { created: 0, completed: 2 },
+          },
+        ],
+        watermark: 2,
+        cursor: {},
       })
     }
     if (url.pathname !== "/api/model") return
@@ -278,6 +435,30 @@ test("reconnects the event stream and bootstraps fresh data", async () => {
     await wait(() => data.session.status("session-stale") === "running")
     expect(data.connection.status()).toBe("connected")
     expect(data.connection.attempt()).toBe(0)
+    emitEvent(events, {
+      id: "evt_step_started_before_reconnect",
+      created: 0,
+      type: "session.step.started",
+      durable: durable("session-reconnect"),
+      data: {
+        sessionID: "session-reconnect",
+        assistantMessageID: "message-reconnect",
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+      },
+    })
+    emitEvent(events, {
+      id: "evt_tool_started_before_reconnect",
+      created: 1,
+      type: "session.tool.input.started",
+      durable: durable("session-reconnect", 1),
+      data: {
+        sessionID: "session-reconnect",
+        assistantMessageID: "message-reconnect",
+        callID: "call-reconnect",
+        name: "write",
+      },
+    })
 
     events.disconnect()
     await wait(() => data.connection.status() === "connecting")
@@ -302,8 +483,17 @@ test("reconnects the event stream and bootstraps fresh data", async () => {
 
     await wait(() => data.location.model.list()?.[0]?.id === "model-2", 4000)
     await wait(() => data.session.status("session-stale") === "idle")
+    await wait(() => {
+      const message = data.session.message.get("session-reconnect", "message-reconnect")
+      return (
+        message?.type === "assistant" &&
+        message.content[0]?.type === "tool" &&
+        message.content[0].state.status === "error"
+      )
+    })
     expect(data.session.status("session-new")).toBe("running")
     expect(requests.event).toBe(2)
+    expect(requests.message).toBe(1)
     expect(data.connection.status()).toBe("connected")
     expect(data.connection.attempt()).toBe(0)
     expect(data.connection.error()).toBeUndefined()
