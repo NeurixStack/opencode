@@ -182,8 +182,10 @@ export function Session() {
     )
   })
   const forms = createMemo(() => {
-    if (session()?.parentID) return []
-    return data.session.form.list(route.sessionID) ?? []
+    return [
+      ...(session()?.parentID ? [] : (data.session.form.list(route.sessionID) ?? [])),
+      ...(data.session.form.list("global", location()) ?? []),
+    ]
   })
   const [composer, setComposer] = createStore({
     open: false,
@@ -258,6 +260,7 @@ export function Session() {
         navigate({ type: "home" })
         return
       }
+      await data.session.form.refresh("global", info.location)
       project.workspace.set(info.location.workspaceID)
       editor.reconnect(info.location.directory)
       if (route.sessionID === sessionID && scroll) scroll.scrollBy(100_000)

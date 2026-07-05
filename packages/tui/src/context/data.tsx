@@ -30,7 +30,7 @@ export type DataSessionStatus = "idle" | "running"
 
 const messageIDFromEvent = (eventID: string) => eventID.replace(/^evt_/, "msg_")
 
-export type FormInfo = FormFormInfo | FormUrlInfo
+export type FormInfo = (FormFormInfo | FormUrlInfo) & { readonly location?: LocationRef }
 
 type LocationData = {
   agent?: AgentV2Info[]
@@ -56,7 +56,7 @@ type Data = {
     status: Record<string, DataSessionStatus>
     message: Record<string, SessionMessage[]>
     permission: Record<string, PermissionV2Request[]>
-    // Pending forms keyed by session ID.
+    // Pending forms keyed by owner: a session ID or the temporary "global" elicitation sentinel.
     form: Record<string, FormInfo[]>
   }
   project: {
@@ -592,7 +592,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           if (store.session.form[event.data.form.sessionID]?.some((form) => form.id === event.data.form.id)) break
           setStore("session", "form", event.data.form.sessionID, [
             ...(store.session.form[event.data.form.sessionID] ?? []),
-            mutable(event.data.form),
+            mutable({ ...event.data.form, location: event.location }),
           ])
           break
         case "form.replied":
@@ -723,10 +723,28 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           },
         },
         form: {
-          list(sessionID: string) {
-            return store.session.form[sessionID]
+          list(sessionID: string, ref?: LocationRef) {
+            const forms = store.session.form[sessionID]
+            if (sessionID !== "global") return forms
+            if (!ref) return
+            const key = locationKey(ref)
+            return forms?.filter((form) => form.location && locationKey(form.location) === key)
           },
-          async refresh(sessionID: string) {
+          async refresh(sessionID: string, ref?: LocationRef) {
+            if (sessionID === "global") {
+              const result = await sdk.api.form.listRequests({ location: locationQuery(ref ?? defaultLocation()) })
+              const location = { directory: result.location.directory, workspaceID: result.location.workspaceID }
+              const key = locationKey(location)
+              setStore("session", "form", sessionID, [
+                ...(store.session.form[sessionID] ?? []).filter(
+                  (form) => !form.location || locationKey(form.location) !== key,
+                ),
+                ...mutable(
+                  result.data.filter((form) => form.sessionID === "global").map((form) => ({ ...form, location })),
+                ),
+              ])
+              return
+            }
             setStore("session", "form", sessionID, mutable(await sdk.api.form.list({ sessionID })))
           },
         },
@@ -871,7 +889,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             directory: defaultLocation().directory,
             workspace: defaultLocation().workspaceID,
           })
-          .then((response) => {
+          .then(async (response) => {
             setStore(
               "session",
               "info",
@@ -880,6 +898,16 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               }),
             )
             for (const session of response.data) registerSession(session.id)
+            await Promise.all(
+              Array.from(
+                new Map(
+                  Object.values(store.session.info).map(
+                    (session) => [locationKey(session.location), session.location] as const,
+                  ),
+                ).values(),
+                (location) => result.session.form.refresh("global", location),
+              ),
+            )
           }),
         result.location.refresh(),
         result.location.agent.refresh(),

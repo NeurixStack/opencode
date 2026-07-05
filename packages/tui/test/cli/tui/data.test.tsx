@@ -877,6 +877,186 @@ test("adds, dismisses, and refreshes form requests", async () => {
   }
 })
 
+test("tracks global forms by location", async () => {
+  const events = createEventStream()
+  const calls = createFetch(undefined, events)
+  const other = { directory: "/tmp/opencode-other", workspaceID: "wrk_other" }
+  let data!: ReturnType<typeof useData>
+
+  function Probe() {
+    data = useData()
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    await wait(() => data.connection.status() === "connected")
+    events.emit({
+      id: "evt_form_created_global",
+      created: 0,
+      location: other,
+      type: "form.created",
+      data: { form: { id: "frm_global", sessionID: "global", mode: "form", fields: [] } },
+    })
+
+    await wait(() => data.session.form.list("global", other)?.length === 1)
+    expect(data.session.form.list("global", { directory }) ?? []).toEqual([])
+
+    events.emit({
+      id: "evt_form_replied_global",
+      created: 1,
+      location: other,
+      type: "form.replied",
+      data: { id: "frm_global", sessionID: "global", answer: {} },
+    })
+    await wait(() => data.session.form.list("global", other)?.length === 0)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("refreshes global forms for the requested location", async () => {
+  const events = createEventStream()
+  const requests: URL[] = []
+  const other = { directory: "/tmp/opencode-other", workspaceID: "wrk_other" }
+  const calls = createFetch((url) => {
+    if (url.pathname !== "/api/form/request") return
+    requests.push(url)
+    const requestedDirectory = url.searchParams.get("location[directory]") ?? directory
+    const requestedWorkspace = url.searchParams.get("location[workspace]") ?? undefined
+    return json({
+      location: {
+        directory: requestedDirectory,
+        workspaceID: requestedWorkspace,
+        project: { id: "proj_test", directory: requestedDirectory },
+      },
+      data: [
+        {
+          id: requestedDirectory === other.directory ? "frm_other" : "frm_default",
+          sessionID: "global",
+          mode: "form",
+          fields: [],
+        },
+      ],
+    })
+  }, events)
+  let data!: ReturnType<typeof useData>
+
+  function Probe() {
+    data = useData()
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    await wait(() => data.connection.status() === "connected")
+    await data.session.form.refresh("global", { directory })
+    await data.session.form.refresh("global", other)
+
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.searchParams.get("location[directory]")).toBe(other.directory)
+    expect(requests[1]?.searchParams.get("location[workspace]")).toBe(other.workspaceID)
+    expect(data.session.form.list("global", other)?.map((form) => form.id)).toEqual(["frm_other"])
+    expect(data.session.form.list("global", { directory })?.map((form) => form.id)).toEqual(["frm_default"])
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("refreshes global forms once per loaded location after reconnect", async () => {
+  const events = createEventStream()
+  const requests: URL[] = []
+  const other = { directory: "/tmp/opencode-other", workspaceID: "wrk_other" }
+  const calls = createFetch((url) => {
+    if (url.pathname === "/api/session" && url.searchParams.has("parentID")) return json({ data: [], cursor: {} })
+    if (url.pathname === "/api/session")
+      return json({
+        data: [
+          { id: "ses_default", title: "Default", location: { directory }, time: { created: 0, updated: 0 } },
+          { id: "ses_other_1", title: "Other one", location: other, time: { created: 0, updated: 0 } },
+          { id: "ses_other_2", title: "Other two", location: other, time: { created: 0, updated: 0 } },
+        ],
+        cursor: {},
+      })
+    if (url.pathname !== "/api/form/request") return
+    requests.push(url)
+    const requestedDirectory = url.searchParams.get("location[directory]") ?? directory
+    const requestedWorkspace = url.searchParams.get("location[workspace]") ?? undefined
+    return json({
+      location: {
+        directory: requestedDirectory,
+        workspaceID: requestedWorkspace,
+        project: { id: "proj_test", directory: requestedDirectory },
+      },
+      data: [],
+    })
+  }, events)
+  let data!: ReturnType<typeof useData>
+
+  function Probe() {
+    data = useData()
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    await wait(() => requests.length === 2)
+    await Bun.sleep(20)
+    requests.length = 0
+
+    events.disconnect()
+
+    await wait(() => requests.length === 2, 4000)
+    await Bun.sleep(20)
+    expect(requests).toHaveLength(2)
+    expect(
+      requests.map((url) => [
+        url.searchParams.get("location[directory]") ?? directory,
+        url.searchParams.get("location[workspace]") ?? undefined,
+      ]),
+    ).toEqual([
+      [directory, undefined],
+      [other.directory, other.workspaceID],
+    ])
+    expect(data.connection.status()).toBe("connected")
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
 test("settles pending tools when a live failure arrives", async () => {
   const events = createEventStream()
   const calls = createFetch((url) => {
