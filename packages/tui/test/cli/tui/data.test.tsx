@@ -108,6 +108,115 @@ test("refreshes resources into reactive getters", async () => {
   }
 })
 
+test("refresh replaces stale completed messages with the terminal server projection", async () => {
+  const events = createEventStream()
+  const sessionID = "session-stale-tool"
+  const messageID = "message-stale-tool"
+  const calls = createFetch((url) => {
+    if (url.pathname === `/api/session/${sessionID}/message`)
+      return json({
+        data: [
+          {
+            id: messageID,
+            type: "assistant",
+            agent: "build",
+            model: { id: "model", providerID: "provider" },
+            content: [
+              {
+                type: "tool",
+                id: "call-write",
+                name: "write",
+                provider: { executed: false },
+                state: {
+                  status: "error",
+                  input: {},
+                  content: [],
+                  structured: {},
+                  error: { type: "unknown", message: "Tool execution interrupted" },
+                },
+                time: { created: 1, completed: 3 },
+              },
+            ],
+            finish: "error",
+            error: { type: "unknown", message: "Step interrupted" },
+            time: { created: 1, completed: 3 },
+          },
+        ],
+        cursor: {},
+      })
+    return undefined
+  }, events)
+  let data!: ReturnType<typeof useData>
+
+  function Probe() {
+    data = useData()
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    emitEvent(events, {
+      id: "evt_step_started_stale_tool",
+      created: 1,
+      type: "session.step.started",
+      durable: durable(sessionID),
+      data: {
+        sessionID,
+        assistantMessageID: messageID,
+        agent: "build",
+        model: { id: "model", providerID: "provider" },
+      },
+    })
+    emitEvent(events, {
+      id: "evt_tool_started_stale_tool",
+      created: 2,
+      type: "session.tool.input.started",
+      durable: durable(sessionID, 1),
+      data: {
+        sessionID,
+        assistantMessageID: messageID,
+        callID: "call-write",
+        name: "write",
+      },
+    })
+    emitEvent(events, {
+      id: "evt_step_failed_stale_tool",
+      created: 3,
+      type: "session.step.failed",
+      durable: durable(sessionID, 2),
+      data: {
+        sessionID,
+        assistantMessageID: messageID,
+        error: { type: "unknown", message: "Step interrupted" },
+      },
+    })
+
+    await wait(() => {
+      const message = data.session.message.get(sessionID, messageID)
+      return message?.type === "assistant" && message.time.completed === 3
+    })
+    await data.session.message.refresh(sessionID)
+
+    const message = data.session.message.get(sessionID, messageID)
+    expect(message?.type).toBe("assistant")
+    if (message?.type !== "assistant") return
+    expect(message.content[0]).toMatchObject({ type: "tool", state: { status: "error" } })
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
 test("reconnects the event stream and bootstraps fresh data", async () => {
   const events = createEventStream()
   const requests = { active: 0, event: 0, model: 0 }

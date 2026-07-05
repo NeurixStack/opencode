@@ -704,7 +704,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             const messages = [
               ...loaded.map((message) => {
                 if (message.type === "user") return message
-                return liveByID.get(message.id) ?? message
+                const live = liveByID.get(message.id)
+                if (!live || ("completed" in message.time && message.time.completed !== undefined)) return message
+                return live
               }),
               ...live.filter((message) => !loadedIDs.has(message.id)),
             ].toSorted((a, b) => a.time.created - b.time.created)
