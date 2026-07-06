@@ -23,7 +23,7 @@ import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
-import { DateTime, Effect, Layer, Stream } from "effect"
+import { DateTime, Effect, Fiber, Layer, Stream } from "effect"
 import { asc, eq } from "drizzle-orm"
 import { testEffect } from "./lib/effect"
 
@@ -141,11 +141,30 @@ it.effect("does not count file attachments as text context", () =>
   }),
 )
 
+test("compaction prompt requires the checkpoint headings in order", () => {
+  const prompt = SessionCompaction.buildPrompt({ context: ["Conversation history"] })
+  expect(prompt.match(/^#{2,3} .+$/gm)).toEqual([
+    "## Objective",
+    "## Important Details",
+    "## Work State",
+    "## Next Move",
+  ])
+  expect(prompt).toContain("one or two brief sentences")
+  expect(prompt).toContain("constraints/preferences, decisions and why")
+  expect(prompt).toContain("Completed:")
+  expect(prompt).toContain("Active:")
+  expect(prompt).toContain("Blocked:")
+  expect(prompt).toContain("immediate concrete action")
+  expect(prompt).toContain("next action if known")
+  expect(prompt).toContain("Keep every section, even when empty.")
+})
+
 it.effect("manual compaction summarizes short context instead of no-op", () =>
   Effect.gen(function* () {
     requests = []
     const db = (yield* Database.Service).db
     const compaction = yield* SessionCompaction.Service
+    const events = yield* EventV2.Service
     const store = yield* SessionStore.Service
     const sessionID = SessionV2.ID.make("ses_manual_compaction")
     const userMessage = {
@@ -181,7 +200,12 @@ it.effect("manual compaction summarizes short context instead of no-op", () =>
         ),
       )
 
+    const delta = yield* events
+      .subscribe(SessionEvent.Compaction.Delta)
+      .pipe(Stream.take(1), Stream.runCollect, Effect.forkScoped)
+    yield* Effect.yieldNow
     expect(yield* compaction.compactManual({ session, messages: [userMessage] })).toBe(true)
+    expect(Array.from(yield* Fiber.join(delta)).map((event) => event.data.text)).toEqual(["manual summary"])
 
     expect(requests).toHaveLength(1)
     expect(JSON.stringify(requests[0]?.messages)).toContain("Manual compaction should include this short conversation.")

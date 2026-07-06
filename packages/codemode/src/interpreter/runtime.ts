@@ -66,7 +66,7 @@ import {
   numberMethods,
   numberStatics,
 } from "../stdlib/number.js"
-import { invokeObjectMethod } from "../stdlib/object.js"
+import { invokeObjectMethod, objectMethodsPreservingIdentity } from "../stdlib/object.js"
 import { promiseStatics, TOOL_CALL_CONCURRENCY } from "../stdlib/promise.js"
 import {
   escapeRegexHint,
@@ -612,12 +612,13 @@ class Interpreter<R> {
   // Fiber-backed promises whose settlement no program construct has observed yet. Successful
   // program completion drains these (like a runtime waiting on in-flight work at exit) and
   // surfaces a never-awaited failure as an unhandled-rejection diagnostic.
-  private readonly pendingSettlements = new Set<SandboxPromise>()
+  private readonly pendingSettlements: Set<SandboxPromise>
 
   constructor(
     invokeTool: (path: ReadonlyArray<string>, args: Array<unknown>) => Effect.Effect<unknown, unknown, R>,
     toolKeys: (path: ReadonlyArray<string>) => ReadonlyArray<string>,
     logs: Array<string> = [],
+    shared?: { callPermits: Semaphore.Semaphore; pendingSettlements: Set<SandboxPromise> },
   ) {
     const globalScope = new Map<string, Binding>()
     this.scopes = [globalScope]
@@ -625,7 +626,8 @@ class Interpreter<R> {
     this.toolKeys = toolKeys
     this.logs = logs
     this.lastValue = undefined
-    this.callPermits = Semaphore.makeUnsafe(TOOL_CALL_CONCURRENCY)
+    this.callPermits = shared?.callPermits ?? Semaphore.makeUnsafe(TOOL_CALL_CONCURRENCY)
+    this.pendingSettlements = shared?.pendingSettlements ?? new Set<SandboxPromise>()
     globalScope.set("tools", { mutable: false, value: new ToolReference([]) })
     globalScope.set("Promise", { mutable: false, value: new PromiseNamespace() })
     globalScope.set("undefined", { mutable: false, value: undefined })
@@ -705,15 +707,17 @@ class Interpreter<R> {
   private drainPendingSettlements(): Effect.Effect<void, unknown, never> {
     const self = this
     return Effect.gen(function* () {
-      for (const promise of [...self.pendingSettlements]) {
+      while (self.pendingSettlements.size > 0) {
+        const promise = self.pendingSettlements.values().next().value
+        if (promise === undefined) break
         const exit = yield* self.observePromise(promise)
         if (Exit.isSuccess(exit) || Cause.hasInterruptsOnly(exit.cause)) continue
         const failure = normalizeError(Cause.squash(exit.cause))
         throw new InterpreterRuntimeError(
-          `Unhandled rejection from an un-awaited tool call: ${failure.message}`,
+          `Unhandled rejection from an un-awaited promise: ${failure.message}`,
           undefined,
           failure.kind,
-          ["Await tool calls - `const result = await tools.ns.tool(...)` - so failures can be caught and handled."],
+          ["Await promises so failures can be caught and handled."],
         )
       }
     })
@@ -727,17 +731,15 @@ class Interpreter<R> {
     path: ReadonlyArray<string>,
     args: Array<unknown>,
   ): Effect.Effect<SandboxPromise, never, R> {
-    const self = this
-    return Effect.map(
-      Effect.forkChild(this.callPermits.withPermit(Effect.suspend(() => self.invokeTool(path, args))), {
-        startImmediately: true,
-      }),
-      (fiber) => {
-        const promise = new SandboxPromise(fiber)
-        self.pendingSettlements.add(promise)
-        return promise
-      },
-    )
+    return this.createPromise(this.callPermits.withPermit(Effect.suspend(() => this.invokeTool(path, args))))
+  }
+
+  private createPromise(effect: Effect.Effect<unknown, unknown, R>): Effect.Effect<SandboxPromise, never, R> {
+    return Effect.map(Effect.forkChild(effect, { startImmediately: true }), (fiber) => {
+      const promise = new SandboxPromise(fiber)
+      this.pendingSettlements.add(promise)
+      return promise
+    })
   }
 
   // The promise's settlement as an Exit, marking it observed for unhandled-rejection tracking.
@@ -858,6 +860,7 @@ class Interpreter<R> {
       getArray(node, "params").map((parameter, index) => asNode(parameter, `params[${index}]`)),
       getNode(node, "body"),
       this.scopes.slice(),
+      node.async === true,
     )
   }
 
@@ -1085,7 +1088,7 @@ class Interpreter<R> {
       }
 
       let declaration: { readonly pattern: AstNode; readonly mutable: boolean } | undefined
-      let assignmentName: string | undefined
+      let assignment: AstNode | undefined
 
       if (left.type === "VariableDeclaration") {
         const declarations = getArray(left, "declarations")
@@ -1095,8 +1098,13 @@ class Interpreter<R> {
 
         const declarator = asNode(declarations[0], "declarations[0]")
         declaration = { pattern: getNode(declarator, "id"), mutable: getString(left, "kind") !== "const" }
-      } else if (left.type === "Identifier") {
-        assignmentName = getString(left, "name")
+      } else if (
+        left.type === "Identifier" ||
+        left.type === "MemberExpression" ||
+        left.type === "ArrayPattern" ||
+        left.type === "ObjectPattern"
+      ) {
+        assignment = left
       } else {
         throw new InterpreterRuntimeError("Unsupported for...of binding.", left)
       }
@@ -1105,8 +1113,8 @@ class Interpreter<R> {
         if (declaration) {
           self.pushScope()
           yield* self.declarePattern(declaration.pattern, value, declaration.mutable, left)
-        } else if (assignmentName) {
-          self.setIdentifierValue(assignmentName, value, left)
+        } else if (assignment) {
+          yield* self.assignPattern(assignment, value, left)
         }
 
         const result = yield* self.evaluateStatement(body).pipe(
@@ -1504,6 +1512,16 @@ class Interpreter<R> {
         return this.evaluateUnaryExpression(node)
       case "AssignmentExpression":
         return this.evaluateAssignmentExpression(node)
+      case "SequenceExpression": {
+        const self = this
+        return Effect.gen(function* () {
+          let result: unknown
+          for (const expression of getArray(node, "expressions")) {
+            result = yield* self.evaluateExpression(asNode(expression, "expressions"))
+          }
+          return result
+        })
+      }
       case "CallExpression":
         return this.evaluateCallExpression(node)
       case "ArrowFunctionExpression":
@@ -2010,9 +2028,9 @@ class Interpreter<R> {
       if (callable instanceof GlobalMethodReference) {
         if (callable.namespace === "console") return self.invokeConsole(callable.name, args, node)
         if (callable.namespace === "Object" && args[0] instanceof ToolReference) {
-          return self.invokeObjectMethodOnTools(callable.name, args[0] as ToolReference, node)
+          return self.invokeObjectMethodOnTools(callable.name, args[0], node)
         }
-        if (callable.namespace === "Object" && callable.name === "assign") {
+        if (callable.namespace === "Object" && objectMethodsPreservingIdentity.has(callable.name)) {
           return invokeGlobalMethod(callable, args, node)
         }
         return boundedData(invokeGlobalMethod(callable, args, node), `${callable.namespace}.${callable.name} result`)
@@ -2033,8 +2051,8 @@ class Interpreter<R> {
 
   // Object.* over a tool reference: `Object.keys(tools)` / `Object.keys(tools.ns)` enumerate
   // namespace/tool names from the host tool tree - the discovery idiom a model reaches for
-  // first. Every other Object helper cannot produce data from a tool reference, so it fails
-  // with a pointer at the working idioms instead of the generic plain-objects-only message.
+  // first. Other Object helpers fail with a pointer at the working idioms instead of a generic
+  // plain-data message.
   private invokeObjectMethodOnTools(name: string, ref: ToolReference, node: AstNode): unknown {
     if (name === "keys") {
       return boundedData(this.enumerableKeys(ref)!, "Object.keys result")
@@ -2226,14 +2244,36 @@ class Interpreter<R> {
     switch (ref.name) {
       case "all": {
         // Mark every promise element observed up-front (Promise.all handles all of its
-        // members' failures, as in JS), then join in index order; the first failure rejects
-        // the whole call while unrelated in-flight members keep running.
-        const settles = items.map((item) =>
-          item instanceof SandboxPromise ? this.settlePromise(item, node) : Effect.succeed(item),
+        // members' failures, as in JS), race their settlements for fail-fast rejection, and
+        // preserve input order when they all fulfill. Rejected calls keep draining siblings.
+        const observations = items.map((item, index) =>
+          item instanceof SandboxPromise
+            ? Effect.map(this.observePromise(item), (exit) => ({ index, item, exit }))
+            : Effect.succeed({ index, item: undefined, exit: Exit.succeed(item) }),
         )
         return Effect.gen(function* () {
+          const remaining = [...observations]
           const values: Array<unknown> = []
-          for (const settle of settles) values.push(yield* settle)
+          values.length = items.length
+          while (remaining.length > 0) {
+            const winner = yield* Effect.raceAll(remaining)
+            const position = remaining.indexOf(observations[winner.index])
+            if (position >= 0) remaining.splice(position, 1)
+            if (Exit.isSuccess(winner.exit)) {
+              values[winner.index] = winner.exit.value
+              continue
+            }
+            yield* self.createPromise(
+              Effect.asVoid(
+                Effect.forEach(
+                  items,
+                  (item) => (item instanceof SandboxPromise ? self.observePromise(item) : Effect.void),
+                  { concurrency: "unbounded" },
+                ),
+              ),
+            )
+            return yield* self.unwrapPromiseExit(winner.item, winner.exit, node)
+          }
           return values
         })
       }
@@ -2307,43 +2347,42 @@ class Interpreter<R> {
   }
 
   private invokeFunction(fn: CodeModeFunction, args: Array<unknown>): Effect.Effect<unknown, unknown, R> {
-    const self = this
-    return Effect.suspend(() => {
-      const savedScopes = self.scopes
-      self.scopes = [...fn.capturedScopes, new Map<string, Binding>()]
-      const run = Effect.gen(function* () {
-        // Seed every parameter name into the scope as a TDZ slot first, so a default that
-        // references another parameter resolves to that (uninitialized) param rather than
-        // silently falling through to an outer binding of the same name - matching JS.
-        const paramScope = self.currentScope()
-        for (const parameter of fn.parameters) {
-          for (const name of collectPatternNames(parameter)) {
-            paramScope.set(name, { mutable: true, value: undefined, initialized: false })
-          }
-        }
-        for (const [index, parameter] of fn.parameters.entries()) {
-          if (parameter.type === "RestElement") {
-            yield* self.declarePattern(getNode(parameter, "argument"), args.slice(index), true, parameter)
-            break
-          }
-          yield* self.declarePattern(parameter, args[index], true, parameter)
-        }
-
-        if (fn.body.type === "BlockStatement") {
-          const result = yield* self.evaluateStatement(fn.body)
-          return result.kind === "return" || result.kind === "value" ? result.value : undefined
-        }
-
-        return yield* self.evaluateExpression(fn.body)
-      })
-      return run.pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            self.scopes = savedScopes
-          }),
-        ),
-      )
+    const invocation = new Interpreter(this.invokeTool, this.toolKeys, this.logs, {
+      callPermits: this.callPermits,
+      pendingSettlements: this.pendingSettlements,
     })
+    invocation.scopes = [...fn.capturedScopes, new Map<string, Binding>()]
+    const run = Effect.gen(function* () {
+      // Seed every parameter name into the scope as a TDZ slot first, so a default that
+      // references another parameter resolves to that (uninitialized) param rather than
+      // silently falling through to an outer binding of the same name - matching JS.
+      const paramScope = invocation.currentScope()
+      for (const parameter of fn.parameters) {
+        for (const name of collectPatternNames(parameter)) {
+          paramScope.set(name, { mutable: true, value: undefined, initialized: false })
+        }
+      }
+      for (const [index, parameter] of fn.parameters.entries()) {
+        if (parameter.type === "RestElement") {
+          yield* invocation.declarePattern(getNode(parameter, "argument"), args.slice(index), true, parameter)
+          break
+        }
+        yield* invocation.declarePattern(parameter, args[index], true, parameter)
+      }
+
+      if (fn.body.type === "BlockStatement") {
+        const result = yield* invocation.evaluateStatement(fn.body)
+        return result.kind === "return" || result.kind === "value" ? result.value : undefined
+      }
+
+      return yield* invocation.evaluateExpression(fn.body)
+    })
+    if (!fn.async) return run
+    return this.createPromise(
+      Effect.flatMap(run, (value) =>
+        value instanceof SandboxPromise ? invocation.settlePromise(value) : Effect.succeed(value),
+      ),
+    )
   }
 
   private invokeIntrinsic(
@@ -2432,13 +2471,19 @@ class Interpreter<R> {
       else value.replaceAll(pattern, collect)
     }
 
+    const self = this
     return Effect.gen(function* () {
       const output: Array<string> = []
       let end = 0
       for (const match of matches) {
+        const replacement = yield* apply(match.args)
+        const resolved =
+          args[1] instanceof CodeModeFunction && args[1].async && replacement instanceof SandboxPromise
+            ? yield* self.settlePromise(replacement)
+            : replacement
         output.push(
           value.slice(end, match.offset),
-          coerceToString(boundedData(yield* apply(match.args), `String.${name} replacer result`)),
+          coerceToString(boundedData(resolved, `String.${name} replacer result`)),
         )
         end = match.offset + match.match.length
       }
