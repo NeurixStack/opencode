@@ -187,6 +187,11 @@ export function Session() {
       ...(data.session.form.list("global", location()) ?? []),
     ]
   })
+  const formKey = createMemo(() => {
+    const form = forms()[0]
+    if (!form) return
+    return JSON.stringify([form.location?.directory, form.location?.workspaceID, form.id])
+  })
   const [composer, setComposer] = createStore({
     open: false,
     tab: undefined as string | undefined,
@@ -261,6 +266,7 @@ export function Session() {
         return
       }
       await data.session.form.refresh("global", info.location)
+      if (route.sessionID !== sessionID) return
       project.workspace.set(info.location.workspaceID)
       editor.reconnect(info.location.directory)
       if (route.sessionID === sessionID && scroll) scroll.scrollBy(100_000)
@@ -932,17 +938,17 @@ export function Session() {
               <box flexShrink={0}>
                 <Composer
                   sessionID={route.sessionID}
-                  open={composer.open || !!session()?.parentID}
+                  open={composer.open || (!!session()?.parentID && forms().length === 0)}
                   defaultTab={composer.tab ?? (session()?.parentID ? "subagents" : undefined)}
                   onClose={() => setComposer("open", false)}
                 />
                 <Switch>
-                  <Match when={composer.open || !!session()?.parentID}>{null}</Match>
+                  <Match when={composer.open || (!!session()?.parentID && forms().length === 0)}>{null}</Match>
                   <Match when={permissions().length > 0}>
                     <PermissionPrompt request={permissions()[0]} directory={session()?.location.directory} />
                   </Match>
                   <Match when={forms().length > 0}>
-                    <Show when={forms()[0]?.id} keyed>
+                    <Show when={formKey()} keyed>
                       {(_) => {
                         const form = forms()[0]
                         return form ? <FormPrompt form={form} /> : null

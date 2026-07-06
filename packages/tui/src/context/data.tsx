@@ -69,6 +69,12 @@ function locationKey(location: LocationRef) {
   return JSON.stringify([location.directory, location.workspaceID])
 }
 
+function matchesGlobalForm(form: FormInfo, id: string, location?: LocationRef) {
+  if (form.id !== id) return false
+  if (!form.location || !location) return true
+  return locationKey(form.location) === locationKey(location)
+}
+
 function locationQuery(ref?: LocationRef) {
   return ref ? { directory: ref.directory, workspace: ref.workspaceID } : undefined
 }
@@ -589,7 +595,14 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           )
           break
         case "form.created":
-          if (store.session.form[event.data.form.sessionID]?.some((form) => form.id === event.data.form.id)) break
+          if (
+            store.session.form[event.data.form.sessionID]?.some((form) =>
+              event.data.form.sessionID === "global"
+                ? matchesGlobalForm(form, event.data.form.id, event.location)
+                : form.id === event.data.form.id,
+            )
+          )
+            break
           setStore("session", "form", event.data.form.sessionID, [
             ...(store.session.form[event.data.form.sessionID] ?? []),
             mutable({ ...event.data.form, location: event.location }),
@@ -601,7 +614,11 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             "session",
             "form",
             event.data.sessionID,
-            (store.session.form[event.data.sessionID] ?? []).filter((form) => form.id !== event.data.id),
+            (store.session.form[event.data.sessionID] ?? []).filter((form) =>
+              event.data.sessionID === "global"
+                ? !matchesGlobalForm(form, event.data.id, event.location)
+                : form.id !== event.data.id,
+            ),
           )
           break
         case "shell.created":

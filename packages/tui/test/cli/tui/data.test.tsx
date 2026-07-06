@@ -914,13 +914,23 @@ test("tracks global forms by location", async () => {
     expect(data.session.form.list("global", { directory }) ?? []).toEqual([])
 
     events.emit({
-      id: "evt_form_replied_global",
+      id: "evt_form_created_global_default",
       created: 1,
+      location: { directory },
+      type: "form.created",
+      data: { form: { id: "frm_global", sessionID: "global", mode: "form", fields: [] } },
+    })
+    await wait(() => data.session.form.list("global", { directory })?.length === 1)
+
+    events.emit({
+      id: "evt_form_replied_global",
+      created: 2,
       location: other,
       type: "form.replied",
       data: { id: "frm_global", sessionID: "global", answer: {} },
     })
     await wait(() => data.session.form.list("global", other)?.length === 0)
+    expect(data.session.form.list("global", { directory })?.map((form) => form.id)).toEqual(["frm_global"])
   } finally {
     app.renderer.destroy()
   }
