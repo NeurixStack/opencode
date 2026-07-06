@@ -6,24 +6,24 @@ import { SearchFirecrawl } from "@opencode-ai/core/plugin/search/firecrawl"
 import { host, integrationHost } from "./host"
 import { requests, resetSearchFixture, searchIntegrationTest } from "./search-fixture"
 
-beforeEach(() => {
-  resetSearchFixture(
-    JSON.stringify({
-      success: true,
-      data: {
-        web: [
-          {
-            url: "https://effect.website/",
-            title: "Effect",
-            description: "Build production TypeScript applications.",
-            position: 1,
-          },
-        ],
+const metadata = {
+  success: true,
+  data: {
+    web: [
+      {
+        url: "https://effect.website/",
+        title: "Effect",
+        description: "Build production TypeScript applications.",
+        position: 1,
       },
-      id: "search_1",
-      creditsUsed: 2,
-    }),
-  )
+    ],
+  },
+  id: "search_1",
+  creditsUsed: 2,
+}
+
+beforeEach(() => {
+  resetSearchFixture(JSON.stringify(metadata))
 })
 
 const it = searchIntegrationTest
@@ -39,21 +39,7 @@ describe("Firecrawl search integration", () => {
       const output = yield* provider.execute({ query: "effect", numResults: 3 }, {})
       expect(output).toEqual({
         text: "## Effect\n\nURL: https://effect.website/\n\nBuild production TypeScript applications.",
-        metadata: {
-          success: true,
-          data: {
-            web: [
-              {
-                url: "https://effect.website/",
-                title: "Effect",
-                description: "Build production TypeScript applications.",
-                position: 1,
-              },
-            ],
-          },
-          id: "search_1",
-          creditsUsed: 2,
-        },
+        metadata,
       })
       expect(requests).toEqual([
         {

@@ -1,6 +1,7 @@
 export * as SearchFirecrawl from "./firecrawl"
 
 import { define } from "@opencode-ai/plugin/v2/effect"
+import type { Search } from "@opencode-ai/schema/search"
 import { Duration, Effect, Schema, Scope } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { collectBoundedResponseBody } from "../../tool/http-body"
@@ -8,36 +9,37 @@ import { SearchMcp } from "./mcp"
 
 export const endpoint = "https://api.firecrawl.dev/v2/search"
 
-const Request = Schema.Struct({
+const FirecrawlRequest = Schema.Struct({
   query: Schema.String,
   limit: Schema.optional(Schema.Number),
 })
 
-const WebResult = Schema.Struct({
+const ResultBase = {
   url: Schema.String,
   title: Schema.optional(Schema.String),
-  description: Schema.optional(Schema.String),
-  markdown: Schema.optional(Schema.NullOr(Schema.String)),
   position: Schema.optional(Schema.Number),
+}
+const PageResult = {
+  ...ResultBase,
+  markdown: Schema.optional(Schema.NullOr(Schema.String)),
+}
+const WebResult = Schema.Struct({
+  ...PageResult,
+  description: Schema.optional(Schema.String),
   category: Schema.optional(Schema.String),
 })
 const NewsResult = Schema.Struct({
-  url: Schema.String,
-  title: Schema.optional(Schema.String),
+  ...PageResult,
   snippet: Schema.optional(Schema.String),
   date: Schema.optional(Schema.String),
-  markdown: Schema.optional(Schema.NullOr(Schema.String)),
-  position: Schema.optional(Schema.Number),
 })
 const ImageResult = Schema.Struct({
-  url: Schema.String,
-  title: Schema.optional(Schema.String),
+  ...ResultBase,
   imageUrl: Schema.String,
   imageWidth: Schema.optional(Schema.Number),
   imageHeight: Schema.optional(Schema.Number),
-  position: Schema.optional(Schema.Number),
 })
-const Response = Schema.Struct({
+const FirecrawlResponse = Schema.Struct({
   success: Schema.Literal(true),
   data: Schema.Struct({
     web: Schema.optional(Schema.Array(WebResult)),
@@ -49,9 +51,9 @@ const Response = Schema.Struct({
   creditsUsed: Schema.optional(Schema.Number),
 })
 const decodeJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Json))
-const decodeResponse = Schema.decodeUnknownEffect(Response)
+const decodeResponse = Schema.decodeUnknownEffect(FirecrawlResponse)
 
-const format = (response: typeof Response.Type) =>
+const formatResults = (response: typeof FirecrawlResponse.Type) =>
   [
     ...(response.data.web ?? []).map((result) =>
       [`## ${result.title ?? result.url}`, `URL: ${result.url}`, result.description, result.markdown || undefined]
@@ -76,16 +78,14 @@ const format = (response: typeof Response.Type) =>
 
 const search = (
   http: HttpClient.HttpClient,
-  input: { readonly query: string; readonly numResults?: number; readonly contextMaxCharacters?: number },
+  input: Pick<Search.Input, "query" | "numResults" | "contextMaxCharacters">,
   apiKey?: string,
 ) =>
   Effect.gen(function* () {
     const request = yield* HttpClientRequest.post(endpoint).pipe(
       HttpClientRequest.acceptJson,
-      HttpClientRequest.setHeaders({
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      }),
-      HttpClientRequest.schemaBodyJson(Request)({ query: input.query, limit: input.numResults }),
+      HttpClientRequest.setHeaders(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      HttpClientRequest.schemaBodyJson(FirecrawlRequest)({ query: input.query, limit: input.numResults }),
     )
     const response = yield* HttpClient.filterStatusOk(http).execute(request)
     const body = yield* collectBoundedResponseBody(
@@ -95,7 +95,7 @@ const search = (
     )
     const metadata = yield* decodeJson(body.toString("utf8"))
     const result = yield* decodeResponse(metadata)
-    const text = format(result)
+    const text = formatResults(result)
     return {
       text: input.contextMaxCharacters ? text.slice(0, input.contextMaxCharacters) : text,
       metadata,
