@@ -528,11 +528,11 @@ export type SessionPromptInput = {
         readonly uri: string
         readonly name?: string
         readonly description?: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
       readonly agents?: ReadonlyArray<{
         readonly name: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
     }
     readonly delivery?: "steer" | "queue" | null
@@ -546,11 +546,11 @@ export type SessionPromptInput = {
         readonly uri: string
         readonly name?: string
         readonly description?: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
       readonly agents?: ReadonlyArray<{
         readonly name: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
     }
     readonly delivery?: "steer" | "queue" | null
@@ -564,11 +564,11 @@ export type SessionPromptInput = {
         readonly uri: string
         readonly name?: string
         readonly description?: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
       readonly agents?: ReadonlyArray<{
         readonly name: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
     }
     readonly delivery?: "steer" | "queue" | null
@@ -582,11 +582,11 @@ export type SessionPromptInput = {
         readonly uri: string
         readonly name?: string
         readonly description?: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
       readonly agents?: ReadonlyArray<{
         readonly name: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
     }
     readonly delivery?: "steer" | "queue" | null
@@ -602,15 +602,16 @@ export type SessionPromptOutput = {
     readonly prompt: {
       readonly text: string
       readonly files?: ReadonlyArray<{
-        readonly uri: string
+        readonly data: string
         readonly mime: string
+        readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
         readonly name?: string
         readonly description?: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
       readonly agents?: ReadonlyArray<{
         readonly name: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
     }
     readonly delivery: "steer" | "queue"
@@ -631,11 +632,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -650,11 +651,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -669,11 +670,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -688,11 +689,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -707,11 +708,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -726,11 +727,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -745,11 +746,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -764,11 +765,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -783,11 +784,11 @@ export type SessionCommandInput = {
       readonly uri: string
       readonly name?: string
       readonly description?: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly agents?: ReadonlyArray<{
       readonly name: string
-      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
     }>
     readonly delivery?: "steer" | "queue" | null
     readonly resume?: boolean | null
@@ -802,15 +803,16 @@ export type SessionCommandOutput = {
     readonly prompt: {
       readonly text: string
       readonly files?: ReadonlyArray<{
-        readonly uri: string
+        readonly data: string
         readonly mime: string
+        readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
         readonly name?: string
         readonly description?: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
       readonly agents?: ReadonlyArray<{
         readonly name: string
-        readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+        readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
       }>
     }
     readonly delivery: "steer" | "queue"
@@ -932,15 +934,16 @@ export type SessionContextOutput = {
         readonly time: { readonly created: number }
         readonly text: string
         readonly files?: ReadonlyArray<{
-          readonly uri: string
+          readonly data: string
           readonly mime: string
+          readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
           readonly name?: string
           readonly description?: string
-          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+          readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
         }>
         readonly agents?: ReadonlyArray<{
           readonly name: string
-          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+          readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
         }>
         readonly type: "user"
       }
@@ -1035,11 +1038,12 @@ export type SessionContextOutput = {
                     readonly status: "completed"
                     readonly input: { readonly [x: string]: JsonValue }
                     readonly attachments?: ReadonlyArray<{
-                      readonly uri: string
+                      readonly data: string
                       readonly mime: string
+                      readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
                       readonly name?: string
                       readonly description?: string
-                      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+                      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
                     }>
                     readonly content: ReadonlyArray<
                       | { readonly type: "text"; readonly text: string }
@@ -1194,15 +1198,16 @@ export type SessionLogOutput =
             readonly prompt: {
               readonly text: string
               readonly files?: ReadonlyArray<{
-                readonly uri: string
+                readonly data: string
                 readonly mime: string
+                readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
                 readonly name?: string
                 readonly description?: string
-                readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+                readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
               }>
               readonly agents?: ReadonlyArray<{
                 readonly name: string
-                readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+                readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
               }>
             }
             readonly delivery: "steer" | "queue"
@@ -1626,15 +1631,16 @@ export type SessionMessageOutput = {
         readonly time: { readonly created: number }
         readonly text: string
         readonly files?: ReadonlyArray<{
-          readonly uri: string
+          readonly data: string
           readonly mime: string
+          readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
           readonly name?: string
           readonly description?: string
-          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+          readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
         }>
         readonly agents?: ReadonlyArray<{
           readonly name: string
-          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+          readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
         }>
         readonly type: "user"
       }
@@ -1729,11 +1735,12 @@ export type SessionMessageOutput = {
                     readonly status: "completed"
                     readonly input: { readonly [x: string]: JsonValue }
                     readonly attachments?: ReadonlyArray<{
-                      readonly uri: string
+                      readonly data: string
                       readonly mime: string
+                      readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
                       readonly name?: string
                       readonly description?: string
-                      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+                      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
                     }>
                     readonly content: ReadonlyArray<
                       | { readonly type: "text"; readonly text: string }
@@ -1826,15 +1833,16 @@ export type MessageListOutput = {
         readonly time: { readonly created: number }
         readonly text: string
         readonly files?: ReadonlyArray<{
-          readonly uri: string
+          readonly data: string
           readonly mime: string
+          readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
           readonly name?: string
           readonly description?: string
-          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+          readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
         }>
         readonly agents?: ReadonlyArray<{
           readonly name: string
-          readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+          readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
         }>
         readonly type: "user"
       }
@@ -1929,11 +1937,12 @@ export type MessageListOutput = {
                     readonly status: "completed"
                     readonly input: { readonly [x: string]: JsonValue }
                     readonly attachments?: ReadonlyArray<{
-                      readonly uri: string
+                      readonly data: string
                       readonly mime: string
+                      readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
                       readonly name?: string
                       readonly description?: string
-                      readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+                      readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
                     }>
                     readonly content: ReadonlyArray<
                       | { readonly type: "text"; readonly text: string }
@@ -4476,15 +4485,16 @@ export type EventSubscribeOutput =
         readonly prompt: {
           readonly text: string
           readonly files?: ReadonlyArray<{
-            readonly uri: string
+            readonly data: string
             readonly mime: string
+            readonly source: { readonly type: "inline" } | { readonly type: "uri"; readonly uri: string }
             readonly name?: string
             readonly description?: string
-            readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+            readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
           }>
           readonly agents?: ReadonlyArray<{
             readonly name: string
-            readonly source?: { readonly start: number; readonly end: number; readonly text: string }
+            readonly mention?: { readonly start: number; readonly end: number; readonly text: string }
           }>
         }
         readonly delivery: "steer" | "queue"

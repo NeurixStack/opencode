@@ -9,7 +9,7 @@ import { WorkspaceV2 } from "./workspace"
 import { ModelV2 } from "./model"
 import { Location } from "./location"
 import { SessionMessage } from "./session/message"
-import { Prompt } from "./session/prompt"
+import { Base64, FileAttachment, Prompt } from "@opencode-ai/schema/prompt"
 import { PromptInput } from "@opencode-ai/schema/prompt-input"
 import { EventV2 } from "./event"
 import { Database } from "./database/database"
@@ -37,6 +37,7 @@ import { SessionCompaction } from "./session/compaction"
 import { SessionRevert } from "./session/revert"
 import { Revert } from "@opencode-ai/schema/revert"
 import { FSUtil } from "./fs-util"
+import { Mime } from "./mime"
 import type { EventLog } from "@opencode-ai/schema/event-log"
 import { SkillV2 } from "./skill"
 import { Job } from "./job"
@@ -44,6 +45,7 @@ import { CommandV2 } from "./command"
 import { Shell } from "./shell"
 import { Shell as ShellSchema } from "@opencode-ai/schema/shell"
 import { KeyedMutex } from "./effect/keyed-mutex"
+import { fileURLToPath } from "url"
 
 export const RevertState = Revert.State
 export type RevertState = Revert.State
@@ -119,6 +121,10 @@ export class PromptConflictError extends Schema.TaggedErrorClass<PromptConflictE
   sessionID: SessionSchema.ID,
   messageID: SessionMessage.ID,
 }) {}
+export class AttachmentError extends Schema.TaggedErrorClass<AttachmentError>()("Session.AttachmentError", {
+  uri: Schema.String,
+  message: Schema.String,
+}) {}
 export class BusyError extends Schema.TaggedErrorClass<BusyError>()("Session.BusyError", {
   sessionID: SessionSchema.ID,
 }) {}
@@ -133,6 +139,7 @@ export type Error =
   | MessageDecodeError
   | OperationUnavailableError
   | PromptConflictError
+  | AttachmentError
   | BusyError
   | SkillNotFoundError
   | CommandV2.NotFoundError
@@ -187,7 +194,7 @@ export interface Interface {
     prompt: PromptInput.Prompt
     delivery?: SessionInput.Delivery
     resume?: boolean
-  }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError>
+  }) => Effect.Effect<SessionInput.Admitted, NotFoundError | PromptConflictError | AttachmentError>
   readonly command: (input: {
     id?: SessionMessage.ID
     sessionID: SessionSchema.ID
@@ -201,7 +208,7 @@ export interface Interface {
     resume?: boolean
   }) => Effect.Effect<
     SessionInput.Admitted,
-    NotFoundError | PromptConflictError | CommandV2.NotFoundError | CommandV2.EvaluationError
+    NotFoundError | PromptConflictError | AttachmentError | CommandV2.NotFoundError | CommandV2.EvaluationError
   >
   readonly shell: (input: {
     id?: EventV2.ID
@@ -251,6 +258,7 @@ const layer = Layer.effect(
     const execution = yield* SessionExecution.Service
     const store = yield* SessionStore.Service
     const locations = yield* LocationServiceMap.Service
+    const fs = yield* FSUtil.Service
     const jobs = yield* Job.Service
     const scope = yield* Scope.Scope
     const activeShells = new Set<SessionSchema.ID>()
@@ -456,7 +464,7 @@ const layer = Layer.effect(
             // continues from the reverted boundary rather than stale post-boundary history.
             if (session.revert)
               yield* SessionRevert.commit(session).pipe(Effect.provideService(EventV2.Service, events))
-            const prompt = resolvePrompt(input.prompt)
+            const prompt = yield* resolvePrompt(input.prompt).pipe(Effect.provideService(FSUtil.Service, fs))
             const messageID = input.id ?? SessionMessage.ID.create()
             const delivery = input.delivery ?? "steer"
             const expected = { sessionID: input.sessionID, messageID, prompt, delivery }
@@ -713,19 +721,110 @@ function synthesizeTerminalShellInfo(started: ShellSchema.Info): ShellSchema.Inf
   }
 }
 
-const resolvePrompt = (input: PromptInput.Prompt) =>
-  Prompt.make({
-    text: input.text,
-    agents: input.agents,
-    files: input.files?.map((file) => {
-      const dataMime = file.uri.match(/^data:([^;,]+)[;,]/i)?.[1]
-      const target = URL.canParse(file.uri) ? new URL(file.uri).pathname : (file.name ?? file.uri)
-      return {
-        ...file,
-        mime: dataMime ?? (target.endsWith("/") ? "application/x-directory" : FSUtil.mimeType(target)),
+const resolvePrompt = Effect.fn("V2Session.resolvePrompt")(function* (input: PromptInput.Prompt) {
+  const fs = yield* FSUtil.Service
+  const files = input.files
+    ? yield* Effect.forEach(
+        input.files,
+        (file) => materializeAttachment(fs, file),
+        { concurrency: 8 },
+      )
+    : undefined
+  return Prompt.make({ text: input.text, agents: input.agents, files })
+})
+
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024
+
+const materializeAttachment = Effect.fn("V2Session.materializeAttachment")(function* (
+  fs: FSUtil.Interface,
+  input: PromptInput.FileAttachment,
+) {
+  const resolved = input.uri.startsWith("data:")
+    ? {
+        bytes: yield* decodeDataURL(input.uri),
+        source: { type: "inline" as const },
+        start: undefined,
+        end: undefined,
+        name: undefined,
       }
-    }),
+    : yield* readFileAttachment(fs, input.uri)
+  if (resolved.bytes.byteLength > MAX_ATTACHMENT_BYTES)
+    return yield* new AttachmentError({
+      uri: input.uri,
+      message: `Attachment exceeds the ${MAX_ATTACHMENT_BYTES} byte limit: ${input.uri}`,
+    })
+
+  const mime = Mime.detect(resolved.bytes)
+  const content =
+    mime === "text/plain" && resolved.start !== undefined
+      ? Buffer.from(
+          Buffer.from(resolved.bytes).toString("utf8").split("\n").slice(resolved.start - 1, resolved.end).join("\n"),
+        )
+      : resolved.bytes
+  return FileAttachment.create({
+    data: Base64.make(Buffer.from(content).toString("base64")),
+    mime,
+    source: resolved.source,
+    name: input.name ?? resolved.name,
+    description: input.description,
+    mention: input.mention,
   })
+})
+
+const readFileAttachment = Effect.fn("V2Session.readFileAttachment")(function* (fs: FSUtil.Interface, uri: string) {
+  const url = yield* Effect.try({
+    try: () => new URL(uri),
+    catch: () => new AttachmentError({ uri, message: `Invalid attachment URI: ${uri}` }),
+  })
+  if (url.protocol !== "file:")
+    return yield* new AttachmentError({ uri, message: `Unsupported attachment URI: ${uri}` })
+  const start = positiveInt(url.searchParams.get("start"))
+  const end = positiveInt(url.searchParams.get("end"))
+  const target = yield* Effect.try({
+    try: () => {
+      url.search = ""
+      url.hash = ""
+      return fileURLToPath(url)
+    },
+    catch: () => new AttachmentError({ uri, message: `Invalid file URI: ${uri}` }),
+  })
+  const info = yield* fs.stat(target).pipe(
+    Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })),
+  )
+  if (info.type !== "File") return yield* new AttachmentError({ uri, message: `Attachment is not a file: ${uri}` })
+  if (Number(info.size) > MAX_ATTACHMENT_BYTES)
+    return yield* new AttachmentError({
+      uri,
+      message: `Attachment exceeds the ${MAX_ATTACHMENT_BYTES} byte limit: ${uri}`,
+    })
+  const bytes = yield* fs.readFile(target).pipe(
+    Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })),
+  )
+  return { bytes, source: { type: "uri" as const, uri }, start, end, name: path.basename(target) }
+})
+
+function decodeDataURL(uri: string) {
+  return Effect.try({
+    try: () => {
+      const comma = uri.indexOf(",")
+      if (comma === -1) throw new Error("Invalid data URL")
+      const metadata = uri.slice(5, comma)
+      const payload = uri.slice(comma + 1)
+      if (!metadata.split(";").some((part) => part.toLowerCase() === "base64"))
+        return Buffer.from(decodeURIComponent(payload))
+      const bytes = Buffer.from(payload, "base64")
+      if (bytes.toString("base64") !== payload) throw new Error("Non-canonical base64")
+      return bytes
+    },
+    catch: () => new AttachmentError({ uri, message: "Invalid attachment data URL" }),
+  })
+}
+
+function positiveInt(value: string | null) {
+  if (value === null) return
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
 
 // Mirrors the shell tool's in-memory preview safety limit.
 const SHELL_MAX_CAPTURE_BYTES = 1024 * 1024
@@ -742,5 +841,6 @@ export const node = makeGlobalNode({
     SessionStore.node,
     LocationServiceMap.node,
     SessionProjector.node,
+    FSUtil.node,
   ],
 })
