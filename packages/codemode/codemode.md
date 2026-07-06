@@ -129,9 +129,9 @@ closing. Timeout and external interruption cancel immediately instead.
 
 ### Deliberate deviations and open decisions
 
-- CodeMode drains unfinished work before successful execution closes. This keeps tool effects supervised, but a race
-  loser or fail-fast `Promise.all` sibling that never settles can hold execution open indefinitely when the host supplies
-  no timeout.
+- CodeMode drains unfinished work before ordinary success or failure closes. This keeps tool effects supervised, but a
+  race loser or fail-fast `Promise.all` sibling that never settles can hold execution open indefinitely when the host
+  supplies no timeout.
 - Promise resolution unwraps only `SandboxPromise`; arbitrary `{ then(resolve, reject) }` values remain data. Full
   thenable assimilation requires internal callable resolver values, first-settlement arbitration, recursive adoption,
   and cycle detection. Decide whether that machinery belongs in the bounded runtime.
@@ -143,14 +143,24 @@ closing. Timeout and external interruption cancel immediately instead.
 - Rejection tracking is execution-scoped and checked at drain time, not an ECMAScript microtask-level unhandled
   rejection model.
 
-### Required coverage
+### Covered regressions
 
-- Nested unreturned work from async functions and `then`/`catch`/`finally` handlers.
-- Abandoned immediate, chained, and combinator rejections.
+- Nested unreturned tool calls remain alive after an async function or `then` handler settles.
+- Abandoned failing tool calls, async functions, and immediate `Promise.reject` values report unhandled rejections.
+- Ordinary program failure drains pending work and preserves the original error; a rejecting race winner drains its slow
+  loser.
+- Timeouts interrupt all in-flight promise fibers with parallel teardown, while host interruption propagates instead of
+  becoming a diagnostic.
+- Awaiting the same promise twice settles it once, and basic `then` handlers run after synchronous statements.
+
+### Missing coverage
+
+- Nested unreturned work from `catch` and `finally` handlers.
+- Abandoned chained and combinator rejections.
 - Plain-value and already-settled `await` ordering.
-- Ordinary program failure versus timeout/external interruption while handled work remains.
+- External interruption while handled pending work remains.
 - Never-settling race losers and fail-fast `Promise.all` siblings under an explicit timeout.
-- Shared or duplicate promises across combinators, discarded inner chains, and reaction ordering.
+- Shared or duplicate promises across combinators, discarded inner chains, and detailed reaction ordering.
 
 ## Intentionally Unsupported
 
