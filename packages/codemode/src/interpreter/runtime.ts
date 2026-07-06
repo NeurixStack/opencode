@@ -1,5 +1,5 @@
 import { parse } from "acorn"
-import { Cause, Effect, Exit, Fiber, Scope, Semaphore } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Queue, Scope, Semaphore } from "effect"
 import { DiagnosticCategory, ModuleKind, ScriptTarget, flattenDiagnosticMessageText, transpileModule } from "typescript"
 import {
   copyIn,
@@ -146,6 +146,11 @@ const parseProgram = (code: string): ProgramNode => {
   }
 
   return parsed as ProgramNode
+}
+
+type PromiseReaction<R> = {
+  readonly effect: Effect.Effect<unknown, unknown, R>
+  readonly settlement: Deferred.Deferred<unknown, unknown>
 }
 
 const publicErrorMessage = (message: string): string =>
@@ -610,6 +615,7 @@ class Interpreter<R> {
   // Every promise fiber belongs to the execution rather than the async function or handler
   // that happened to create it. The execution scope still interrupts all work on teardown.
   private readonly promiseScope: Scope.Scope
+  private readonly reactionQueue: Queue.Queue<PromiseReaction<R>>
   // Caps how many eagerly forked tool calls run at once (the parallel-call concurrency cap).
   private readonly callPermits: Semaphore.Semaphore
   // Fiber-backed promises whose settlement no program construct has observed yet. Ordinary
@@ -621,6 +627,7 @@ class Interpreter<R> {
     invokeTool: (path: ReadonlyArray<string>, args: Array<unknown>) => Effect.Effect<unknown, unknown, R>,
     toolKeys: (path: ReadonlyArray<string>) => ReadonlyArray<string>,
     promiseScope: Scope.Scope,
+    reactionQueue: Queue.Queue<PromiseReaction<R>>,
     logs: Array<string> = [],
     shared?: { callPermits: Semaphore.Semaphore; pendingSettlements: Set<SandboxPromise> },
   ) {
@@ -631,6 +638,7 @@ class Interpreter<R> {
     this.logs = logs
     this.lastValue = undefined
     this.promiseScope = promiseScope
+    this.reactionQueue = reactionQueue
     this.callPermits = shared?.callPermits ?? Semaphore.makeUnsafe(TOOL_CALL_CONCURRENCY)
     this.pendingSettlements = shared?.pendingSettlements ?? new Set<SandboxPromise>()
     globalScope.set("tools", { mutable: false, value: new ToolReference([]) })
@@ -773,6 +781,42 @@ class Interpreter<R> {
   private settlePromise(promise: SandboxPromise): Effect.Effect<unknown, unknown, never> {
     const self = this
     return Effect.flatMap(this.observePromise(promise), (exit) => self.unwrapPromiseExit(exit))
+  }
+
+  private createReaction(
+    source: Effect.Effect<Exit.Exit<unknown, unknown>, never, R>,
+    reaction: (exit: Exit.Exit<unknown, unknown>, chained: SandboxPromise) => Effect.Effect<unknown, unknown, R>,
+  ): Effect.Effect<SandboxPromise, never, R> {
+    const settlement = Deferred.makeUnsafe<unknown, unknown>()
+    const chained = new SandboxPromise(undefined, Deferred.await(settlement))
+    this.pendingSettlements.add(chained)
+    return Effect.as(
+      Effect.forkIn(
+        Effect.flatMap(source, (exit) =>
+          Effect.sync(() =>
+            Queue.offerUnsafe(this.reactionQueue, {
+              settlement,
+              effect: Effect.suspend(() => reaction(exit, chained)),
+            }),
+          ),
+        ),
+        this.promiseScope,
+        { startImmediately: true },
+      ),
+      chained,
+    )
+  }
+
+  private awaitValue(value: unknown): Effect.Effect<unknown, unknown, R> {
+    return Effect.flatMap(
+      this.createReaction(
+        value instanceof SandboxPromise
+          ? Effect.exit(this.settlePromise(value))
+          : Effect.succeed(Exit.succeed(value)),
+        (exit) => this.unwrapPromiseExit(exit),
+      ),
+      (continuation) => this.settlePromise(continuation),
+    )
   }
 
   private unwrapPromiseExit(exit: Exit.Exit<unknown, unknown>): Effect.Effect<unknown, unknown> {
@@ -1532,12 +1576,9 @@ class Interpreter<R> {
       case "UpdateExpression":
         return this.evaluateUpdateExpression(node)
       case "AwaitExpression": {
-        // `await` resolves a promise value; awaiting anything else is a passthrough no-op,
-        // matching real JS semantics for non-thenables.
-        const self = this
-        return Effect.flatMap(this.evaluateExpression(getNode(node, "argument")), (value) =>
-          value instanceof SandboxPromise ? self.settlePromise(value) : Effect.succeed(value),
-        )
+        // Even an already-settled value resumes in a later reaction turn, after work that was
+        // already queued, matching JavaScript's await continuation ordering.
+        return Effect.flatMap(this.evaluateExpression(getNode(node, "argument")), (value) => this.awaitValue(value))
       }
       case "NewExpression":
         return this.evaluateNewExpression(node)
@@ -2328,7 +2369,7 @@ class Interpreter<R> {
   }
 
   private invokeFunction(fn: CodeModeFunction, args: Array<unknown>): Effect.Effect<unknown, unknown, R> {
-    const invocation = new Interpreter(this.invokeTool, this.toolKeys, this.promiseScope, this.logs, {
+    const invocation = new Interpreter(this.invokeTool, this.toolKeys, this.promiseScope, this.reactionQueue, this.logs, {
       callPermits: this.callPermits,
       pendingSettlements: this.pendingSettlements,
     })
@@ -2428,7 +2469,7 @@ class Interpreter<R> {
         !(value instanceof ErrorConstructorReference)
       )
         return undefined
-      return (callbackArgs: Array<unknown>) =>
+      return (callbackArgs: Array<unknown>, chained: SandboxPromise) =>
         Effect.flatMap(
           value instanceof ToolReference
             ? this.createToolCallPromise(value.path, callbackArgs)
@@ -2469,27 +2510,24 @@ class Interpreter<R> {
           },
         )
     }
-    let chained: SandboxPromise | undefined
     const onFulfilled = name === "then" ? callback(args[0]) : undefined
     const onRejected = name === "then" ? callback(args[1]) : name === "catch" ? callback(args[0]) : undefined
     const onFinally = name === "finally" ? callback(args[0]) : undefined
     const settlement = Effect.exit(this.settlePromise(promise))
 
-    return Effect.map(
-      this.createPromise(
+    return this.createReaction(
+      settlement,
+      (exit, chained) =>
         Effect.gen(function* () {
-          yield* Effect.yieldNow
-          const exit = yield* settlement
-          if (onFinally !== undefined) yield* onFinally([])
+          if (onFinally !== undefined) yield* onFinally([], chained)
           if (Exit.isSuccess(exit)) {
             if (onFulfilled === undefined) return exit.value
-            return yield* onFulfilled([exit.value])
+            return yield* onFulfilled([exit.value], chained)
           }
-          if (onRejected !== undefined) return yield* onRejected([caughtErrorValue(Cause.squash(exit.cause))])
+          if (onRejected !== undefined)
+            return yield* onRejected([caughtErrorValue(Cause.squash(exit.cause))], chained)
           return yield* Effect.failCause(exit.cause)
         }),
-      ),
-      (promise) => (chained = promise),
     )
   }
 
@@ -3580,8 +3618,20 @@ export const executeWithLimits = <const Tools extends Record<string, unknown>>(
   const operation = Effect.scoped(
     Effect.gen(function* () {
       const scope = yield* Effect.acquireRelease(Scope.make("parallel"), (scope, exit) => Scope.close(scope, exit))
+      const reactionQueue = yield* Queue.unbounded<PromiseReaction<Services<Tools>>>()
+      yield* Effect.forever(
+        Effect.gen(function* () {
+          const reaction = yield* Queue.take(reactionQueue)
+          yield* Effect.yieldNow
+          yield* Effect.forkIn(
+            Effect.flatMap(Effect.exit(reaction.effect), (exit) => Deferred.done(reaction.settlement, exit)),
+            scope,
+            { startImmediately: true },
+          )
+        }),
+      ).pipe(Effect.forkIn(scope, { startImmediately: true }))
       const program = parseProgram(options.code)
-      const interpreter = new Interpreter<Services<Tools>>(tools.invoke, tools.keys, scope, logs)
+      const interpreter = new Interpreter<Services<Tools>>(tools.invoke, tools.keys, scope, reactionQueue, logs)
       const value = yield* interpreter.run(program)
       const result = copyOut(copyIn(value, "Execution result"), true) as DataValue
       return {

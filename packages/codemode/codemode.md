@@ -121,8 +121,6 @@ closing. Timeout and external interruption cancel immediately instead.
 
 ### Confirmed defects
 
-- [ ] Make every `await` continuation asynchronous. Awaiting a plain or already-settled value currently resumes in the
-      same scheduling turn and can reorder state mutation relative to JavaScript.
 - [ ] Return rejected promises for invalid `Promise.all`/`allSettled`/`race` inputs instead of throwing during the call.
 - [ ] Align handler callability with the values CodeMode reports as functions, or document the narrower callback
       allowlist. For example, unsupported constructor-like callables are currently treated as absent handlers.
@@ -151,13 +149,14 @@ closing. Timeout and external interruption cancel immediately instead.
   loser.
 - Timeouts interrupt all in-flight promise fibers with parallel teardown, while host interruption propagates instead of
   becoming a diagnostic.
-- Awaiting the same promise twice settles it once, and basic `then` handlers run after synchronous statements.
+- Promise reactions and plain, pending, or settled `await` continuations start in deterministic FIFO order. Nested
+  reactions preserve enqueue order, while an async reaction can suspend without blocking the next queued reaction.
+- Awaiting the same promise twice settles it once.
 
 ### Missing coverage
 
 - Nested unreturned work from `catch` and `finally` handlers.
 - Abandoned chained and combinator rejections.
-- Plain-value and already-settled `await` ordering.
 - External interruption while handled pending work remains.
 - Never-settling race losers and fail-fast `Promise.all` siblings under an explicit timeout.
 - Shared or duplicate promises across combinators, discarded inner chains, and detailed reaction ordering.

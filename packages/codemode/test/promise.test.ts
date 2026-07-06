@@ -699,6 +699,65 @@ describe("promise chaining", () => {
     ).toEqual(["sync", "then"])
   })
 
+  test("nested reactions run before downstream reactions queued later", async () => {
+    expect(
+      await value(`
+        const order = []
+        await Promise.resolve()
+          .then(() => {
+            order.push(1)
+            Promise.resolve().then(() => order.push(2))
+          })
+          .then(() => order.push(3))
+        return order
+      `),
+    ).toEqual([1, 2, 3])
+  })
+
+  test("plain and settled await resume after reactions that are already queued", async () => {
+    expect(
+      await value(`
+        const order = []
+        Promise.resolve().then(() => order.push(1))
+        await 0
+        order.push(2)
+        Promise.resolve().then(() => order.push(3))
+        await Promise.resolve()
+        order.push(4)
+        return order
+      `),
+    ).toEqual([1, 2, 3, 4])
+  })
+
+  test("reactions registered on the same pending promise preserve order", async () => {
+    expect(
+      await value(`
+        const order = []
+        const pending = tools.host.sleepy({ id: 1 })
+        pending.then(() => order.push(1))
+        pending.then(() => order.push(2))
+        await pending
+        return order
+      `),
+    ).toEqual([1, 2])
+  })
+
+  test("an async reaction does not block the next queued reaction", async () => {
+    expect(
+      await value(`
+        const order = []
+        const first = Promise.resolve().then(async () => {
+          order.push(1)
+          await tools.host.sleepy({ id: 1 })
+          order.push(3)
+        })
+        Promise.resolve().then(() => order.push(2))
+        await first
+        return order
+      `),
+    ).toEqual([1, 2, 3])
+  })
+
   test("catch receives normalized errors and recovers the chain", async () => {
     expect(await value(`return tools.host.fail({}).catch((error) => error.message)`)).toBe("Lookup refused")
     expect(
