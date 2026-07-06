@@ -86,6 +86,7 @@ const textContext = (request: LLMRequest) => ({
   system: request.system,
   // TODO: Replace blanket attachment exclusion with model-aware media and file token accounting.
   messages: request.messages
+    // Text attachments are lowered into dedicated marked messages; the original prompt is emitted separately.
     .filter((message) => message.metadata?.attachment === undefined)
     .map((message) => ({
       id: message.id,
