@@ -399,13 +399,9 @@ export function Session() {
       title: "Undo previous message",
       value: "session.undo",
       category: "Session",
-      slash: { name: "undo", aliases: ["revert"] },
+      slash: { name: "undo" },
       run: () => {
         void (async () => {
-          const current = prompt?.current
-          if (current && current.parts.length === 0 && ["/undo", "/revert"].includes(current.input.trim())) {
-            prompt?.reset()
-          }
           const boundary = session()?.revert?.messageID
           const list = messages()
           let target: SessionMessageUser | undefined

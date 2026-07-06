@@ -2,7 +2,8 @@ import type { SessionMessageUser } from "@opencode-ai/sdk/v2"
 import type { PromptInfo } from "../prompt/history"
 
 export function revertedPrompt(current: PromptInfo, message: SessionMessageUser): PromptInfo | undefined {
-  if (current.input || current.parts.length) return
+  const input = current.input.trim()
+  if (current.parts.length || (input && !"/undo".startsWith(input))) return
 
   return {
     input: message.text,

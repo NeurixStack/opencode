@@ -43,6 +43,10 @@ describe("reverted prompt", () => {
     })
   })
 
+  test.each(["/", "/u", "/un", "/und", "/undo", " /undo "])("replaces the undo autocomplete query %p", (input) => {
+    expect(revertedPrompt({ input, parts: [] }, message)?.input).toBe("Fix the tests")
+  })
+
   test("preserves an existing text draft", () => {
     expect(revertedPrompt({ input: "Keep this", parts: [] }, message)).toBeUndefined()
   })
