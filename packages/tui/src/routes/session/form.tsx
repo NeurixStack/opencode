@@ -132,6 +132,7 @@ function display(field: Field, value: FormValue | undefined) {
 
 function requestOptions(form: FormInfo) {
   if (!form.location) return undefined
+  // Global forms have no session row, so the server needs their location to select the owning Form.Service.
   return {
     headers: {
       "x-opencode-directory": encodeURIComponent(form.location.directory),
