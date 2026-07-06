@@ -162,7 +162,7 @@ const layer = Layer.effect(
       Effect.all(
         [
           builtins.load(),
-          discovery.load(),
+          discovery.load(sessionID),
           skillGuidance.load(agent),
           referenceGuidance.load(),
           mcpGuidance.load(agent),

@@ -1,9 +1,9 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "992b24b9-f3e9-41f5-87a5-4917d1423169",
+  "id": "4689ab8e-76e3-429e-832c-403de6b7de57",
   "prevIds": [
-    "96e9fe64-660f-4a73-9414-b38bb7eac290"
+    "992b24b9-f3e9-41f5-87a5-4917d1423169"
   ],
   "ddl": [
     {
@@ -56,6 +56,10 @@
     },
     {
       "name": "instruction_entry",
+      "entityType": "tables"
+    },
+    {
+      "name": "instruction_file",
       "entityType": "tables"
     },
     {
@@ -878,6 +882,66 @@
     },
     {
       "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "session_id",
+      "entityType": "columns",
+      "table": "instruction_file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "path",
+      "entityType": "columns",
+      "table": "instruction_file"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "content",
+      "entityType": "columns",
+      "table": "instruction_file"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "message_seq",
+      "entityType": "columns",
+      "table": "instruction_file"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "discovered_seq",
+      "entityType": "columns",
+      "table": "instruction_file"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "position",
+      "entityType": "columns",
+      "table": "instruction_file"
+    },
+    {
+      "type": "text",
       "notNull": false,
       "autoincrement": false,
       "default": null,
@@ -1662,6 +1726,21 @@
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
       "nameExplicit": false,
+      "name": "fk_instruction_file_session_id_session_id_fk",
+      "entityType": "fks",
+      "table": "instruction_file"
+    },
+    {
+      "columns": [
+        "session_id"
+      ],
+      "tableTo": "session",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "nameExplicit": false,
       "name": "fk_message_session_id_session_id_fk",
       "entityType": "fks",
       "table": "message"
@@ -1785,6 +1864,16 @@
       "name": "instruction_entry_pk",
       "entityType": "pks",
       "table": "instruction_entry"
+    },
+    {
+      "columns": [
+        "session_id",
+        "path"
+      ],
+      "nameExplicit": false,
+      "name": "instruction_file_pk",
+      "entityType": "pks",
+      "table": "instruction_file"
     },
     {
       "columns": [

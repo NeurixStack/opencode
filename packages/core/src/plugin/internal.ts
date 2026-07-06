@@ -27,7 +27,7 @@ import { Npm } from "../npm"
 import { PermissionV2 } from "../permission"
 import { Reference } from "../reference"
 import { Ripgrep } from "../ripgrep"
-import { SessionInstructions } from "../session/instructions"
+import { InstructionDiscovery } from "../instruction-discovery"
 import { SessionTodo } from "../session/todo"
 import { Shell } from "../shell"
 import { SkillV2 } from "../skill"
@@ -77,7 +77,7 @@ const services = Effect.fn("PluginInternal.services")(function* () {
   const read = yield* ReadToolFileSystem.Service
   const reference = yield* Reference.Service
   const ripgrep = yield* Ripgrep.Service
-  const instructions = yield* SessionInstructions.Service
+  const discovery = yield* InstructionDiscovery.Service
   const todo = yield* SessionTodo.Service
   const shell = yield* Shell.Service
   const skill = yield* SkillV2.Service
@@ -106,7 +106,7 @@ const services = Effect.fn("PluginInternal.services")(function* () {
     Context.make(ReadToolFileSystem.Service, read),
     Context.make(Reference.Service, reference),
     Context.make(Ripgrep.Service, ripgrep),
-    Context.make(SessionInstructions.Service, instructions),
+    Context.make(InstructionDiscovery.Service, discovery),
     Context.make(SessionTodo.Service, todo),
     Context.make(Shell.Service, shell),
     Context.make(SkillV2.Service, skill),

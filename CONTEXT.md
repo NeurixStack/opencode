@@ -24,7 +24,7 @@ _Avoid_: Prompt fragment
 One API-managed, durable, per-Session instruction value. Its slash-free client key maps to the `api/<key>` **Instruction Source** key. Entries deliberately render to the model as mechanism-neutral `<context>` blocks: the model sees session context, not how it was attached.
 
 **InstructionDiscovery**:
-The Location-scoped service that observes ambient global and upward-project `AGENTS.md` files as one ordered aggregate **Instruction Source**.
+The Location-scoped service that combines ambient global and upward-project `AGENTS.md` files with durable per-Session path-local `AGENTS.md` files discovered after successful reads.
 
 **InstructionCheckpoint**:
 The Session-owned durable instruction baseline, baseline sequence, and `Instructions.Applied` record used to prepare later Steps.
@@ -135,12 +135,13 @@ _Avoid_: Response envelope
 - Completed compaction rebaselines the **InstructionCheckpoint** from current **Instructions** and removes earlier **Instruction Updates** from active projected model history while preserving durable audit history.
 - A newly composed **Instruction Source** absent from **Applied Instructions** emits its baseline rendering once at the next **Safe Step Boundary**.
 - **Unavailable Instruction Source** uses stale-while-revalidate semantics and is distinct from a successfully loaded absence, which may emit removal text.
-- **InstructionDiscovery** observes ambient instructions as one ordered aggregate **Instruction Source**.
+- **InstructionDiscovery** combines ambient instructions with durable path-local instructions as one ordered aggregate **Instruction Source**.
 - Ambient discovery reads global and upward-project `AGENTS.md` files and honors `OPENCODE_DISABLE_PROJECT_CONFIG` for project files.
-- After a successful internal file or directory read, nearby `AGENTS.md` files toward the Location root are injected once per Session as durable synthetic instruction messages.
+- After a successful internal file or directory read, path-local discovery searches nearby `AGENTS.md` files toward the Location root and publishes `session.instructions.discovered` with the owning assistant message and Location. Projection freezes newly readable files per Session, and the next **Safe Step Boundary** admits the combined instruction change.
+- Ambient files precede path-local files, duplicate paths are removed, and path-local files retain durable admission and discovery order.
 - **InstructionEntry** stores API-managed per-Session JSON values. Each entry contributes one `api/<key>` **Instruction Source**, so adding, replacing, or removing an entry is reconciled at the next **Safe Step Boundary**.
 - Location-scoped instruction producers naturally re-resolve when a moved Session next runs in its destination Location.
-- Moving a Session resets its **InstructionCheckpoint**, so the destination must initialize a complete baseline before another prompt can promote. Committed revert also resets the checkpoint.
+- Moving a Session resets its **InstructionCheckpoint** and path-local discoveries, so the destination must initialize a complete baseline before another prompt can promote. Committed revert also resets the checkpoint and removes path-local discoveries admitted after the revert boundary.
 - Selected-agent available-skill guidance is an **Instruction Source** composed explicitly by the runner. It lists only names and descriptions permitted for that agent; skill bodies and locations are exposed only through the permission-checked `skill` tool.
 - The selected agent and model are sampled when a **Step** starts. Changes admitted after that boundary apply to the next Step and do not restart the current Step.
 - An agent switch that changes selected-agent guidance produces an **Instruction Update** while preserving the current baseline.

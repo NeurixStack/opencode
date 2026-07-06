@@ -73,8 +73,10 @@ const model = OpenAIChat.route
   })
   .model({ id: "gpt-4o-mini" })
 const models = SessionRunnerModel.layerWith(() => Effect.succeed(SessionRunnerModel.resolved(model)))
-const systemContext = Layer.mock(InstructionBuiltIns.Service, { load: () => Effect.succeed(Instructions.empty) })
-const instructionContext = Layer.mock(InstructionDiscovery.Service, { load: () => Effect.succeed(Instructions.empty) })
+const instructionBuiltIns = Layer.mock(InstructionBuiltIns.Service, { load: () => Effect.succeed(Instructions.empty) })
+const instructionDiscovery = Layer.mock(InstructionDiscovery.Service, {
+  load: (_sessionID) => Effect.succeed(Instructions.empty),
+})
 const skillGuidance = Layer.mock(SkillGuidance.Service, { load: () => Effect.succeed(Instructions.empty) })
 const referenceGuidance = Layer.mock(ReferenceGuidance.Service, { load: () => Effect.succeed(Instructions.empty) })
 const mcpGuidance = Layer.mock(McpGuidance.Service, { load: () => Effect.succeed(Instructions.empty) })
@@ -83,8 +85,8 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [Snapshot.node, Snapshot.noopLayer],
   [LayerNodePlatform.llmClient, client],
   [SessionRunnerModel.node, models],
-  [InstructionBuiltIns.node, systemContext],
-  [InstructionDiscovery.node, instructionContext],
+  [InstructionBuiltIns.node, instructionBuiltIns],
+  [InstructionDiscovery.node, instructionDiscovery],
   [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
   [SkillGuidance.node, skillGuidance],
   [ReferenceGuidance.node, referenceGuidance],
@@ -133,8 +135,8 @@ const it = testEffect(
       [PermissionV2.node, permission],
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
       [SessionRunnerModel.node, models],
-      [InstructionBuiltIns.node, systemContext],
-      [InstructionDiscovery.node, instructionContext],
+      [InstructionBuiltIns.node, instructionBuiltIns],
+      [InstructionDiscovery.node, instructionDiscovery],
       [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
       [SkillGuidance.node, skillGuidance],
       [ReferenceGuidance.node, referenceGuidance],

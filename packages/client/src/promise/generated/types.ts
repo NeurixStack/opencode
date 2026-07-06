@@ -1226,6 +1226,20 @@ export type SessionLogOutput =
           readonly id: string
           readonly created: number
           readonly metadata?: { readonly [x: string]: unknown }
+          readonly type: "session.instructions.discovered"
+          readonly durable: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+          readonly location?: { readonly directory: string; readonly workspaceID?: string }
+          readonly data: {
+            readonly sessionID: string
+            readonly assistantMessageID: string
+            readonly location: { readonly directory: string; readonly workspaceID?: string }
+            readonly files: ReadonlyArray<{ readonly path: string; readonly content: string }>
+          }
+        }
+      | {
+          readonly id: string
+          readonly created: number
+          readonly metadata?: { readonly [x: string]: unknown }
           readonly type: "session.synthetic"
           readonly durable: { readonly aggregateID: string; readonly seq: number; readonly version: number }
           readonly location?: { readonly directory: string; readonly workspaceID?: string }
@@ -4472,6 +4486,20 @@ export type EventSubscribeOutput =
       readonly durable: { readonly aggregateID: string; readonly seq: number; readonly version: number }
       readonly location?: { readonly directory: string; readonly workspaceID?: string }
       readonly data: { readonly sessionID: string; readonly text: string }
+    }
+  | {
+      readonly id: string
+      readonly created: number
+      readonly metadata?: { readonly [x: string]: unknown }
+      readonly type: "session.instructions.discovered"
+      readonly durable: { readonly aggregateID: string; readonly seq: number; readonly version: number }
+      readonly location?: { readonly directory: string; readonly workspaceID?: string }
+      readonly data: {
+        readonly sessionID: string
+        readonly assistantMessageID: string
+        readonly location: { readonly directory: string; readonly workspaceID?: string }
+        readonly files: ReadonlyArray<{ readonly path: string; readonly content: string }>
+      }
     }
   | {
       readonly id: string

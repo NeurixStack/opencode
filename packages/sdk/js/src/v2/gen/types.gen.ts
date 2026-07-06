@@ -26,6 +26,7 @@ export type Event =
   | EventSessionPromptAdmitted
   | EventSessionExecutionSettled
   | EventSessionInstructionsUpdated
+  | EventSessionInstructionsDiscovered
   | EventSessionSynthetic
   | EventSessionSkillActivated
   | EventSessionShellStarted
@@ -937,6 +938,19 @@ export type GlobalEvent = {
       }
     | {
         id: string
+        type: "session.instructions.discovered"
+        properties: {
+          sessionID: string
+          assistantMessageID: string
+          location: LocationRef
+          files: Array<{
+            path: string
+            content: string
+          }>
+        }
+      }
+    | {
+        id: string
         type: "session.synthetic"
         properties: {
           sessionID: string
@@ -1732,6 +1746,7 @@ export type GlobalEvent = {
     | SyncEventSessionPromptPromoted
     | SyncEventSessionPromptAdmitted
     | SyncEventSessionInstructionsUpdated
+    | SyncEventSessionInstructionsDiscovered
     | SyncEventSessionSynthetic
     | SyncEventSessionSkillActivated
     | SyncEventSessionShellStarted
@@ -2895,6 +2910,7 @@ export type SessionDurableEvent =
   | SessionPromptPromoted
   | SessionPromptAdmitted
   | SessionInstructionsUpdated
+  | SessionInstructionsDiscovered
   | SessionSynthetic
   | SessionSkillActivated
   | SessionShellStarted
@@ -3036,6 +3052,7 @@ export type V2Event =
   | SessionPromptAdmitted
   | SessionExecutionSettled
   | SessionInstructionsUpdated
+  | SessionInstructionsDiscovered
   | SessionSynthetic
   | SessionSkillActivated
   | SessionShellStarted
@@ -3754,6 +3771,26 @@ export type SyncEventSessionInstructionsUpdated = {
     data: {
       sessionID: string
       text: string
+    }
+  }
+}
+
+export type SyncEventSessionInstructionsDiscovered = {
+  type: "sync"
+  id: string
+  syncEvent: {
+    type: "session.instructions.discovered.1"
+    id: string
+    seq: number
+    aggregateID: string
+    data: {
+      sessionID: string
+      assistantMessageID: string
+      location: LocationRef
+      files: Array<{
+        path: string
+        content: string
+      }>
     }
   }
 }
@@ -4699,6 +4736,30 @@ export type SessionInstructionsUpdated = {
   data: {
     sessionID: string
     text: string
+  }
+}
+
+export type SessionInstructionsDiscovered = {
+  id: string
+  created: number
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.instructions.discovered"
+  durable: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef
+  data: {
+    sessionID: string
+    assistantMessageID: string
+    location: LocationRef
+    files: Array<{
+      path: string
+      content: string
+    }>
   }
 }
 
@@ -6834,6 +6895,20 @@ export type EventSessionInstructionsUpdated = {
   }
 }
 
+export type EventSessionInstructionsDiscovered = {
+  id: string
+  type: "session.instructions.discovered"
+  properties: {
+    sessionID: string
+    assistantMessageID: string
+    location: LocationRef
+    files: Array<{
+      path: string
+      content: string
+    }>
+  }
+}
+
 export type EventSessionSynthetic = {
   id: string
   type: "session.synthetic"
@@ -8409,6 +8484,30 @@ export type SessionInstructionsUpdated2 = {
   }
 }
 
+export type SessionInstructionsDiscovered2 = {
+  id: string
+  created: number
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "session.instructions.discovered"
+  durable: {
+    aggregateID: string
+    seq: number
+    version: number
+  }
+  location?: LocationRef2
+  data: {
+    sessionID: string
+    assistantMessageID: string
+    location: LocationRef2
+    files: Array<{
+      path: string
+      content: string
+    }>
+  }
+}
+
 export type SessionSynthetic2 = {
   id: string
   created: number
@@ -8990,6 +9089,7 @@ export type SessionDurableEventV2 =
   | SessionPromptPromoted2
   | SessionPromptAdmitted2
   | SessionInstructionsUpdated2
+  | SessionInstructionsDiscovered2
   | SessionSynthetic2
   | SessionSkillActivated2
   | SessionShellStarted2
@@ -11180,6 +11280,7 @@ export type V2EventV2 =
   | SessionPromptAdmitted2
   | SessionExecutionSettled2
   | SessionInstructionsUpdated2
+  | SessionInstructionsDiscovered2
   | SessionSynthetic2
   | SessionSkillActivated2
   | SessionShellStarted2

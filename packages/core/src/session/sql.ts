@@ -12,6 +12,7 @@ import type { MessageID, PartID, SessionV1 } from "../v1/session"
 import { WorkspaceV2 } from "../workspace"
 import { Timestamps } from "../database/schema.sql"
 import type { Instructions } from "../instructions/index"
+import type { AbsolutePath } from "../schema"
 import type { Revert } from "@opencode-ai/schema/revert"
 import type { Schema } from "effect"
 
@@ -188,3 +189,19 @@ export const InstructionCheckpointTable = sqliteTable("instruction_checkpoint", 
   snapshot: text({ mode: "json" }).notNull().$type<Instructions.Applied>(),
   baseline_seq: integer().notNull(),
 })
+
+export const InstructionFileTable = sqliteTable(
+  "instruction_file",
+  {
+    session_id: text()
+      .$type<SessionSchema.ID>()
+      .notNull()
+      .references(() => SessionTable.id, { onDelete: "cascade" }),
+    path: text().$type<AbsolutePath>().notNull(),
+    content: text().notNull(),
+    message_seq: integer().notNull(),
+    discovered_seq: integer().notNull(),
+    position: integer().notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.session_id, table.path] })],
+)

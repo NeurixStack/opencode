@@ -140,6 +140,18 @@ export const InstructionsUpdated = Event.durable({
 })
 export type InstructionsUpdated = typeof InstructionsUpdated.Type
 
+export const InstructionsDiscovered = Event.durable({
+  type: "session.instructions.discovered",
+  ...options,
+  schema: {
+    ...Base,
+    assistantMessageID: SessionMessage.ID,
+    location: Location.Ref,
+    files: Schema.Array(Schema.Struct({ path: Schema.String, content: Schema.String })),
+  },
+})
+export type InstructionsDiscovered = typeof InstructionsDiscovered.Type
+
 export const Synthetic = Event.durable({
   type: "session.synthetic",
   ...options,
@@ -495,6 +507,7 @@ export const Definitions = Event.inventory(
   PromptAdmitted,
   ExecutionSettled,
   InstructionsUpdated,
+  InstructionsDiscovered,
   Synthetic,
   Skill.Activated,
   Shell.Started,

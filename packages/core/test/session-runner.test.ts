@@ -1,4 +1,6 @@
 import { describe, expect } from "bun:test"
+import fs from "fs/promises"
+import path from "path"
 import {
   LLMClient,
   LLMError,
@@ -44,6 +46,7 @@ import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigCompaction } from "@opencode-ai/core/config/compaction"
+import { Global } from "@opencode-ai/core/global"
 import { Tool } from "@opencode-ai/core/tool/tool"
 import {
   InstructionCheckpointTable,
@@ -65,6 +68,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Schema, Stream } from "effect"
 import { asc, eq } from "drizzle-orm"
 import { testEffect } from "./lib/effect"
+import { tmpdir } from "./fixture/tmpdir"
 
 const requests: LLMRequest[] = []
 let response: LLMEvent[] = []
@@ -207,7 +211,9 @@ const systemContext = Layer.mock(InstructionBuiltIns.Service, {
       ),
     ),
 })
-const instructionContext = Layer.mock(InstructionDiscovery.Service, { load: () => Effect.succeed(Instructions.empty) })
+const instructionContext = Layer.mock(InstructionDiscovery.Service, {
+  load: (_sessionID) => Effect.succeed(Instructions.empty),
+})
 const skillGuidance = Layer.mock(SkillGuidance.Service, {
   load: (agent) =>
     Effect.succeed(
@@ -242,76 +248,80 @@ const config = Layer.succeed(
       ]),
   }),
 )
-const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
-  [Snapshot.node, Snapshot.noopLayer],
-  [LayerNodePlatform.llmClient, client],
-  [SessionRunnerModel.node, models],
-  [InstructionBuiltIns.node, systemContext],
-  [InstructionDiscovery.node, instructionContext],
-  [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
-  [SkillGuidance.node, skillGuidance],
-  [ReferenceGuidance.node, referenceGuidance],
-  [PermissionV2.node, permission],
-  [Config.node, config],
-  [McpGuidance.node, mcpGuidance],
-  [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
+const makeRunnerLayer = (discovery?: typeof instructionContext) =>
+  AppNodeBuilder.build(SessionRunnerLLM.node, [
+    [Snapshot.node, Snapshot.noopLayer],
+    [LayerNodePlatform.llmClient, client],
+    [SessionRunnerModel.node, models],
+    [InstructionBuiltIns.node, systemContext],
+    ...(discovery ? [[InstructionDiscovery.node, discovery] as const] : []),
+    [Global.node, Global.layerWith({ config: "/nonexistent/opencode-test-config" })],
+    [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
+    [SkillGuidance.node, skillGuidance],
+    [ReferenceGuidance.node, referenceGuidance],
+    [PermissionV2.node, permission],
+    [Config.node, config],
+    [McpGuidance.node, mcpGuidance],
+    [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
+  ])
+const makeExecution = (runnerLayer: ReturnType<typeof makeRunnerLayer>) =>
+  Layer.effect(
+    SessionExecution.Service,
+    Effect.gen(function* () {
+      const sessionRunner = yield* SessionRunner.Service
+      const coordinator = yield* SessionRunCoordinator.make<SessionV2.ID, SessionRunner.RunError>({
+        drain: (sessionID, force) => sessionRunner.drain({ sessionID, force }),
+      })
+      return SessionExecution.Service.of({
+        active: coordinator.active,
+        resume: coordinator.run,
+        wake: coordinator.wake,
+        interrupt: coordinator.interrupt,
+        awaitIdle: coordinator.awaitIdle,
+      })
+    }),
+  ).pipe(Layer.provide(runnerLayer))
+const testNode = LayerNode.group([
+  Database.node,
+  EventV2.node,
+  Form.node,
+  SessionProjector.node,
+  SessionStore.node,
+  AgentV2.node,
+  ToolRegistry.node,
+  ToolRegistry.toolsNode,
+  echoNode,
+  SessionRunnerModel.node,
+  InstructionBuiltIns.node,
+  InstructionDiscovery.node,
+  InstructionEntry.node,
+  SkillGuidance.node,
+  ReferenceGuidance.node,
+  Config.node,
+  Snapshot.node,
+  SessionRunnerLLM.node,
+  SessionExecution.node,
+  SessionV2.node,
 ])
-const execution = Layer.effect(
-  SessionExecution.Service,
-  Effect.gen(function* () {
-    const sessionRunner = yield* SessionRunner.Service
-    const coordinator = yield* SessionRunCoordinator.make<SessionV2.ID, SessionRunner.RunError>({
-      drain: (sessionID, force) => sessionRunner.drain({ sessionID, force }),
-    })
-    return SessionExecution.Service.of({
-      active: coordinator.active,
-      resume: coordinator.run,
-      wake: coordinator.wake,
-      interrupt: coordinator.interrupt,
-      awaitIdle: coordinator.awaitIdle,
-    })
-  }),
-).pipe(Layer.provide(runnerLayer))
-const it = testEffect(
-  AppNodeBuilder.build(
-    LayerNode.group([
-      Database.node,
-      EventV2.node,
-      Form.node,
-      SessionProjector.node,
-      SessionStore.node,
-      AgentV2.node,
-      ToolRegistry.node,
-      ToolRegistry.toolsNode,
-      echoNode,
-      SessionRunnerModel.node,
-      InstructionBuiltIns.node,
-      InstructionDiscovery.node,
-      InstructionEntry.node,
-      SkillGuidance.node,
-      ReferenceGuidance.node,
-      Config.node,
-      Snapshot.node,
-      SessionRunnerLLM.node,
-      SessionExecution.node,
-      SessionV2.node,
-    ]),
-    [
-      [LayerNodePlatform.llmClient, client],
-      [PermissionV2.node, permission],
-      [SessionRunnerModel.node, models],
-      [InstructionBuiltIns.node, systemContext],
-      [InstructionDiscovery.node, instructionContext],
-      [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
-      [SkillGuidance.node, skillGuidance],
-      [ReferenceGuidance.node, referenceGuidance],
-      [Snapshot.node, Snapshot.noopLayer],
-      [SessionExecution.node, execution],
-      [Config.node, config],
-      [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
-    ],
-  ),
-)
+const makeTestLayer = (discovery: typeof instructionContext | undefined, execution: ReturnType<typeof makeExecution>) =>
+  AppNodeBuilder.build(testNode, [
+    [LayerNodePlatform.llmClient, client],
+    [PermissionV2.node, permission],
+    [SessionRunnerModel.node, models],
+    [InstructionBuiltIns.node, systemContext],
+    ...(discovery ? [[InstructionDiscovery.node, discovery] as const] : []),
+    [Global.node, Global.layerWith({ config: "/nonexistent/opencode-test-config" })],
+    [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
+    [SkillGuidance.node, skillGuidance],
+    [ReferenceGuidance.node, referenceGuidance],
+    [Snapshot.node, Snapshot.noopLayer],
+    [SessionExecution.node, execution],
+    [Config.node, config],
+    [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
+  ])
+const runnerLayer = makeRunnerLayer(instructionContext)
+const it = testEffect(makeTestLayer(instructionContext, makeExecution(runnerLayer)))
+const integrationIt = testEffect(makeTestLayer(undefined, makeExecution(makeRunnerLayer())))
 const sessionID = SessionV2.ID.make("ses_runner_test")
 const otherSessionID = SessionV2.ID.make("ses_runner_other")
 
@@ -856,6 +866,53 @@ describe("SessionRunnerLLM", () => {
       yield* replaySessionProjection(sessionID)
       expect(yield* session.messages({ sessionID })).toHaveLength(3)
     }),
+  )
+
+  integrationIt.live("admits persisted path-local instructions as a chronological System update", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          yield* setup
+          const session = yield* SessionV2.Service
+          const discovery = yield* InstructionDiscovery.Service
+          yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "First" }), resume: false })
+
+          requests.length = 0
+          response = fragmentFixture("text", "text-instruction-discovery", ["Done"]).completeEvents
+          yield* session.resume(sessionID)
+          const assistantMessageID = (yield* session.context(sessionID)).findLast(
+            (message): message is SessionMessage.Assistant => message.type === "assistant",
+          )?.id
+          if (!assistantMessageID) return yield* Effect.die(new Error("Expected an assistant message"))
+
+          const file = path.join(tmp.path, "src", "AGENTS.md")
+          yield* Effect.promise(() => fs.mkdir(path.dirname(file), { recursive: true }))
+          yield* Effect.promise(() => fs.writeFile(file, "Persisted path-local instructions"))
+          yield* discovery.discover({ sessionID, assistantMessageID, paths: [file] })
+          yield* Effect.promise(() => fs.writeFile(file, "Changed after discovery"))
+          yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "Second" }), resume: false })
+          yield* session.resume(sessionID)
+
+          // Discovery records the path durably; observation re-reads content live,
+          // so the post-discovery edit is what the model gets told.
+          const update = `Instructions from: ${file}\nChanged after discovery`
+          expect(requests[1]?.messages.map((message) => message.role)).toEqual(["user", "assistant", "system", "user"])
+          expect(requests[1]?.messages.at(2)?.content).toEqual([{ type: "text", text: update }])
+          expect((yield* session.context(sessionID)).map((message) => message.type)).toEqual([
+            "user",
+            "assistant",
+            "system",
+            "user",
+            "assistant",
+          ])
+          expect(yield* recordedEventTypes(sessionID)).toContain("session.instructions.updated.1")
+          expect(yield* recordedEventTypes(sessionID)).not.toContain("session.synthetic.1")
+        }),
+      ),
+    ),
   )
 
   it.effect("uses the selected model family prompt when the agent does not override it", () =>

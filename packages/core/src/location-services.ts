@@ -47,7 +47,6 @@ import { Snapshot } from "./snapshot"
 import { InstructionDiscovery } from "./instruction-discovery"
 import { InstructionBuiltIns } from "./instructions/builtins"
 import { InstructionEntry } from "./session/instruction-entry"
-import { SessionInstructions } from "./session/instructions"
 import { McpTool } from "./tool/mcp"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { ToolRegistry } from "./tool/registry"
@@ -85,7 +84,7 @@ const pluginSupervisorNode = makeLocationNode({
     ReadToolFileSystem.node,
     Reference.node,
     Ripgrep.node,
-    SessionInstructions.node,
+    InstructionDiscovery.node,
     SessionTodo.node,
     Shell.node,
     SkillV2.node,
@@ -131,7 +130,6 @@ const locationServiceNodes = [
   Generate.node,
   ReadToolFileSystem.node,
   McpTool.node,
-  SessionInstructions.node,
   SessionRunnerModel.node,
   SessionCompaction.node,
   SessionTitle.node,

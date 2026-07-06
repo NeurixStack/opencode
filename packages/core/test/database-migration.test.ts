@@ -16,6 +16,7 @@ import contextEpochAgentMigration from "@opencode-ai/core/database/migration/202
 import simplifyIntegrationCredentialsMigration from "@opencode-ai/core/database/migration/20260611192811_lush_chimera"
 import simplifySessionInputMigration from "@opencode-ai/core/database/migration/20260622202450_simplify_session_input"
 import renameInstructionsMigration from "@opencode-ai/core/database/migration/20260705180000_rename_instructions"
+import addInstructionFileMigration from "@opencode-ai/core/database/migration/20260706181957_add_instruction_file"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -164,6 +165,21 @@ describe("DatabaseMigration", () => {
           baseline_seq: 7,
         })
         expect(yield* db.get(sql`SELECT type FROM event`)).toEqual({ type: "session.instructions.updated.1" })
+      }),
+    )
+  })
+
+  test("adds the instruction file table", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY)`)
+
+        yield* DatabaseMigration.applyOnly(db, [addInstructionFileMigration])
+
+        expect(
+          yield* db.get(sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'instruction_file'`),
+        ).toEqual({ name: "instruction_file" })
       }),
     )
   })

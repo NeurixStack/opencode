@@ -1,17 +1,31 @@
 # V2 Schema Changelog
 
+## 2026-07-06: Make Path-Local Instruction Discovery Durable
+
+- Add the `instruction_file` table recording which path-local `AGENTS.md` files a Session has discovered, with the owning assistant-message boundary and durable discovery order.
+- Add the durable `session.instructions.discovered` event; projection stores the discovered path and content per Session. Observation re-reads discovered files live, falling back to the stored content only when a file becomes unreadable.
+- Replace synthetic-message instruction injection with the durable discovery path: `InstructionDiscovery` folds discovered files into the `core/instructions` source, so completed compaction rebaselines restate them instead of summarizing them away.
+- Narrate instruction file changes as per-file deltas; the full-set restatement survives only for pure reorderings.
+- Fork copies discoveries within the inherited transcript, committed revert removes discoveries past the revert boundary, and Session movement clears them so the destination initializes a complete baseline.
+
+Compatibility:
+
+- Previously emitted synthetic instruction messages remain historical Session history. New discoveries use the durable path; the migration does not infer structured files from old free-form synthetic text.
+
 ## 2026-07-05: Rename Session Context Contracts To Instructions
 
 - Rename the System Context algebra to `Instructions`, API-managed `SessionContextEntry` records to `InstructionEntry`, and the session-owned context checkpoint to `InstructionCheckpoint`.
-- Rename the tables `session_context_entry` and `session_context_epoch` to `instruction_entry` and `instruction_checkpoint`.
-- Rename the durable update event from `session.context.updated` to `session.instructions.updated`; the migration rewrites existing durable event types in place.
+- Rename the durable update event from `session.context.updated` to `session.instructions.updated`.
 - Rename the API-managed entry routes from `/api/session/:sessionID/context-entry` to `/api/session/:sessionID/instructions/entries` and their operation identifiers from `session.context.entry.*` to `session.instructions.entry.*`, keeping bare `session.instructions.*` free for the composed instruction surface.
+- Add durable per-Session path-local instruction files and make `InstructionDiscovery` combine them with ambient global and upward-project `AGENTS.md` files.
+- Record successful path-local discovery as `session.instructions.discovered`; projection stores the discovered path and content with the owning assistant-message boundary before `InstructionCheckpoint` admits it. Observation re-reads discovered files live, falling back to the stored content only when a file becomes unreadable.
+- Remove the context registry seam. The runner explicitly composes instruction built-ins, discovery, selected-agent skill guidance, reference guidance, MCP guidance, and `InstructionEntry` values.
 
 Compatibility:
 
 - The V2 contracts remain experimental. The renamed tables, event, endpoints, schemas, and generated client names are intentionally breaking changes for beta consumers.
 - Existing changelog entries retain the names that were accurate when those changes occurred.
-- Behavior is unchanged: this is a vocabulary and contract rename only.
+- Previously emitted synthetic instruction messages remain historical Session history. New discoveries use the instruction checkpoint path; the migration does not infer structured files from old free-form synthetic text.
 
 ## 2026-07-03: Require Durable Envelope On Durable Events
 

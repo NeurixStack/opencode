@@ -58,7 +58,7 @@ V2 Sessions persist the exact privileged instructions shown to the model. `Instr
 The runner has no instruction registry. `loadInstructions` explicitly loads these producers concurrently and combines them in this fixed order:
 
 1. Instruction built-ins, currently environment facts and the host-local date.
-2. `InstructionDiscovery`, observing ambient `AGENTS.md` files.
+2. `InstructionDiscovery`, combining ambient and path-local `AGENTS.md` files.
 3. Selected-agent available-skill guidance.
 4. Reference guidance.
 5. Selected-agent MCP guidance.
@@ -88,7 +88,7 @@ Client            Runner                 Explicit producers       InstructionChe
 
 Agent and model selection are step-scoped. The runner selects the agent before loading agent-specific guidance; a switch admitted after the current boundary applies to the next step without restarting the current one. Changed guidance is admitted through `session.instructions.updated` while preserving the baseline. Model selection affects Model Context assembly but is not an instruction source and does not itself replace the instruction baseline.
 
-A completed compaction causes the next physical attempt to rebaseline from current instructions. Temporarily unavailable sources are restated from the model's last applied belief where possible. A Session move resets `InstructionCheckpoint` so the destination Location initializes a complete baseline on its next run. Committed revert also resets the checkpoint.
+A completed compaction causes the next physical attempt to rebaseline from current instructions. Temporarily unavailable sources are restated from the model's last applied belief where possible. A Session move resets `InstructionCheckpoint` and all path-local discoveries so the destination Location initializes a complete baseline on its next run. Committed revert also resets the checkpoint and removes path-local discoveries admitted after the revert boundary.
 
 ```text
 Session                      InstructionCheckpoint
@@ -104,9 +104,9 @@ Session                      InstructionCheckpoint
    ├─ move or committed revert ────────▶ reset
 ```
 
-`InstructionDiscovery` observes ambient instructions as one ordered aggregate source. Ambient discovery canonicalizes traversal within the project root, reads global and upward-project `AGENTS.md` files, and honors `OPENCODE_DISABLE_PROJECT_CONFIG` for project files.
+`InstructionDiscovery` combines ambient and path-local instructions into one ordered aggregate source. Ambient discovery canonicalizes traversal within the project root, reads global and upward-project `AGENTS.md` files, and honors `OPENCODE_DISABLE_PROJECT_CONFIG` for project files. After a successful internal `read`, path-local discovery walks from the read file's directory, or the listed directory itself, toward the Location root. `session.instructions.discovered` records newly readable files with their owning assistant-message and Location; projection stores their path and content per Session, and they join the aggregate at the next step boundary. Every observation re-reads ambient and discovered files live, so mid-session edits narrate as per-file updates; the stored discovery content stands in only when a discovered file becomes unreadable. Ambient files precede path-local files, duplicate paths are removed, and path-local files retain durable discovery order.
 
-An unavailable observation preserves the previously applied value. A confirmed partial instruction removal emits the complete remaining aggregate with explicit supersession text; removing the final instruction emits a revocation message.
+An unavailable discovery observation preserves the previously applied aggregate. A confirmed partial removal emits the complete remaining aggregate with explicit supersession text; removing the final discovered instruction emits a revocation message.
 
 Current instruction follow-ups:
 
@@ -141,7 +141,7 @@ Status: `complete` is usable in the native V2 path, `partial` covers only part o
 | Durable Instruction Source | Environment facts and host-local date                                    | partial  | Keep selected provider/model identity in step request assembly rather than a stale Location-wide instruction value.                    |
 | Durable Instruction Source | Global and upward project instructions                                   | partial  | Decide whether V2 also discovers legacy `CLAUDE.md` and deprecated `CONTEXT.md`.                                                       |
 | Durable Instruction Source | Configured local/glob and remote URL instructions                        | missing  | Add independent sources with explicit precedence, unavailable, and removal semantics.                                                  |
-| Durable Instruction Source | Nearby nested instructions discovered after successful reads             | missing  | Persist discoveries and admit them at the next safe step boundary.                                                                     |
+| Durable Instruction Source | Nearby path-local instructions discovered after successful reads         | complete | None.                                                                                                                                  |
 | Durable Instruction Source | Selected-agent available skill guidance and skill-body loading           | partial  | Guidance and body exposure are permission-filtered; remove globally denied skill definitions during request-time tool materialization. |
 | Step request assembly      | Placement, selected model, chronological history, and canonical lowering | complete | None.                                                                                                                                  |
 | Step request assembly      | Selected agent, agent prompt, and effective permissions                  | partial  | V2 uses selected-agent permissions for skill guidance and tool authorization; still apply the agent system prompt and request policy.  |

@@ -104,7 +104,7 @@ describe("public event manifest", () => {
         "session.forked.1",
         "session.prompt.promoted.1",
         "session.prompt.admitted.1",
-
+        "session.instructions.discovered.1",
         "session.instructions.updated.1",
         "session.synthetic.1",
         "session.skill.activated.1",
