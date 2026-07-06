@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { LLM, LLMClient, LLMEvent, Model, type LLMRequest } from "@opencode-ai/llm"
+import { LLM, LLMClient, LLMEvent, Message, Model, ToolCallPart, type LLMRequest } from "@opencode-ai/llm"
 import { OpenAIChat } from "@opencode-ai/llm/protocols"
 import { Base64, FileAttachment } from "@opencode-ai/schema/prompt"
 import { Config } from "@opencode-ai/core/config"
@@ -128,6 +128,68 @@ it.effect("does not count image attachments as text context", () =>
       }),
     ).toBe(false)
     expect(requests).toHaveLength(0)
+  }),
+)
+
+it.effect("counts tool-call inputs as text context", () =>
+  Effect.gen(function* () {
+    requests = []
+    const db = (yield* Database.Service).db
+    const compaction = yield* SessionCompaction.Service
+    const text = "context ".repeat(4_500)
+    const sessionID = SessionV2.ID.make("ses_tool_input_compaction")
+    const inputModel = Model.make({
+      id: "tool-input-model",
+      provider: "test",
+      route: OpenAIChat.route.with({ limits: { context: 30_000, output: 1_000 } }),
+    })
+    const messages = [
+      SessionMessage.User.make({
+        id: SessionMessage.ID.create(),
+        type: "user",
+        text,
+        time: { created: DateTime.makeUnsafe(0) },
+      }),
+      SessionMessage.User.make({
+        id: SessionMessage.ID.create(),
+        type: "user",
+        text: "Continue",
+        time: { created: DateTime.makeUnsafe(1) },
+      }),
+    ]
+    yield* db
+      .insert(ProjectTable)
+      .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+      .onConflictDoNothing()
+      .run()
+      .pipe(Effect.orDie)
+    yield* db
+      .insert(SessionTable)
+      .values({
+        id: sessionID,
+        project_id: Project.ID.global,
+        slug: "tool-input-compaction",
+        directory: "/project",
+        title: "Tool input compaction",
+        version: "test",
+      })
+      .run()
+      .pipe(Effect.orDie)
+
+    expect(
+      yield* compaction.compactIfNeeded({
+        sessionID,
+        messages,
+        request: LLM.request({
+          model: inputModel,
+          messages: [
+            Message.user(text),
+            Message.assistant(ToolCallPart.make({ id: "call_read", name: "read", input: { path: "x".repeat(8_000) } })),
+          ],
+        }),
+      }),
+    ).toBe(true)
+    expect(requests).toHaveLength(1)
   }),
 )
 

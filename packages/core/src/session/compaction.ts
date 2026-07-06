@@ -80,24 +80,25 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SessionCompaction") {}
 
-const estimate = (value: unknown) => Token.estimate(JSON.stringify(value))
+const stringify = (value: unknown) => (typeof value === "string" ? value : (JSON.stringify(value) ?? String(value)))
 
-const textContext = (request: LLMRequest) => ({
-  system: request.system,
-  // TODO: Replace media exclusion with model-aware attachment token accounting.
-  messages: request.messages.map((message) => ({
-    id: message.id,
-    role: message.role,
-    content: message.content.flatMap((part) => {
-      if (part.type === "media") return []
-      if (part.type !== "tool-result" || part.result.type !== "content") return [part]
-      return [{ ...part, result: { ...part.result, value: part.result.value.filter((item) => item.type === "text") } }]
-    }),
-    metadata: message.metadata,
-    native: message.native,
-  })),
-  tools: request.tools,
-})
+const serializeContent = (part: LLMRequest["messages"][number]["content"][number]) => {
+  if (part.type === "text" || part.type === "reasoning") return part.text
+  if (part.type === "media") return ""
+  if (part.type === "tool-call") return `${part.name}\n${stringify(part.input)}`
+  if (part.result.type === "content")
+    return [part.name, ...part.result.value.flatMap((item) => (item.type === "text" ? [item.text] : []))].join("\n")
+  return `${part.name}\n${stringify(part.result.value)}`
+}
+
+const estimate = (request: LLMRequest) =>
+  Token.estimate(
+    [
+      ...request.system.map((part) => part.text),
+      JSON.stringify(request.tools),
+      ...request.messages.flatMap((message) => message.content.map(serializeContent).filter(Boolean)),
+    ].join("\n"),
+  )
 
 const truncate = (value: string) =>
   value.length <= TOOL_OUTPUT_MAX_CHARS ? value : `${value.slice(0, TOOL_OUTPUT_MAX_CHARS)}\n[truncated]`
@@ -302,7 +303,7 @@ const make = (dependencies: Dependencies) => {
     const context = input.request.model.route.defaults.limits?.context
     if (context === undefined || context <= 0) return false
     const output = input.request.generation?.maxTokens ?? input.request.model.route.defaults.limits?.output ?? 0
-    if (estimate(textContext(input.request)) <= context - Math.max(output, config.buffer)) return false
+    if (estimate(input.request) <= context - Math.max(output, config.buffer)) return false
     return yield* compactAfterOverflow(input)
   })
   return {
