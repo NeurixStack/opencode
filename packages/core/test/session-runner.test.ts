@@ -2796,7 +2796,7 @@ describe("SessionRunnerLLM", () => {
             ),
         }),
       })
-      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Call blocked" }), resume: false })
+      yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "Call blocked" }), resume: false })
 
       requests.length = 0
       responses = [
@@ -2842,7 +2842,7 @@ describe("SessionRunnerLLM", () => {
           execute: () => Effect.die(new PermissionV2.DeclinedError()),
         }),
       })
-      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Call declined" }), resume: false })
+      yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "Call declined" }), resume: false })
 
       requests.length = 0
       response = [
@@ -2889,7 +2889,7 @@ describe("SessionRunnerLLM", () => {
             ),
         }),
       })
-      yield* session.prompt({ sessionID, prompt: Prompt.make({ text: "Call corrected" }), resume: false })
+      yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "Call corrected" }), resume: false })
 
       requests.length = 0
       responses = [
