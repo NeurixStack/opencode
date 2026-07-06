@@ -278,6 +278,7 @@ describe("ProjectV2.resolve", () => {
       const result = yield* project.resolve(abs(path.join(tmp.path, "a", "b")))
 
       expect(result.vcs?.type).toBe("hg")
+      expect(result.vcsBackend?.type).toBe("hg")
       expect(result.directory).toBe(abs(tmp.path))
       expect(result.id).not.toBe(ProjectV2.ID.make("global"))
       expect(result.previous).toBeUndefined()
@@ -297,6 +298,57 @@ describe("ProjectV2.resolve", () => {
       const result = yield* project.resolve(abs(tmp.path))
 
       expect(result.vcs?.type).toBe("git")
+      expect(result.vcsBackend?.type).toBe("git")
+    }),
+  )
+
+  itMarker.live("uses a plugin backend without replacing colocated git repository identity", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      yield* Effect.promise(async () => {
+        await Bun.write(
+          path.join(globalConfig.path, "opencode.json"),
+          JSON.stringify({ vcs: { jj: { marker: ".jj" } } }),
+        )
+        await initRepo(tmp.path, { commit: true })
+        await fs.mkdir(path.join(tmp.path, ".jj"))
+      })
+      const project = yield* ProjectV2.Service
+
+      const result = yield* project.resolve(abs(tmp.path))
+
+      expect(result.vcs?.type).toBe("git")
+      expect(result.vcsBackend?.type).toBe("jj")
+      expect(result.directory).toBe(yield* real(tmp.path))
+    }),
+  )
+
+  itMarker.live("prefers a nested plugin repository over an ancestor git repository", () =>
+    Effect.gen(function* () {
+      const tmp = yield* Effect.acquireRelease(
+        Effect.promise(() => tmpdir()),
+        (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+      )
+      const nested = path.join(tmp.path, "nested")
+      yield* Effect.promise(async () => {
+        await Bun.write(
+          path.join(globalConfig.path, "opencode.json"),
+          JSON.stringify({ vcs: { jj: { marker: ".jj" } } }),
+        )
+        await initRepo(tmp.path, { commit: true })
+        await fs.mkdir(path.join(nested, ".jj"), { recursive: true })
+        await fs.mkdir(path.join(nested, "src"))
+      })
+      const project = yield* ProjectV2.Service
+
+      const result = yield* project.resolve(abs(path.join(nested, "src")))
+
+      expect(result.vcs?.type).toBe("jj")
+      expect(result.vcsBackend?.type).toBe("jj")
+      expect(result.directory).toBe(abs(nested))
     }),
   )
 
@@ -319,6 +371,7 @@ describe("ProjectV2.resolve", () => {
       const result = yield* project.resolve(abs(path.join(tmp.path, "a", "b")))
 
       expect(result.vcs?.type).toBe("jj")
+      expect(result.vcsBackend?.type).toBe("jj")
       expect(result.vcs?.store).toBe(abs(path.join(tmp.path, ".jj")))
       expect(result.directory).toBe(abs(tmp.path))
       expect(result.id).toBe(ProjectV2.ID.make(Hash.fast(`vcs-store:${path.join(tmp.path, ".jj")}`)))

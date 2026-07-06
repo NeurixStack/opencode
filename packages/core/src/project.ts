@@ -44,7 +44,13 @@ export interface Resolved {
   readonly id: ID
   readonly directory: AbsolutePath
   readonly vcs?: Vcs
+  readonly vcsBackend?: Vcs
 }
+
+type Discovery =
+  | { readonly type: "git"; readonly directory: AbsolutePath; readonly vcs: Vcs; readonly repo: Git.Repository }
+  | { readonly type: "hg"; readonly directory: AbsolutePath; readonly vcs: Vcs }
+  | { readonly type: "plugin"; readonly directory: AbsolutePath; readonly vcs: Vcs }
 
 // Keep this filesystem-only; permission checks use it and should not execute VCS commands.
 export const root = Effect.fn("Project.root")(function* (
@@ -198,16 +204,11 @@ const layer = Layer.effect(
         Effect.catch(() => Effect.succeed(undefined)),
       )
       if (!dotHg) return undefined
-      const worktree = AbsolutePath.make(path.dirname(dotHg))
-      const store = AbsolutePath.make(dotHg)
-      const previous = yield* cached(store)
-      const id = previous ?? (yield* hgRoot(worktree))
       return {
-        previous,
-        id: id ?? ID.global,
-        directory: worktree,
-        vcs: { type: "hg" as const, store },
-      }
+        type: "hg" as const,
+        directory: AbsolutePath.make(path.dirname(dotHg)),
+        vcs: { type: "hg", store: AbsolutePath.make(dotHg) },
+      } satisfies Discovery
     })
 
     const markerDiscover = Effect.fnUntraced(function* (input: AbsolutePath) {
@@ -221,34 +222,67 @@ const layer = Layer.effect(
       if (!match) return undefined
       const type = types.get(path.basename(match))
       if (!type) return undefined
-      const store = AbsolutePath.make(match)
-      const previous = yield* cached(store)
       return {
-        previous,
-        id: previous ?? ID.make(Hash.fast(`vcs-store:${store}`)),
+        type: "plugin" as const,
         directory: AbsolutePath.make(path.dirname(match)),
-        vcs: { type, store },
-      }
+        vcs: { type, store: AbsolutePath.make(match) },
+      } satisfies Discovery
     })
 
     const resolve = Effect.fn("Project.resolve")(function* (input: AbsolutePath) {
       const repo = yield* git.repo.discover(input)
-      if (repo) {
-        const previous = yield* cached(repo.commonDirectory)
-        const id = (yield* remote(repo)) ?? previous ?? (yield* root(repo))
+      const [hg, marker] = yield* Effect.all([hgDiscover(input), markerDiscover(input)])
+      const discoveries: Discovery[] = [
+        ...(repo
+          ? [
+              {
+                type: "git" as const,
+                directory: repo.worktree,
+                vcs: { type: "git", store: repo.commonDirectory },
+                repo,
+              } satisfies Discovery,
+            ]
+          : []),
+        ...(hg ? [hg] : []),
+        ...(marker ? [marker] : []),
+      ]
+      const distance = (directory: AbsolutePath) =>
+        path.relative(directory, input).split(path.sep).filter(Boolean).length
+      const selected = discoveries.toSorted((a, b) => distance(a.directory) - distance(b.directory))[0]
+      if (!selected) return { id: ID.global, directory: AbsolutePath.make(path.parse(input).root), vcs: undefined }
+
+      const vcsBackend = marker?.directory === selected.directory ? marker.vcs : selected.vcs
+      if (selected.type === "git") {
+        const previous = yield* cached(selected.repo.commonDirectory)
+        const id = (yield* remote(selected.repo)) ?? previous ?? (yield* root(selected.repo))
         return {
           previous,
           id: id ?? ID.global,
-          directory: repo.worktree,
-          vcs: { type: "git" as const, store: repo.commonDirectory },
+          directory: selected.directory,
+          vcs: selected.vcs,
+          vcsBackend,
         }
       }
 
-      const hg = yield* hgDiscover(input)
-      if (hg) return hg
-      const marker = yield* markerDiscover(input)
-      if (marker) return marker
-      return { id: ID.global, directory: AbsolutePath.make(path.parse(input).root), vcs: undefined }
+      const previous = yield* cached(selected.vcs.store)
+      if (selected.type === "hg") {
+        const id = previous ?? (yield* hgRoot(selected.directory))
+        return {
+          previous,
+          id: id ?? ID.global,
+          directory: selected.directory,
+          vcs: selected.vcs,
+          vcsBackend,
+        }
+      }
+
+      return {
+        previous,
+        id: previous ?? ID.make(Hash.fast(`vcs-store:${selected.vcs.store}`)),
+        directory: selected.directory,
+        vcs: selected.vcs,
+        vcsBackend,
+      }
     })
 
     const commit = Effect.fn("Project.commit")(function* (input: { store: AbsolutePath; id: ID }) {

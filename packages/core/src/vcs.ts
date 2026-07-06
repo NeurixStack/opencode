@@ -26,8 +26,8 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/v2
 
 const builtIn = (proc: AppProcess.Interface, fs: FSUtil.Interface, location: Location.Interface) => {
   const scope = { directory: location.directory, worktree: location.project.directory }
-  if (location.vcs?.type === "git") return VcsGit.make(proc, scope)
-  if (location.vcs?.type === "hg") return VcsHg.make(proc, fs, scope)
+  if (location.vcsBackend?.type === "git") return VcsGit.make(proc, scope)
+  if (location.vcsBackend?.type === "hg") return VcsHg.make(proc, fs, scope)
 }
 
 const layer = Layer.effect(
@@ -42,11 +42,11 @@ const layer = Layer.effect(
 
     const adapter = Effect.fnUntraced(function* () {
       if (native) return native
-      if (!location.vcs) return undefined
-      const plugin = backends.get(location.vcs.type)
+      if (!location.vcsBackend) return undefined
+      const plugin = backends.get(location.vcsBackend.type)
       if (!plugin && !warned) {
         warned = true
-        yield* Effect.logWarning("vcs backend declared but not registered", { type: location.vcs.type })
+        yield* Effect.logWarning("vcs backend declared but not registered", { type: location.vcsBackend.type })
       }
       return plugin
     })

@@ -50,7 +50,7 @@ const layer = Layer.effect(
           yield* Effect.addFinalizer(() => Effect.sync(() => registry.delete(backend.type)))
         }),
       get: (type) => {
-        const vcs = location.vcs
+        const vcs = location.vcsBackend
         const entry = registry.get(type)
         if (!entry || vcs?.type !== type) return undefined
         entry.adapter ??= guard(type, () =>
