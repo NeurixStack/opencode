@@ -149,9 +149,8 @@ the adapter TODO. Delete entries when completed.
 The supported JavaScript subset should grow when common model-generated code improves tool orchestration. These are
 current omissions to implement, not intentional product boundaries.
 
-- [ ] Design proper multi-stage promise pipelines. Supporting `.then`, `.catch`, and `.finally` should preserve promise
-      assimilation, cancellation, failure handling, and concurrent per-item pipelines rather than adding syntax-only
-      shims. Consider `Promise.any` in the same pass.
+- [ ] Complete promise-pipeline parity: assimilate supported thenables, propagate cancellation through chained promises,
+      and consider `Promise.any`.
 - [ ] Support async iteration and `for await...of`. Define behavior first for the runtime's supported promise and
       collection values, then extend it to bounded host streams when a stream boundary exists.
 - [ ] Support callback-bearing standard-library variants that models commonly generate: the mapper argument to
