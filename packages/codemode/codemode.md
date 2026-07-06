@@ -65,7 +65,8 @@ path lookup, namespace browsing, deterministic ranking, and pagination.
 Calling a tool starts its Effect eagerly on a supervised fiber. The returned sandbox promise is run-once and can be
 awaited directly, chained with `then`/`catch`/`finally`, or passed through the supported `Promise` combinators. At most
 eight tool calls execute concurrently.
-Unfinished calls are drained before successful program completion, and an unhandled call failure becomes a diagnostic.
+Unfinished tracked promises are drained before successful program completion, and an unhandled rejection becomes a
+diagnostic.
 
 The public execution-policy knobs are `timeoutMs`, `maxToolCalls`, and `maxOutputBytes`. The package supplies no
 defaults because budgets are host policy. The interpreter also enforces fixed internal boundaries for tool-call
@@ -110,6 +111,54 @@ MCP tools use this canonical path: they register as grouped tools and are deferr
 output schemas are preserved in generated signatures. Direct Core tools remain direct and are not ambient globals
 inside CodeMode.
 
+## Promise Status
+
+The runtime currently provides eager, run-once promises for tool calls and async functions; `await`;
+`then`/`catch`/`finally`; and chainable `all`/`allSettled`/`race`/`resolve`/`reject`. `Promise.all` rejects promptly while
+siblings continue, and `Promise.race` leaves losers running as JavaScript does. Tracked work remains supervised, at most
+eight tool calls run concurrently, and successful execution drains unfinished work before closing.
+
+### Confirmed defects
+
+- [ ] Keep nested fire-and-forget work alive until the execution drain. A tool call started but not returned inside an
+      async function or promise handler is currently a child of that short-lived fiber and may be interrupted when the
+      parent settles even though the promise remains globally tracked.
+- [ ] Track immediate rejected promises. `Promise.reject(value)` does not enter `pendingSettlements`, so abandoning it
+      produces no unhandled-rejection diagnostic.
+- [ ] Drain handled work after ordinary program failure, then preserve the original failure. Today pending work drains
+      only after success, so a rejecting race winner or a later program throw interrupts race losers and `Promise.all`
+      siblings. Timeout and external interruption should still cancel immediately rather than drain.
+- [ ] Make every `await` continuation asynchronous. Awaiting a plain or already-settled value currently resumes in the
+      same scheduling turn and can reorder state mutation relative to JavaScript.
+- [ ] Return rejected promises for invalid `Promise.all`/`allSettled`/`race` inputs instead of throwing during the call.
+- [ ] Align handler callability with the values CodeMode reports as functions, or document the narrower callback
+      allowlist. For example, unsupported constructor-like callables are currently treated as absent handlers.
+
+### Deliberate deviations and open decisions
+
+- CodeMode drains unfinished work before successful execution closes. This keeps tool effects supervised, but a race
+  loser or fail-fast `Promise.all` sibling that never settles can hold execution open indefinitely when the host supplies
+  no timeout.
+- Promise resolution unwraps only `SandboxPromise`; arbitrary `{ then(resolve, reject) }` values remain data. Full
+  thenable assimilation requires internal callable resolver values, first-settlement arbitration, recursive adoption,
+  and cycle detection. Decide whether that machinery belongs in the bounded runtime.
+- `new Promise`, `Promise.any`, resolver APIs, subclasses/species, and the broader prototype surface are unavailable.
+  Consider `Promise.any` independently; custom constructors and subclassing are not current goals.
+- Combinators currently accept arrays plus CodeMode's spreadable strings, Maps, and Sets, while documentation and
+  diagnostics describe array inputs. Choose and document one contract.
+- `Promise.race([])` raises a clear error instead of creating a permanently pending promise.
+- Rejection tracking is execution-scoped and checked at drain time, not an ECMAScript microtask-level unhandled
+  rejection model.
+
+### Required coverage
+
+- Nested unreturned work from async functions and `then`/`catch`/`finally` handlers.
+- Abandoned immediate, chained, and combinator rejections.
+- Plain-value and already-settled `await` ordering.
+- Ordinary program failure versus timeout/external interruption while handled work remains.
+- Never-settling race losers and fail-fast `Promise.all` siblings under an explicit timeout.
+- Shared or duplicate promises across combinators, discarded inner chains, and reaction ordering.
+
 ## Intentionally Unsupported
 
 These are product boundaries rather than DSL backlog:
@@ -149,10 +198,6 @@ the adapter TODO. Delete entries when completed.
 The supported JavaScript subset should grow when common model-generated code improves tool orchestration. These are
 current omissions to implement, not intentional product boundaries.
 
-- [ ] Decide whether thenable assimilation belongs in the bounded runtime. Promise resolution currently unwraps only
-      `SandboxPromise`; arbitrary `{ then(resolve, reject) }` values remain data. Full assimilation requires internal
-      callable resolver values, first-settlement arbitration, recursive adoption, and cycle detection.
-- [ ] Consider `Promise.any`.
 - [ ] Support async iteration and `for await...of`. Define behavior first for the runtime's supported promise and
       collection values, then extend it to bounded host streams when a stream boundary exists.
 - [ ] Support callback-bearing standard-library variants that models commonly generate: the mapper argument to

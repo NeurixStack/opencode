@@ -615,7 +615,7 @@ export const prepare = <R>(tools: HostTools<R>, catalogBudget = defaultCatalogBu
     "",
     "## Language",
     "",
-    "Use common JavaScript data operations, functions, control flow, selected standard-library methods, and tool calls. Promises support await, then/catch/finally, and the listed Promise combinators. Built-ins include Date, RegExp, Map, Set, URL, URLSearchParams, and URI encoding helpers.",
+    "Use common JavaScript data operations, functions, control flow, selected standard-library methods, and tool calls. Promises support await, then/catch/finally, and Promise.all/allSettled/race/resolve/reject. Built-ins include Date, RegExp, Map, Set, URL, URLSearchParams, and URI encoding helpers.",
     "Modules/imports, classes, generators, timers, fetch, eval, prototype access, and unlisted methods are unavailable. Use Code Mode tools for external operations.",
     "Dates and URLs serialize to strings at data boundaries; Map/Set/RegExp/URLSearchParams serialize to `{}`.",
   ]
