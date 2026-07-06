@@ -527,16 +527,89 @@ describe("timeout interruption of forked calls", () => {
   })
 })
 
-describe("unsupported promise surface", () => {
-  test(".then/.catch/.finally give a clear await-instead error", async () => {
-    for (const method of ["then", "catch", "finally"]) {
-      const diagnostic = await error(`return tools.host.sleepy({ id: 1 }).${method}((x) => x)`)
-      expect(diagnostic.kind).toBe("UnsupportedSyntax")
-      expect(diagnostic.message).toContain(`Promise.prototype.${method} is not supported`)
-      expect(diagnostic.message).toContain("await")
-    }
+describe("promise chaining", () => {
+  test("then transforms values and flattens returned promises", async () => {
+    expect(
+      await value(`
+        return tools.host.sleepy({ id: 2 })
+          .then((id) => tools.host.sleepy({ id: id + 1 }))
+          .then((id) => id * 2)
+      `),
+    ).toBe(6)
   })
 
+  test("handlers run after synchronous statements", async () => {
+    expect(
+      await value(`
+        const order = []
+        const chained = Promise.resolve().then(() => order.push("then"))
+        order.push("sync")
+        await chained
+        return order
+      `),
+    ).toEqual(["sync", "then"])
+  })
+
+  test("catch receives normalized errors and recovers the chain", async () => {
+    expect(await value(`return tools.host.fail({}).catch((error) => error.message)`)).toBe("Lookup refused")
+    expect(
+      await value(`
+        return Promise.resolve(1)
+          .then(() => { throw new Error("boom") })
+          .catch((error) => error.message)
+      `),
+    ).toBe("boom")
+  })
+
+  test("then rejection handlers and omitted handlers pass through settlement", async () => {
+    expect(await value(`return Promise.resolve(4).then(undefined).catch(undefined)`)).toBe(4)
+    expect(await value(`return Promise.reject("nope").then(undefined, (reason) => reason + "!")`)).toBe("nope!")
+  })
+
+  test("supported builtin callables can be handlers", async () => {
+    expect(await value(`return Promise.resolve({ a: 1 }).then(JSON.stringify)`)).toBe('{"a":1}')
+    expect(await value(`return Promise.resolve(4).then(Promise.resolve)`)).toBe(4)
+  })
+
+  test("finally awaits its callback and preserves the original settlement", async () => {
+    expect(
+      await value(`
+        let cleanup = 0
+        const result = await Promise.resolve(7).finally(async () => {
+          await tools.host.sleepy({ id: 1 })
+          cleanup = 1
+          return 99
+        })
+        return [result, cleanup]
+      `),
+    ).toEqual([7, 1])
+    expect(
+      await value(`return Promise.reject(new Error("original")).finally(() => 99).catch((error) => error.message)`),
+    ).toBe("original")
+  })
+
+  test("a rejected finally callback replaces the original settlement", async () => {
+    expect(
+      await value(`
+        return Promise.resolve(1)
+          .finally(() => Promise.reject(new Error("cleanup")))
+          .catch((error) => error.message)
+      `),
+    ).toBe("cleanup")
+  })
+
+  test("a self-resolving chain rejects instead of deadlocking", async () => {
+    expect(
+      await value(`
+        let chained
+        chained = Promise.resolve().then(() => chained)
+        return chained.catch((error) => [error.name, error.message])
+      `),
+    ).toEqual(["TypeError", "Chaining cycle detected for promise."])
+  })
+})
+
+describe("unsupported promise surface", () => {
   test("other property reads on a promise hint at the missing await", async () => {
     const diagnostic = await error(`return tools.host.sleepy({ id: 1 }).value`)
     expect(diagnostic.kind).toBe("InvalidDataValue")

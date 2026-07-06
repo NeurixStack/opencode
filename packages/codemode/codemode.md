@@ -63,7 +63,8 @@ path lookup, namespace browsing, deterministic ranking, and pagination.
 ### Tool execution
 
 Calling a tool starts its Effect eagerly on a supervised fiber. The returned sandbox promise is run-once and can be
-awaited directly or through the supported `Promise` combinators. At most eight tool calls execute concurrently.
+awaited directly, chained with `then`/`catch`/`finally`, or passed through the supported `Promise` combinators. At most
+eight tool calls execute concurrently.
 Unfinished calls are drained before successful program completion, and an unhandled call failure becomes a diagnostic.
 
 The public execution-policy knobs are `timeoutMs`, `maxToolCalls`, and `maxOutputBytes`. The package supplies no

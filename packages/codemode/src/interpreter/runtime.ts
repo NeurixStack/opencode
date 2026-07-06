@@ -2375,6 +2375,9 @@ class Interpreter<R> {
     args: Array<unknown>,
     node: AstNode,
   ): Effect.Effect<unknown, unknown, R> {
+    if (ref.receiver instanceof SandboxPromise) {
+      return this.invokePromisePrototypeMethod(ref.receiver, ref.name, args, node)
+    }
     if (typeof ref.receiver === "string") {
       if (
         (ref.name === "replace" || ref.name === "replaceAll") &&
@@ -2409,6 +2412,89 @@ class Interpreter<R> {
       return this.invokeURLSearchParamsMethod(ref.receiver, ref.name, args, node)
     }
     throw new InterpreterRuntimeError(`Method '${ref.name}' is not available in CodeMode.`, node)
+  }
+
+  private invokePromisePrototypeMethod(
+    promise: SandboxPromise,
+    name: string,
+    args: Array<unknown>,
+    node: AstNode,
+  ): Effect.Effect<SandboxPromise, never, R> {
+    const callback = (value: unknown) => {
+      if (
+        !(value instanceof ToolReference && value.path.length > 0) &&
+        !(value instanceof PromiseMethodReference) &&
+        !(value instanceof CodeModeFunction) &&
+        !(value instanceof IntrinsicReference) &&
+        !(value instanceof GlobalMethodReference) &&
+        !(value instanceof CoercionFunction) &&
+        !(value instanceof UriFunction) &&
+        !(value instanceof ErrorConstructorReference)
+      )
+        return undefined
+      return (callbackArgs: Array<unknown>) =>
+        Effect.flatMap(
+          value instanceof ToolReference
+            ? this.createToolCallPromise(value.path, callbackArgs)
+            : value instanceof PromiseMethodReference
+              ? this.invokePromiseMethod(value, callbackArgs, node)
+              : value instanceof CodeModeFunction
+                ? this.invokeFunction(value, callbackArgs)
+                : value instanceof IntrinsicReference
+                  ? this.invokeIntrinsic(value, callbackArgs, node)
+                  : value instanceof GlobalMethodReference
+                    ? Effect.sync(() => {
+                        if (value.namespace === "console") return this.invokeConsole(value.name, callbackArgs, node)
+                        if (
+                          value.namespace === "Object" &&
+                          callbackArgs[0] instanceof ToolReference &&
+                          !objectMethodsPreservingIdentity.has(value.name)
+                        )
+                          return this.invokeObjectMethodOnTools(value.name, callbackArgs[0], node)
+                        return invokeGlobalMethod(value, callbackArgs, node)
+                      })
+                    : value instanceof CoercionFunction
+                      ? Effect.succeed(invokeCoercion(value, callbackArgs, node))
+                      : value instanceof UriFunction
+                        ? Effect.succeed(invokeUriFunction(value, callbackArgs, node))
+                        : Effect.succeed(
+                            createErrorValue(
+                              value.name,
+                              callbackArgs[0] === undefined ? "" : coerceToString(callbackArgs[0]),
+                            ),
+                          ),
+          (result) => {
+            if (result === chained) {
+              return Effect.fail(
+                new InterpreterRuntimeError("Chaining cycle detected for promise.", node).as("TypeError"),
+              )
+            }
+            return result instanceof SandboxPromise ? this.settlePromise(result, node) : Effect.succeed(result)
+          },
+        )
+    }
+    let chained: SandboxPromise | undefined
+    const onFulfilled = name === "then" ? callback(args[0]) : undefined
+    const onRejected = name === "then" ? callback(args[1]) : name === "catch" ? callback(args[0]) : undefined
+    const onFinally = name === "finally" ? callback(args[0]) : undefined
+    const settlement = Effect.exit(this.settlePromise(promise, node))
+
+    return Effect.map(
+      this.createPromise(
+        Effect.gen(function* () {
+          yield* Effect.yieldNow
+          const exit = yield* settlement
+          if (onFinally !== undefined) yield* onFinally([])
+          if (Exit.isSuccess(exit)) {
+            if (onFulfilled === undefined) return exit.value
+            return yield* onFulfilled([exit.value])
+          }
+          if (onRejected !== undefined) return yield* onRejected([caughtErrorValue(Cause.squash(exit.cause))])
+          return yield* Effect.failCause(exit.cause)
+        }),
+      ),
+      (promise) => (chained = promise),
+    )
   }
 
   private invokeStringReplacer(
@@ -3204,17 +3290,9 @@ class Interpreter<R> {
         return new ComputedValue(undefined)
       }
 
-      // Any property access on a promise is a confused program (`p.then(...)`, `p.value`);
-      // reading `undefined` here would hide the missing await, so both paths get an explicit,
-      // await-hinting error instead of the forgiving unknown-property fallthrough.
       if (objectValue instanceof SandboxPromise) {
         if (key === "then" || key === "catch" || key === "finally") {
-          throw new InterpreterRuntimeError(
-            `Promise.prototype.${String(key)} is not supported in CodeMode; use await instead (with try/catch to handle failures) - e.g. \`const result = await tools.ns.tool(...)\`.`,
-            propertyNode,
-            "UnsupportedSyntax",
-            [supportedSyntaxMessage],
-          )
+          return new IntrinsicReference(objectValue, key)
         }
         throw new InterpreterRuntimeError(
           "This value is an un-awaited Promise and has no readable properties; await it first - e.g. `const result = await tools.ns.tool(...)`.",
