@@ -1403,6 +1403,84 @@ class Interpreter<R> {
     })
   }
 
+  private assignPattern(pattern: AstNode, value: unknown, node: AstNode): Effect.Effect<void, unknown, R> {
+    const self = this
+    return Effect.gen(function* () {
+      if (pattern.type === "Identifier") {
+        self.setIdentifierValue(getString(pattern, "name"), value, pattern)
+        return
+      }
+
+      if (pattern.type === "MemberExpression") {
+        yield* self.writeMember(pattern, value)
+        return
+      }
+
+      if (pattern.type === "AssignmentPattern") {
+        const resolved = value === undefined ? yield* self.evaluateExpression(getNode(pattern, "right")) : value
+        yield* self.assignPattern(getNode(pattern, "left"), resolved, node)
+        return
+      }
+
+      if (pattern.type === "ObjectPattern") {
+        if (value === null || typeof value !== "object" || Array.isArray(value) || isRuntimeReference(value)) {
+          throw new InterpreterRuntimeError(
+            "Object destructuring requires a data object value.",
+            pattern,
+            "InvalidDataValue",
+          )
+        }
+
+        const source = value as SafeObject
+        const consumed = new Set<string>()
+        for (const propertyValue of getArray(pattern, "properties")) {
+          const property = asNode(propertyValue, "properties")
+          if (property.type === "RestElement") {
+            const rest: SafeObject = Object.create(null) as SafeObject
+            for (const [key, item] of Object.entries(source)) {
+              if (!consumed.has(key) && !isBlockedMember(key)) rest[key] = item
+            }
+            yield* self.assignPattern(getNode(property, "argument"), rest, property)
+            continue
+          }
+          if (
+            property.type !== "Property" ||
+            getBoolean(property, "computed") ||
+            getString(property, "kind") !== "init"
+          ) {
+            throw new InterpreterRuntimeError("Only named object destructuring properties are supported.", property)
+          }
+          const keyNode = getNode(property, "key")
+          const key = keyNode.type === "Identifier" ? getString(keyNode, "name") : String(keyNode.value)
+          if (isBlockedMember(key)) {
+            throw new InterpreterRuntimeError(`Property '${key}' is not available in CodeMode.`, keyNode)
+          }
+          consumed.add(key)
+          yield* self.assignPattern(getNode(property, "value"), source[key], property)
+        }
+        return
+      }
+
+      if (pattern.type === "ArrayPattern") {
+        if (!Array.isArray(value)) {
+          throw new InterpreterRuntimeError("Array destructuring requires an array value.", pattern)
+        }
+        for (const [index, item] of getArray(pattern, "elements").entries()) {
+          if (item === null) continue
+          const element = asNode(item, `elements[${index}]`)
+          if (element.type === "RestElement") {
+            yield* self.assignPattern(getNode(element, "argument"), value.slice(index), element)
+            break
+          }
+          yield* self.assignPattern(element, value[index], pattern)
+        }
+        return
+      }
+
+      throw new InterpreterRuntimeError(`Unsupported assignment pattern '${pattern.type}'.`, node)
+    })
+  }
+
   private evaluateExpression(node: AstNode): Effect.Effect<unknown, unknown, R> {
     switch (node.type) {
       case "Literal": {
@@ -1804,25 +1882,36 @@ class Interpreter<R> {
       if (operator === "??=" || operator === "||=" || operator === "&&=") {
         return yield* self.evaluateLogicalAssignment(node, left, operator)
       }
-      const rightValue = yield* self.evaluateExpression(getNode(node, "right"))
+      if (operator === "=" && (left.type === "ObjectPattern" || left.type === "ArrayPattern")) {
+        const rightValue = yield* self.evaluateExpression(getNode(node, "right"))
+        yield* self.assignPattern(left, rightValue, node)
+        return rightValue
+      }
       if (left.type === "Identifier") {
         const name = getString(left, "name")
-        if (operator === "=") return self.setIdentifierValue(name, rightValue, left)
-        const next = boundedData(
-          self.applyCompoundAssignment(operator, self.getIdentifierValue(name, left), rightValue, node),
-          "Assignment result",
-        )
-        return self.setIdentifierValue(name, next, left)
-      }
-      if (left.type === "MemberExpression") {
-        if (operator === "=") return yield* self.writeMember(left, rightValue)
-        return yield* self.modifyMember(left, (current) => {
+        if (operator !== "=") {
+          const current = self.getIdentifierValue(name, left)
+          const rightValue = yield* self.evaluateExpression(getNode(node, "right"))
           const next = boundedData(
             self.applyCompoundAssignment(operator, current, rightValue, node),
             "Assignment result",
           )
-          return Effect.succeed({ write: true, next, result: next })
-        })
+          return self.setIdentifierValue(name, next, left)
+        }
+        const rightValue = yield* self.evaluateExpression(getNode(node, "right"))
+        if (operator === "=") return self.setIdentifierValue(name, rightValue, left)
+      }
+      if (left.type === "MemberExpression") {
+        return yield* self.modifyMember(left, (current) =>
+          Effect.map(self.evaluateExpression(getNode(node, "right")), (rightValue) => {
+            if (operator === "=") return { write: true, next: rightValue, result: rightValue }
+            const next = boundedData(
+              self.applyCompoundAssignment(operator, current, rightValue, node),
+              "Assignment result",
+            )
+            return { write: true, next, result: next }
+          }),
+        )
       }
       throw new InterpreterRuntimeError("Assignment target must be an Identifier or MemberExpression.", left)
     })
@@ -1922,6 +2011,9 @@ class Interpreter<R> {
         if (callable.namespace === "console") return self.invokeConsole(callable.name, args, node)
         if (callable.namespace === "Object" && args[0] instanceof ToolReference) {
           return self.invokeObjectMethodOnTools(callable.name, args[0] as ToolReference, node)
+        }
+        if (callable.namespace === "Object" && callable.name === "assign") {
+          return invokeGlobalMethod(callable, args, node)
         }
         return boundedData(invokeGlobalMethod(callable, args, node), `${callable.namespace}.${callable.name} result`)
       }
@@ -2575,8 +2667,12 @@ class Interpreter<R> {
       case "flat":
         return Effect.succeed(target.flat(optNumber(args[0], "depth") ?? 1))
       case "reverse":
-        return Effect.succeed([...target].reverse())
+        return Effect.succeed(target.reverse())
       case "sort":
+        return Effect.map(this.sortArray(target, args[0], node), (sorted) => {
+          target.splice(0, target.length, ...sorted)
+          return target
+        })
       case "toSorted":
         return this.sortArray(target, args[0], node)
       case "toReversed":
@@ -2659,19 +2755,24 @@ class Interpreter<R> {
           ? Effect.succeed(invokeUriFunction(callback, callbackArgs, node))
           : self.invokeFunction(callback, callbackArgs)
     return Effect.gen(function* () {
-      // Iterate a snapshot taken at call time so a callback that mutates the array can't
-      // self-extend the loop - matching JS, where elements appended during iteration are not visited.
-      const items = target.slice()
+      // Capture the initial length, but read the receiver live so callbacks observe mutations
+      // without visiting elements appended after iteration begins.
+      const length = target.length
       switch (name) {
         case "map": {
           const values: Array<unknown> = []
-          for (const [index, item] of items.entries()) values.push(yield* apply([item, index, items]))
+          values.length = length
+          for (let index = 0; index < length; index += 1) {
+            if (!(index in target)) continue
+            values[index] = yield* apply([target[index], index, target])
+          }
           return values
         }
         case "flatMap": {
           const values: Array<unknown> = []
-          for (const [index, item] of items.entries()) {
-            const mapped = yield* apply([item, index, items])
+          for (let index = 0; index < length; index += 1) {
+            if (!(index in target)) continue
+            const mapped = yield* apply([target[index], index, target])
             if (Array.isArray(mapped)) values.push(...mapped)
             else values.push(mapped)
           }
@@ -2679,33 +2780,40 @@ class Interpreter<R> {
         }
         case "filter": {
           const values: Array<unknown> = []
-          for (const [index, item] of items.entries()) {
-            if (yield* apply([item, index, items])) values.push(item)
+          for (let index = 0; index < length; index += 1) {
+            if (!(index in target)) continue
+            const item = target[index]
+            if (yield* apply([item, index, target])) values.push(item)
           }
           return values
         }
         case "find":
-          for (const [index, item] of items.entries()) {
-            if (yield* apply([item, index, items])) return item
+          for (let index = 0; index < length; index += 1) {
+            const item = target[index]
+            if (yield* apply([item, index, target])) return item
           }
           return undefined
         case "findIndex":
-          for (const [index, item] of items.entries()) {
-            if (yield* apply([item, index, items])) return index
+          for (let index = 0; index < length; index += 1) {
+            if (yield* apply([target[index], index, target])) return index
           }
           return -1
         case "some":
-          for (const [index, item] of items.entries()) {
-            if (yield* apply([item, index, items])) return true
+          for (let index = 0; index < length; index += 1) {
+            if (!(index in target)) continue
+            if (yield* apply([target[index], index, target])) return true
           }
           return false
         case "every":
-          for (const [index, item] of items.entries()) {
-            if (!(yield* apply([item, index, items]))) return false
+          for (let index = 0; index < length; index += 1) {
+            if (!(index in target)) continue
+            if (!(yield* apply([target[index], index, target]))) return false
           }
           return true
         case "forEach":
-          for (const [index, item] of items.entries()) yield* apply([item, index, items])
+          for (let index = 0; index < length; index += 1) {
+            if (index in target) yield* apply([target[index], index, target])
+          }
           return undefined
         case "reduce": {
           let accumulator: unknown
@@ -2714,13 +2822,14 @@ class Interpreter<R> {
             accumulator = args[1]
             start = 0
           } else {
-            if (items.length === 0)
+            if (length === 0)
               throw new InterpreterRuntimeError("Array.reduce of an empty array with no initial value.", node)
-            accumulator = items[0]
+            accumulator = target[0]
             start = 1
           }
-          for (let index = start; index < items.length; index += 1) {
-            accumulator = yield* apply([accumulator, items[index], index, items])
+          for (let index = start; index < length; index += 1) {
+            if (!(index in target)) continue
+            accumulator = yield* apply([accumulator, target[index], index, target])
           }
           return accumulator
         }
@@ -2729,26 +2838,27 @@ class Interpreter<R> {
           let start: number
           if (args.length >= 2) {
             accumulator = args[1]
-            start = items.length - 1
+            start = length - 1
           } else {
-            if (items.length === 0)
+            if (length === 0)
               throw new InterpreterRuntimeError("Array.reduceRight of an empty array with no initial value.", node)
-            accumulator = items[items.length - 1]
-            start = items.length - 2
+            accumulator = target[length - 1]
+            start = length - 2
           }
           for (let index = start; index >= 0; index -= 1) {
-            accumulator = yield* apply([accumulator, items[index], index, items])
+            if (!(index in target)) continue
+            accumulator = yield* apply([accumulator, target[index], index, target])
           }
           return accumulator
         }
         case "findLast":
-          for (let index = items.length - 1; index >= 0; index -= 1) {
-            if (yield* apply([items[index], index, items])) return items[index]
+          for (let index = length - 1; index >= 0; index -= 1) {
+            if (yield* apply([target[index], index, target])) return target[index]
           }
           return undefined
         case "findLastIndex":
-          for (let index = items.length - 1; index >= 0; index -= 1) {
-            if (yield* apply([items[index], index, items])) return index
+          for (let index = length - 1; index >= 0; index -= 1) {
+            if (yield* apply([target[index], index, target])) return index
           }
           return -1
       }

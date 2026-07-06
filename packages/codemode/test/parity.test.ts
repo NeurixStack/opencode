@@ -264,6 +264,46 @@ describe("Error values and instanceof", () => {
 })
 
 describe("array methods: splice, fill, copyWithin, keys/values/entries", () => {
+  test("sort and reverse mutate and return the receiver", async () => {
+    expect(
+      await value(`
+        const sorted = [3, 1, 2]
+        const sortResult = sorted.sort((a, b) => a - b)
+        const reversed = [1, 2, 3]
+        const reverseResult = reversed.reverse()
+        return { sorted, sameSort: sorted === sortResult, reversed, sameReverse: reversed === reverseResult }
+      `),
+    ).toEqual({ sorted: [1, 2, 3], sameSort: true, reversed: [3, 2, 1], sameReverse: true })
+  })
+
+  test("array callbacks receive the receiver and observe later mutations", async () => {
+    expect(
+      await value(`
+        const values = [1, 2, 3]
+        const seen = values.map((value, index, receiver) => {
+          if (index === 0) values[1] = 9
+          return [value, receiver === values]
+        })
+        return seen
+      `),
+    ).toEqual([
+      [1, true],
+      [9, true],
+      [3, true],
+    ])
+    expect(
+      await value(`
+        const values = [1, 2, 3]
+        const seen = []
+        values.forEach((value, index) => {
+          seen.push(value)
+          if (index === 0) values.pop()
+        })
+        return seen
+      `),
+    ).toEqual([1, 2])
+  })
+
   test("splice removes in place and returns the removed elements", async () => {
     expect(await value(`const a = [1,2,3,4]; const removed = a.splice(1, 2); return { removed, a }`)).toEqual({
       removed: [2, 3],
@@ -421,5 +461,40 @@ describe("H5: builtin coercion functions work as array callbacks", () => {
   test("a non-callable callback is still rejected", async () => {
     const err = await error(`return [1,2,3].map(42)`)
     expect(err.message).toContain("callback")
+  })
+})
+
+describe("destructuring assignment", () => {
+  test("assigns object and array patterns to existing bindings", async () => {
+    expect(
+      await value(`
+        let a = 0
+        let b = 0
+        ;({ a } = { a: 2 })
+        ;[a, b] = [3, 4]
+        return [a, b]
+      `),
+    ).toEqual([3, 4])
+  })
+
+  test("supports defaults, nesting, rest, and member targets", async () => {
+    expect(
+      await value(`
+        let first = 0
+        let fallback = 0
+        let rest = {}
+        const target = {}
+        ;[first, fallback = 2, ...target.tail] = [1]
+        ;({ nested: { value: target.value }, kept: target.kept = 3, ...rest } = {
+          nested: { value: 4 },
+          extra: 5,
+        })
+        return { first, fallback, target, rest }
+      `),
+    ).toEqual({ first: 1, fallback: 2, target: { tail: [], value: 4, kept: 3 }, rest: { extra: 5 } })
+  })
+
+  test("returns the assigned value", async () => {
+    expect(await value(`let a = 0; const result = ([a] = [7]); return [a, result]`)).toEqual([7, [7]])
   })
 })
