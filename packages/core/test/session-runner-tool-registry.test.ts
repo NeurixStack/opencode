@@ -30,6 +30,22 @@ const outputStore = Layer.mock(ToolOutputStore.Service, {
 })
 const registryLayer = AppNodeBuilder.build(ToolRegistry.node, [[ToolOutputStore.node, outputStore]])
 const it = testEffect(registryLayer)
+const codeModeNodes = ToolRegistry.nodes({
+  opencode: {
+    v2: {
+      health: {
+        get: {
+          _tag: "CodeModeTool" as const,
+          description: "Get server health",
+          input: Schema.Struct({}),
+          output: Schema.Struct({ healthy: Schema.Boolean }),
+          run: () => Effect.succeed({ healthy: true }),
+        },
+      },
+    },
+  },
+})
+const codeModeIt = testEffect(AppNodeBuilder.build(codeModeNodes.node, [[ToolOutputStore.node, outputStore]]))
 const identity = {
   agent: AgentV2.ID.make("build"),
   assistantMessageID: SessionMessage.ID.make("msg_registry"),
@@ -53,6 +69,28 @@ const make = (permission?: string) => {
 }
 
 describe("ToolRegistry", () => {
+  codeModeIt.effect("includes host Code Mode trees without hosted tool registration", () =>
+    Effect.gen(function* () {
+      const service = yield* ToolRegistry.Service
+      const definitions = yield* toolDefinitions(service)
+      expect(definitions.map((tool) => tool.name)).toEqual(["execute"])
+      expect(definitions[0]?.description).toContain("tools.opencode.v2.health.get")
+
+      expect(
+        yield* executeTool(service, {
+          sessionID,
+          ...identity,
+          call: {
+            type: "tool-call",
+            id: "call-opencode-health",
+            name: "execute",
+            input: { code: "return await tools.opencode.v2.health.get({})" },
+          },
+        }),
+      ).toEqual({ type: "text", value: '{\n  "healthy": true\n}' })
+    }),
+  )
+
   it.effect("filters disabled tools with edit aliases and ordered wildcard precedence", () =>
     Effect.gen(function* () {
       const service = yield* ToolRegistry.Service

@@ -1,4 +1,5 @@
 export * as ToolRegistry from "./registry"
+export type { CodeModeTools } from "./execute"
 
 import { ToolOutput, type ToolCall, type ToolDefinition, type ToolResultValue } from "@opencode-ai/llm"
 import { Context, Effect, Layer, Scope } from "effect"
@@ -9,7 +10,7 @@ import { SessionMessage } from "../session/message"
 import { SessionSchema } from "../session/schema"
 import { ToolOutputStore } from "../tool-output-store"
 import { Wildcard } from "../util/wildcard"
-import { ExecuteTool } from "./execute"
+import { ExecuteTool, type CodeModeTools } from "./execute"
 import { definition, permission, registrationEntries, RegistrationError, settle, type AnyTool } from "./tool"
 import { Tools } from "./tools"
 import { ToolHooks } from "./hooks"
@@ -51,10 +52,14 @@ export interface Settlement {
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/ToolRegistry") {}
+class CodeModeCatalog extends Context.Service<CodeModeCatalog, { readonly tools?: CodeModeTools }>()(
+  "@opencode/v2/CodeModeCatalog",
+) {}
 
 const registryLayer = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const codeModeTools = (yield* CodeModeCatalog).tools
     const resources = yield* ToolOutputStore.Service
     const toolHooks = yield* ToolHooks.Service
     type Registration = {
@@ -204,11 +209,14 @@ const registryLayer = Layer.effect(
         }
         const direct = new Map(Array.from(registrations).filter(([, registration]) => !registration.deferred))
         const deferred = new Map(Array.from(registrations).filter(([, registration]) => registration.deferred))
+        const tools = Flag.CODEMODE_ENABLED ? codeModeTools : undefined
         const execute =
-          deferred.size > 0 && !whollyDisabled("execute", input.permissions ?? [])
+          (deferred.size > 0 || (tools !== undefined && Object.keys(tools).length > 0)) &&
+          !whollyDisabled("execute", input.permissions ?? [])
             ? ExecuteTool.create({
                 registrations: deferred,
                 current: (name) => local.get(name)?.at(-1)?.registration,
+                tools,
               })
             : undefined
         return {
@@ -231,24 +239,37 @@ const registryLayer = Layer.effect(
   }),
 )
 
-const layer = Layer.effect(
-  Tools.Service,
-  Service.use((registry) => Effect.succeed(Tools.Service.of({ register: registry.register }))),
-).pipe(Layer.provideMerge(registryLayer))
+const makeLayer = (codeModeTools?: CodeModeTools) => {
+  return Layer.effect(
+    Tools.Service,
+    Service.use((registry) => Effect.succeed(Tools.Service.of({ register: registry.register }))),
+  ).pipe(
+    Layer.provideMerge(registryLayer),
+    Layer.provide(Layer.succeed(CodeModeCatalog, CodeModeCatalog.of({ tools: codeModeTools }))),
+  )
+}
 
 function whollyDisabled(action: string, rules: PermissionV2.Ruleset) {
   const rule = rules.findLast((rule) => Wildcard.match(action, rule.action))
   return rule?.resource === "*" && rule.effect === "deny"
 }
 
-export const node = makeLocationNode({
-  service: Service,
-  layer,
-  deps: [ToolOutputStore.node, ToolHooks.node],
-})
+export function nodes(codeModeTools?: CodeModeTools) {
+  const layer = makeLayer(codeModeTools)
+  return {
+    node: makeLocationNode({
+      service: Service,
+      layer,
+      deps: [ToolOutputStore.node, ToolHooks.node],
+    }),
+    toolsNode: makeLocationNode({
+      service: Tools.Service,
+      layer,
+      deps: [ToolOutputStore.node, ToolHooks.node],
+    }),
+  }
+}
 
-export const toolsNode = makeLocationNode({
-  service: Tools.Service,
-  layer,
-  deps: [ToolOutputStore.node, ToolHooks.node],
-})
+const defaults = nodes()
+export const node = defaults.node
+export const toolsNode = defaults.toolsNode

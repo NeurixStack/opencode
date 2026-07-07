@@ -43,15 +43,20 @@ export interface Registration {
   readonly group?: string
 }
 
+export interface CodeModeTools {
+  [name: string]: Tool.Definition<never> | CodeModeTools
+}
+
 export const create = (options: {
   readonly registrations: ReadonlyMap<string, Registration>
   readonly current: (name: string) => Registration | undefined
+  readonly tools?: CodeModeTools
 }) => {
   const runtime = (
     invoke: (name: string, registration: Registration, input: unknown) => Effect.Effect<unknown, unknown>,
     hooks?: CodeMode.ToolCallHooks,
   ) => {
-    const tools: Record<string, Tool.Definition<never> | Record<string, Tool.Definition<never>>> = {}
+    const tools: CodeModeTools = Object.assign(Object.create(null), options.tools)
     for (const [name, registration] of options.registrations) {
       const child = definition(name, registration.tool)
       const value = Tool.make({

@@ -52,8 +52,25 @@ function listen(options: Options) {
 
 function bind(hostname: string, port: number, password: string) {
   const server = createServer()
+  const codeModeClient = Layer.effect(
+    HttpClient.HttpClient,
+    Effect.gen(function* () {
+      const client = yield* HttpClient.HttpClient
+      return HttpClient.mapRequest(client, (request) => {
+        const address = server.address()
+        if (!address || typeof address === "string") throw new Error("OpenCode server is not listening")
+        const local = hostname === "0.0.0.0" ? "127.0.0.1" : hostname === "::" ? "::1" : hostname
+        const host = local.includes(":") && !local.startsWith("[") ? `[${local}]` : local
+        const url = new URL(request.url)
+        return HttpClientRequest.setUrl(
+          request,
+          new URL(`${url.pathname}${url.search}${url.hash}`, `http://${host}:${address.port}`),
+        )
+      })
+    }),
+  ).pipe(Layer.provide(NodeHttpClient.layerNodeHttp))
   return Layer.build(
-    HttpRouter.serve(createRoutes(password), { disableListenLog: true }).pipe(
+    HttpRouter.serve(createRoutes(password, codeModeClient), { disableListenLog: true }).pipe(
       Layer.provideMerge(NodeHttpServer.layer(() => server, { port, host: hostname })),
       Layer.provide(AppNodeBuilder.build(LayerNode.group([Credential.node, PermissionSaved.node, Project.node]))),
     ),
