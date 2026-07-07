@@ -217,7 +217,13 @@ const make = (dependencies: Dependencies) => {
       .pipe(
         Stream.runForEach((event) => {
           if (LLMEvent.is.providerError(event)) failed = true
-          if (LLMEvent.is.textDelta(event)) chunks.push(event.text)
+          if (LLMEvent.is.textDelta(event)) {
+            chunks.push(event.text)
+            return dependencies.events.publish(SessionEvent.Compaction.Delta, {
+              sessionID: input.sessionID,
+              text: event.text,
+            })
+          }
           return Effect.void
         }),
         Effect.as(true),
@@ -254,7 +260,9 @@ const make = (dependencies: Dependencies) => {
     if (context === undefined || context <= 0) return false
     const selected = select(input.messages, config.tokens)
     if (!selected) return false
-    const previousSummary = input.messages.find((message) => message.type === "compaction")
+    const previousSummary = input.messages.find(
+      (message) => message.type === "compaction" && message.status === "completed",
+    )
     const hasHead = selected.head.length > 0
     if (!hasHead && previousSummary?.type !== "compaction" && !input.force) return false
     const forcedShortContext = input.force && !hasHead

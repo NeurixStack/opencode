@@ -26,7 +26,10 @@ import type { DeepMutable } from "../schema"
 import { Slug } from "../util/slug"
 
 type DatabaseService = Database.Interface["db"]
-type MessageEvent = Exclude<SessionEvent.DurableEvent, typeof SessionEvent.Forked.Type>
+type MessageEvent = Exclude<
+  SessionEvent.DurableEvent,
+  typeof SessionEvent.Forked.Type | typeof SessionEvent.Deleted.Type
+>
 
 const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Message)
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
@@ -190,7 +193,9 @@ const projectFork = Effect.fn("SessionProjector.projectFork")(function* (
     .insert(SessionTable)
     .values({
       id: event.data.sessionID,
-      parent_id: event.data.parentID,
+      parent_id: null,
+      fork_session_id: event.data.parentID,
+      fork_message_id: event.data.from,
       project_id: parent.project_id,
       workspace_id: parent.workspace_id,
       slug: Slug.create(),
@@ -243,6 +248,7 @@ const projectFork = Effect.fn("SessionProjector.projectFork")(function* (
           eq(SessionMessageTable.session_id, event.data.parentID),
           gt(SessionMessageTable.seq, cursor),
           copiedSeq === 0 ? undefined : lt(SessionMessageTable.seq, copiedSeq + 1),
+          sql`${SessionMessageTable.type} != 'compaction' or json_extract(${SessionMessageTable.data}, '$.status') not in ('queued', 'running')`,
         ),
       )
       .orderBy(asc(SessionMessageTable.seq))
@@ -292,11 +298,12 @@ const projectFork = Effect.fn("SessionProjector.projectFork")(function* (
         .values(
           inputRows.flatMap((row) => {
             const id = idMap.get(row.id)
-            return id
+            return id && row.type === "prompt"
               ? [
                   {
                     id,
                     session_id: event.data.sessionID,
+                    type: "prompt" as const,
                     prompt: row.prompt,
                     delivery: row.delivery,
                     admitted_seq: row.admitted_seq,
@@ -426,8 +433,30 @@ function run(db: DatabaseService, event: MessageEvent) {
           return message.type === "shell" ? message : undefined
         })
       },
+      getCompaction() {
+        return Effect.gen(function* () {
+          const row = yield* db
+            .select()
+            .from(SessionMessageTable)
+            .where(
+              and(
+                eq(SessionMessageTable.session_id, event.data.sessionID),
+                eq(SessionMessageTable.type, "compaction"),
+                sql`json_extract(${SessionMessageTable.data}, '$.status') in ('queued', 'running')`,
+              ),
+            )
+            .orderBy(desc(SessionMessageTable.seq))
+            .limit(1)
+            .get()
+            .pipe(Effect.orDie)
+          if (!row) return
+          const message = decodeRow(row)
+          return message.type === "compaction" ? message : undefined
+        })
+      },
       updateAssistant: updateMessage,
       updateShell: updateMessage,
+      updateCompaction: updateMessage,
       appendMessage,
     }
     yield* SessionMessageUpdater.update(adapter, event)
@@ -501,6 +530,9 @@ const layer = Layer.effectDiscard(
       }),
     )
     yield* events.project(SessionV1.Event.Deleted, (event) =>
+      db.delete(SessionTable).where(eq(SessionTable.id, event.data.sessionID)).run().pipe(Effect.orDie),
+    )
+    yield* events.project(SessionEvent.Deleted, (event) =>
       db.delete(SessionTable).where(eq(SessionTable.id, event.data.sessionID)).run().pipe(Effect.orDie),
     )
     yield* events.project(SessionV1.Event.MessageUpdated, (event) =>
@@ -634,6 +666,23 @@ const layer = Layer.effectDiscard(
         })
       }),
     )
+    yield* events.project(SessionEvent.Compaction.Admitted, (event) =>
+      Effect.gen(function* () {
+        if (event.durable === undefined)
+          return yield* Effect.die(new Error("Durable Session event is missing aggregate sequence"))
+        const admitted = yield* SessionInput.projectCompactionAdmitted(db, {
+          admittedSeq: event.durable.seq,
+          id: event.data.inputID,
+          sessionID: event.data.sessionID,
+          timeCreated: event.created,
+        })
+        if (admitted.id !== event.data.inputID) return
+        yield* run(db, event)
+      }),
+    )
+    yield* events.project(SessionEvent.Execution.Succeeded, (event) => run(db, event))
+    yield* events.project(SessionEvent.Execution.Failed, (event) => run(db, event))
+    yield* events.project(SessionEvent.Execution.Interrupted, (event) => run(db, event))
     yield* events.project(SessionEvent.InstructionsUpdated, (event) => run(db, event))
     yield* events.project(SessionEvent.Synthetic, (event) => run(db, event))
     yield* events.project(SessionEvent.Skill.Activated, (event) =>
@@ -660,8 +709,31 @@ const layer = Layer.effectDiscard(
     yield* events.project(SessionEvent.Tool.Failed, (event) => run(db, event))
     yield* events.project(SessionEvent.Reasoning.Started, (event) => run(db, event))
     yield* events.project(SessionEvent.Reasoning.Ended, (event) => run(db, event))
-    // yield* events.project(SessionEvent.Retried, (event) => run(db, event))
-    yield* events.project(SessionEvent.Compaction.Ended, (event) => run(db, event))
+    yield* events.project(SessionEvent.RetryScheduled, (event) => run(db, event))
+    yield* events.project(SessionEvent.Compaction.Started, (event) => run(db, event))
+    yield* events.project(SessionEvent.Compaction.Ended, (event) =>
+      Effect.gen(function* () {
+        yield* run(db, event)
+        if (event.durable === undefined)
+          return yield* Effect.die(new Error("Durable Session event is missing aggregate sequence"))
+        if (event.data.reason === "manual")
+          yield* SessionInput.settleCompaction(db, {
+            sessionID: event.data.sessionID,
+            handledSeq: event.durable.seq,
+          })
+      }),
+    )
+    yield* events.project(SessionEvent.Compaction.Failed, (event) =>
+      Effect.gen(function* () {
+        yield* run(db, event)
+        if (event.durable === undefined)
+          return yield* Effect.die(new Error("Durable Session event is missing aggregate sequence"))
+        yield* SessionInput.settleCompaction(db, {
+          sessionID: event.data.sessionID,
+          handledSeq: event.durable.seq,
+        })
+      }),
+    )
     yield* events.project(SessionEvent.RevertEvent.Staged, (event) =>
       db
         .update(SessionTable)
@@ -687,14 +759,11 @@ const layer = Layer.effectDiscard(
           .select({ seq: SessionMessageTable.seq })
           .from(SessionMessageTable)
           .where(
-            and(
-              eq(SessionMessageTable.session_id, event.data.sessionID),
-              eq(SessionMessageTable.id, event.data.messageID),
-            ),
+            and(eq(SessionMessageTable.session_id, event.data.sessionID), eq(SessionMessageTable.id, event.data.to)),
           )
           .get()
           .pipe(Effect.orDie)
-        if (!boundary) return yield* Effect.die(new Error(`Revert boundary message not found: ${event.data.messageID}`))
+        if (!boundary) return yield* Effect.die(new Error(`Revert boundary message not found: ${event.data.to}`))
         yield* db
           .delete(SessionMessageTable)
           .where(

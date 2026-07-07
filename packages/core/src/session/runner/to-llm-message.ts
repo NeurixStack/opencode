@@ -41,7 +41,32 @@ const textAttachment = (file: FileAttachment) =>
     },
   })
 
+const directoryAttachment = (file: FileAttachment) =>
+  Message.make({
+    role: "user",
+    content: [
+      `Attached directory: ${file.name ?? (file.source.type === "uri" ? file.source.uri : "directory")}`,
+      file.description === undefined ? undefined : `Description: ${file.description}`,
+      file.data.length === 0 ? undefined : "",
+      file.data.length === 0 ? undefined : Buffer.from(file.data, "base64").toString("utf8"),
+    ]
+      .filter((line): line is string => line !== undefined)
+      .join("\n"),
+    metadata: {
+      attachment: {
+        source: file.source,
+        name: file.name,
+        description: file.description,
+      },
+    },
+  })
+
 const decodeToolInput = Schema.decodeUnknownOption(Schema.UnknownFromJsonString)
+
+const providerMetadata = (
+  provider: string,
+  state: Record<string, unknown> | undefined,
+): ProviderMetadata | undefined => (state === undefined ? undefined : { [provider]: state })
 
 const toolInput = (tool: SessionMessage.AssistantTool) =>
   tool.state.status === "pending"
@@ -53,7 +78,7 @@ const toolCall = (tool: SessionMessage.AssistantTool, providerMetadata: Provider
     id: tool.id,
     name: tool.name,
     input: toolInput(tool),
-    providerExecuted: tool.provider?.executed,
+    providerExecuted: tool.executed,
     providerMetadata,
   })
 
@@ -62,14 +87,14 @@ const toolResult = (tool: SessionMessage.AssistantTool, providerMetadata: Provid
     // TODO: Materialize remote and managed URIs before provider-history lowering.
     // ToolOutput.toResultValue rejects unresolved URIs rather than treating them as media bytes.
     const result =
-      tool.provider?.executed === true && tool.state.result !== undefined
+      tool.executed === true && tool.state.result !== undefined
         ? tool.state.result
         : ToolOutput.toResultValue({ structured: tool.state.structured, content: tool.state.content })
     return ToolResultPart.make({
       id: tool.id,
       name: tool.name,
       result,
-      providerExecuted: tool.provider?.executed,
+      providerExecuted: tool.executed,
       providerMetadata,
     })
   }
@@ -78,11 +103,11 @@ const toolResult = (tool: SessionMessage.AssistantTool, providerMetadata: Provid
       id: tool.id,
       name: tool.name,
       result:
-        tool.provider?.executed === true && tool.state.result !== undefined
+        tool.executed === true && tool.state.result !== undefined
           ? tool.state.result
           : { error: tool.state.error, content: tool.state.content, structured: tool.state.structured },
       resultType: "error",
-      providerExecuted: tool.provider?.executed,
+      providerExecuted: tool.executed,
       providerMetadata,
     })
   }
@@ -100,17 +125,22 @@ const assistant = (message: SessionMessage.Assistant, model: ModelV2.Ref) => {
             {
               type: "reasoning",
               text: item.text,
-              providerMetadata: reuseProviderMetadata ? item.providerMetadata : undefined,
+              providerMetadata: reuseProviderMetadata ? providerMetadata(model.providerID, item.state) : undefined,
             },
           ]
         : item.text.length > 0
           ? [{ type: "text", text: item.text }]
           : []
-    const call = toolCall(item, reuseProviderMetadata ? item.provider?.metadata : undefined)
-    if (item.provider?.executed !== true) return [call]
+    const call = toolCall(
+      item,
+      reuseProviderMetadata ? providerMetadata(model.providerID, item.providerState) : undefined,
+    )
+    if (item.executed !== true) return [call]
     const result = toolResult(
       item,
-      reuseProviderMetadata ? (item.provider.resultMetadata ?? item.provider.metadata) : undefined,
+      reuseProviderMetadata
+        ? providerMetadata(model.providerID, item.providerResultState ?? item.providerState)
+        : undefined,
     )
     return result ? [call, result] : [call]
   })
@@ -120,9 +150,14 @@ const assistant = (message: SessionMessage.Assistant, model: ModelV2.Ref) => {
     return part.text !== "" || (part.providerMetadata !== undefined && Object.keys(part.providerMetadata).length > 0)
   })
   const results = message.content
-    .filter((item): item is SessionMessage.AssistantTool => item.type === "tool" && item.provider?.executed !== true)
+    .filter((item): item is SessionMessage.AssistantTool => item.type === "tool" && item.executed !== true)
     .map((item) =>
-      toolResult(item, reuseProviderMetadata ? (item.provider?.resultMetadata ?? item.provider?.metadata) : undefined),
+      toolResult(
+        item,
+        reuseProviderMetadata
+          ? providerMetadata(model.providerID, item.providerResultState ?? item.providerState)
+          : undefined,
+      ),
     )
     .filter((message) => message !== undefined)
     .map(Message.tool)
@@ -141,9 +176,8 @@ function toLLMMessage(message: SessionMessage.Message, model: ModelV2.Ref): Mess
     case "user":
       const files = message.files ?? []
       return [
-        ...files
-          .filter((file) => file.mime === "text/plain")
-          .map(textAttachment),
+        ...files.filter((file) => file.mime === "text/plain").map(textAttachment),
+        ...files.filter((file) => file.mime === "application/x-directory").map(directoryAttachment),
         Message.make({
           id: message.id,
           role: "user",
@@ -175,6 +209,7 @@ function toLLMMessage(message: SessionMessage.Message, model: ModelV2.Ref): Mess
     case "assistant":
       return assistant(message, model)
     case "compaction":
+      if (message.status !== "completed") return []
       return [
         Message.make({
           id: message.id,

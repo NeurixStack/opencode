@@ -15,7 +15,10 @@ import eventSourcedSessionInputMigration from "@opencode-ai/core/database/migrat
 import contextEpochAgentMigration from "@opencode-ai/core/database/migration/20260605042240_add_context_epoch_agent"
 import simplifyIntegrationCredentialsMigration from "@opencode-ai/core/database/migration/20260611192811_lush_chimera"
 import simplifySessionInputMigration from "@opencode-ai/core/database/migration/20260622202450_simplify_session_input"
+import resetSessionEventsMigration from "@opencode-ai/core/database/migration/20260703200000_reset_v2_session_events"
+import durableSessionInboxMigration from "@opencode-ai/core/database/migration/20260707010146_durable_session_inbox"
 import renameInstructionsMigration from "@opencode-ai/core/database/migration/20260705180000_rename_instructions"
+import addSessionForkMigration from "@opencode-ai/core/database/migration/20260706223930_add-session-fork"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -39,6 +42,29 @@ const run = <A, E>(effect: Effect.Effect<A, E, SqlClientService>) =>
 const makeDb = EffectDrizzleSqlite.makeWithDefaults()
 
 describe("DatabaseMigration", () => {
+  test("resets incompatible V2 Session event history", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE session_input (id text PRIMARY KEY)`)
+        yield* db.run(sql`CREATE TABLE session_message (id text PRIMARY KEY)`)
+        yield* db.run(sql`CREATE TABLE event (id text PRIMARY KEY)`)
+        yield* db.run(sql`CREATE TABLE event_sequence (aggregate_id text PRIMARY KEY, seq integer NOT NULL)`)
+        yield* db.run(sql`INSERT INTO session_input (id) VALUES ('input')`)
+        yield* db.run(sql`INSERT INTO session_message (id) VALUES ('message')`)
+        yield* db.run(sql`INSERT INTO event (id) VALUES ('event')`)
+        yield* db.run(sql`INSERT INTO event_sequence (aggregate_id, seq) VALUES ('session', 1)`)
+
+        yield* DatabaseMigration.applyOnly(db, [resetSessionEventsMigration])
+
+        expect(yield* db.get(sql`SELECT id FROM session_input`)).toBeUndefined()
+        expect(yield* db.get(sql`SELECT id FROM session_message`)).toBeUndefined()
+        expect(yield* db.get(sql`SELECT id FROM event`)).toBeUndefined()
+        expect(yield* db.get(sql`SELECT aggregate_id FROM event_sequence`)).toBeUndefined()
+      }),
+    )
+  })
+
   test("serializes concurrent embedded initialization for one database path", async () => {
     await using tmp = await tmpdir()
     const filename = path.join(tmp.path, "embedded.sqlite")
@@ -84,13 +110,14 @@ describe("DatabaseMigration", () => {
         expect(yield* db.get(sql`SELECT count(*) as count FROM migration`)).toEqual({ count: migrations.length })
         expect(
           yield* db.all(
-            sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('event_aggregate_seq_idx', 'event_aggregate_type_seq_idx', 'session_input_session_pending_seq_idx', 'session_input_session_pending_delivery_seq_idx', 'session_input_session_admitted_seq_idx', 'session_input_session_promoted_seq_idx', 'session_message_session_idx', 'session_message_session_type_idx', 'session_message_session_seq_idx', 'session_message_session_type_seq_idx', 'session_message_session_time_created_id_idx') ORDER BY name`,
+            sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('event_aggregate_seq_idx', 'event_aggregate_type_seq_idx', 'session_input_session_pending_seq_idx', 'session_input_session_pending_delivery_seq_idx', 'session_input_session_pending_type_delivery_seq_idx', 'session_input_session_pending_compaction_idx', 'session_input_session_admitted_seq_idx', 'session_input_session_promoted_seq_idx', 'session_message_session_idx', 'session_message_session_type_idx', 'session_message_session_seq_idx', 'session_message_session_type_seq_idx', 'session_message_session_time_created_id_idx') ORDER BY name`,
           ),
         ).toEqual([
           { name: "event_aggregate_seq_idx" },
           { name: "event_aggregate_type_seq_idx" },
           { name: "session_input_session_admitted_seq_idx" },
-          { name: "session_input_session_pending_delivery_seq_idx" },
+          { name: "session_input_session_pending_compaction_idx" },
+          { name: "session_input_session_pending_type_delivery_seq_idx" },
           { name: "session_input_session_promoted_seq_idx" },
           { name: "session_message_session_seq_idx" },
           { name: "session_message_session_time_created_id_idx" },
@@ -127,6 +154,39 @@ describe("DatabaseMigration", () => {
 
         expect(yield* db.get(sql`SELECT agent FROM session_context_epoch WHERE session_id = 'ses_existing'`)).toEqual({
           agent: "build",
+        })
+      }),
+    )
+  })
+
+  test("separates existing fork provenance from subagent hierarchy", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(sql`CREATE TABLE session (id text PRIMARY KEY, parent_id text)`)
+        yield* db.run(
+          sql`CREATE TABLE event (aggregate_id text NOT NULL, seq integer NOT NULL, type text NOT NULL, data text NOT NULL)`,
+        )
+        yield* db.run(sql`INSERT INTO session VALUES ('ses_source', NULL), ('ses_fork', 'ses_source')`)
+        yield* db.run(
+          sql`INSERT INTO event VALUES ('ses_fork', 0, 'session.forked', '{"sessionID":"ses_fork","parentID":"ses_source","from":"msg_boundary"}')`,
+        )
+
+        yield* DatabaseMigration.applyOnly(db, [addSessionForkMigration])
+
+        expect(
+          yield* db.get(sql`SELECT parent_id, fork_session_id, fork_message_id FROM session WHERE id = 'ses_fork'`),
+        ).toEqual({
+          parent_id: null,
+          fork_session_id: "ses_source",
+          fork_message_id: "msg_boundary",
+        })
+        expect(
+          yield* db.get(sql`SELECT parent_id, fork_session_id, fork_message_id FROM session WHERE id = 'ses_source'`),
+        ).toEqual({
+          parent_id: null,
+          fork_session_id: null,
+          fork_message_id: null,
         })
       }),
     )
@@ -295,7 +355,7 @@ describe("DatabaseMigration", () => {
           sql`INSERT INTO event (id, aggregate_id, seq, type, data, created) VALUES ('event', 'session', 9, 'session.updated.1', '{}', 1)`,
         )
         yield* db.run(
-          sql`INSERT INTO session_input (id, session_id, prompt, delivery, admitted_seq, time_created) VALUES ('input', 'session', '{}', 'steer', 9, 1)`,
+          sql`INSERT INTO session_input (id, session_id, type, prompt, delivery, admitted_seq, time_created) VALUES ('input', 'session', 'prompt', '{}', 'steer', 9, 1)`,
         )
         yield* db.run(
           sql`INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES ('projected', 'session', 'user', 9, 1, 1, '{}')`,
@@ -354,6 +414,37 @@ describe("DatabaseMigration", () => {
           seq: 0,
           eventType: "session.updated.1",
         })
+      }),
+    )
+  })
+
+  test("preserves admitted prompts while generalizing the durable inbox", async () => {
+    await run(
+      Effect.gen(function* () {
+        const db = yield* makeDb
+        yield* db.run(
+          sql`CREATE TABLE session_input (id text PRIMARY KEY, session_id text NOT NULL, prompt text NOT NULL, delivery text NOT NULL, admitted_seq integer NOT NULL, promoted_seq integer, time_created integer NOT NULL)`,
+        )
+        yield* db.run(
+          sql`INSERT INTO session_input (id, session_id, prompt, delivery, admitted_seq, promoted_seq, time_created) VALUES ('input', 'session', '{"text":"hello"}', 'steer', 4, NULL, 1)`,
+        )
+
+        yield* DatabaseMigration.applyOnly(db, [durableSessionInboxMigration])
+
+        expect(
+          yield* db.all(
+            sql`SELECT id, type, prompt, delivery, admitted_seq, promoted_seq FROM session_input ORDER BY admitted_seq`,
+          ),
+        ).toEqual([
+          {
+            id: "input",
+            type: "prompt",
+            prompt: '{"text":"hello"}',
+            delivery: "steer",
+            admitted_seq: 4,
+            promoted_seq: null,
+          },
+        ])
       }),
     )
   })

@@ -205,9 +205,9 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
               },
             } satisfies CliRendererConfig
 
-            if (!!process.env.OPENCODE_SIMULATION) {
-              const { Simulation } = await import("@opencode-ai/simulation/frontend")
-              return Simulation.createSimulation(options)
+            if (process.env.OPENCODE_DRIVE) {
+              const { Drive } = await import("@opencode-ai/simulation/frontend")
+              return Drive.create(options)
             }
 
             return createCliRenderer(options)
@@ -500,7 +500,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
     }
 
     if (route.data.type === "session") {
-      const session = sync.session.get(route.data.sessionID)
+      const session = data.session.get(route.data.sessionID)
       if (!session || isDefaultTitle(session.title)) {
         renderer.setTerminalTitle("OpenCode")
         return
@@ -559,13 +559,10 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
           route.navigate({ type: "session", sessionID: match })
           return
         }
-        void sdk.client.session.fork({ sessionID: match }).then((result) => {
-          if (result.data?.id) {
-            route.navigate({ type: "session", sessionID: result.data.id })
-            return
-          }
-          toast.show({ message: "Failed to fork session", variant: "error" })
-        })
+        void sdk.api.session
+          .fork({ sessionID: match })
+          .then((result) => route.navigate({ type: "session", sessionID: result.id }))
+          .catch(toast.error)
       })
       .catch(toast.error)
   })
@@ -577,13 +574,10 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   createEffect(() => {
     if (forked || sync.status !== "complete" || !args.sessionID || !args.fork) return
     forked = true
-    void sdk.client.session.fork({ sessionID: args.sessionID }).then((result) => {
-      if (result.data?.id) {
-        route.navigate({ type: "session", sessionID: result.data.id })
-      } else {
-        toast.show({ message: "Failed to fork session", variant: "error" })
-      }
-    })
+    void sdk.api.session
+      .fork({ sessionID: args.sessionID })
+      .then((result) => route.navigate({ type: "session", sessionID: result.id }))
+      .catch(toast.error)
   })
 
   const connected = useConnected()
@@ -1074,7 +1068,7 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
   })
 
   event.on("session.deleted", (evt) => {
-    if (route.data.type === "session" && route.data.sessionID === evt.data.info.id) {
+    if (route.data.type === "session" && route.data.sessionID === evt.data.sessionID) {
       route.navigate({ type: "home" })
       toast.show({
         variant: "info",
