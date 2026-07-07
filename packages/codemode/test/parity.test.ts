@@ -89,6 +89,69 @@ describe("H6: object spread of null/undefined is a no-op", () => {
   })
 })
 
+describe("delete data properties", () => {
+  test("removes an object property and reports success", async () => {
+    expect(await value(`const item = { keep: 1, remove: 2 }; const removed = delete item.remove; return { item, removed }`)).toEqual({
+      item: { keep: 1 },
+      removed: true,
+    })
+  })
+
+  test("evaluates a computed deletion key once", async () => {
+    expect(
+      await value(`
+        const item = { a: 1, b: 2 }
+        let calls = 0
+        const key = () => { calls += 1; return "b" }
+        const removed = delete item[key()]
+        return { item, calls, removed }
+      `),
+    ).toEqual({ item: { a: 1 }, calls: 1, removed: true })
+  })
+
+  test("deleting an array element leaves a hole without changing length", async () => {
+    expect(
+      await value(`
+        const items = ["a", "b", "c"]
+        const removed = delete items[1]
+        return { removed, length: items.length, hasIndex: 1 in items, keys: Object.keys(items) }
+      `),
+    ).toEqual({ removed: true, length: 3, hasIndex: false, keys: ["0", "2"] })
+  })
+
+  test("deleting an absent property succeeds", async () => {
+    expect(await value(`const item = { keep: 1 }; return delete item.missing`)).toBe(true)
+  })
+
+  test("optional deletion of a nullish receiver succeeds", async () => {
+    expect(
+      await value(`let calls = 0; const item = null; const removed = delete item?.[calls++]; return { calls, removed }`),
+    ).toEqual({ calls: 0, removed: true })
+  })
+
+  test("deleting an absent or non-canonical array key does not remove an element", async () => {
+    expect(
+      await value(`
+        const items = ["a", "b"]
+        const absent = delete items.missing
+        const nonCanonical = delete items["01"]
+        return { absent, nonCanonical, items, hasIndex: 1 in items }
+      `),
+    ).toEqual({ absent: true, nonCanonical: true, items: ["a", "b"], hasIndex: true })
+  })
+
+  test("rejects deletion of runtime and protected members", async () => {
+    for (const code of [
+      `delete tools.missing`,
+      `delete new URL("https://example.test").pathname`,
+      `delete [1].length`,
+      `delete [1].map`,
+    ]) {
+      expect((await error(code)).message).toContain("deleted")
+    }
+  })
+})
+
 describe("H4: typeof on an undeclared identifier is 'undefined'", () => {
   test("feature-detection guard does not throw", async () => {
     expect(await value(`return typeof foo === "undefined" ? "safe" : "no"`)).toBe("safe")

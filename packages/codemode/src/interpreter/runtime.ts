@@ -1823,6 +1823,13 @@ class Interpreter<R> {
   private evaluateUnaryExpression(node: AstNode): Effect.Effect<unknown, unknown, R> {
     const operator = getString(node, "operator")
     const argument = getNode(node, "argument")
+    if (operator === "delete") {
+      const target = argument.type === "ChainExpression" ? getNode(argument, "expression") : argument
+      if (target.type !== "MemberExpression") {
+        throw new InterpreterRuntimeError("Delete target must be a data property in CodeMode.", argument)
+      }
+      return this.deleteMember(target)
+    }
     // `typeof undeclaredIdentifier` is `"undefined"` in JS (never a ReferenceError), so
     // feature-detection guards like `typeof x !== "undefined"` don't crash. Short-circuit before
     // evaluating the argument; a declared-but-TDZ binding still falls through to the normal throw.
@@ -3067,6 +3074,7 @@ class Interpreter<R> {
 
   private getMemberReference(
     node: AstNode,
+    options?: { readonly allowUnknownArrayProperty: boolean },
   ): Effect.Effect<
     | MemberReference
     | ToolReference
@@ -3233,6 +3241,7 @@ class Interpreter<R> {
           typeof key !== "number" &&
           !/^\d+$/.test(key)
         ) {
+          if (options?.allowUnknownArrayProperty === true) return { target: objectValue, key }
           // Own non-index properties read through (match results carry index/groups); like JS,
           // they are readable in place and dropped by JSON at data boundaries.
           if (typeof key === "string" && Object.hasOwn(objectValue, key)) {
@@ -3276,6 +3285,29 @@ class Interpreter<R> {
 
   private writeMember(node: AstNode, value: unknown): Effect.Effect<unknown, unknown, R> {
     return this.modifyMember(node, () => Effect.succeed({ write: true, next: value, result: value }))
+  }
+
+  private deleteMember(node: AstNode): Effect.Effect<boolean, unknown, R> {
+    return Effect.map(this.getMemberReference(node, { allowUnknownArrayProperty: true }), (reference) => {
+      if (reference === OptionalShortCircuit) return true
+      if (
+        reference instanceof ComputedValue ||
+        reference === undefined ||
+        reference instanceof ToolReference ||
+        reference instanceof PromiseMethodReference ||
+        reference instanceof IntrinsicReference ||
+        reference instanceof GlobalMethodReference ||
+        reference.target instanceof SandboxURL
+      ) {
+        throw new InterpreterRuntimeError("Only data properties may be deleted in CodeMode.", node)
+      }
+      if (Array.isArray(reference.target)) {
+        if (reference.key === "length" || (typeof reference.key === "string" && arrayMethods.has(reference.key))) {
+          throw new InterpreterRuntimeError("Array length and methods cannot be deleted in CodeMode.", node)
+        }
+      }
+      return Reflect.deleteProperty(reference.target, reference.key)
+    })
   }
 
   // Resolves the member reference EXACTLY ONCE (so a side-effecting object/key expression

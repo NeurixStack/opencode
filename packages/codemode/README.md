@@ -237,7 +237,7 @@ A host cannot define its own `$codemode` top-level namespace.
 
 CodeMode executes a deliberately bounded JavaScript subset. It supports:
 
-- Plain data literals, property access, assignment, destructuring, and sequence expressions (the comma operator, evaluated left to right with the final value returned).
+- Plain data literals, property access, assignment, property deletion, destructuring, and sequence expressions (the comma operator, evaluated left to right with the final value returned).
 - `if`, conditional expressions, `switch`, `for`, `for...of` (arrays, strings, Maps, Sets, including assignment-form destructuring such as `for ([key, value] of entries)`), `for...in` (own keys of plain objects, index strings of arrays, and namespace/tool names of `tools` references - anything else is an error suggesting `for...of` or `Object.keys`, rather than real JS's surprising behavior of indices for strings and zero iterations for Maps/Sets), `while`, and `do...while`.
 - Arrow functions and function declarations with closures, defaults, rest parameters, and destructuring.
 - Optional chaining, nullish coalescing, templates, spread (arrays, strings, Maps, Sets), and `try`/`catch`.
