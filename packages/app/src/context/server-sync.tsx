@@ -67,7 +67,17 @@ export const loadMcpQuery = (scope: ServerScope, directory: string, sdk: Opencod
 export const loadMcpResourcesQuery = (scope: ServerScope, directory: string, sdk: OpencodeClient) =>
   queryOptions<Record<string, McpResource>>({
     queryKey: [scope, directory, "mcpResources"] as const,
-    queryFn: () => sdk.experimental.resource.list().then((r) => r.data ?? {}),
+    queryFn: () =>
+      sdk.v2.mcp.resource
+        .catalog({ location: { directory } }, { throwOnError: true })
+        .then((response) =>
+          Object.fromEntries(
+            response.data.data.resources.map((resource) => [
+              `${encodeURIComponent(resource.server)}:${resource.uri}`,
+              { ...resource, client: resource.server },
+            ]),
+          ),
+        ),
     placeholderData: {},
   })
 
@@ -415,6 +425,12 @@ export function createServerSyncContextInner(serverSDK: ServerSDK) {
       },
       loadReferences: () => {
         void queryClient.fetchQuery(queryOptionsApi.references(key))
+      },
+      loadMcp: () => {
+        void queryClient.refetchQueries(queryOptionsApi.mcp(key))
+      },
+      loadMcpResources: () => {
+        void queryClient.refetchQueries(queryOptionsApi.mcpResources(key))
       },
     })
   })

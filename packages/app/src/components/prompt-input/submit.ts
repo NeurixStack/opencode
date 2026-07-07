@@ -20,6 +20,7 @@ import { setCursorPosition } from "./editor-dom"
 import { formatServerError } from "@/utils/server-errors"
 import { ScopedKey } from "@/utils/server-scope"
 import { createPromptSubmissionState } from "./submission-state"
+import { hasMcpResources, materializeMcpResources } from "./mcp-resource"
 
 type PendingPrompt = {
   abort: AbortController
@@ -54,7 +55,6 @@ const draftImages = (prompt: Prompt) => prompt.filter((part): part is ImageAttac
 
 export async function sendFollowupDraft(input: FollowupSendInput) {
   const text = draftText(input.draft.prompt)
-  const images = draftImages(input.draft.prompt)
   const setBusy = () => {
     if (!input.optimisticBusy) return
     input.serverSync.session.set("session_status", input.draft.sessionID, { type: "busy" })
@@ -71,6 +71,19 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     return true
   }
 
+  const materialize = () =>
+    materializeMcpResources(input.draft.prompt, async (source) => {
+      const response = await input.client.v2.mcp.resource.read(
+        {
+          location: { directory: input.draft.sessionDirectory },
+          server: source.clientName,
+          uri: source.uri,
+        },
+        { throwOnError: true },
+      )
+      return response.data.data
+    })
+
   const [head, ...tail] = text.split(" ")
   const cmd = head?.startsWith("/") ? head.slice(1) : undefined
   if (cmd && input.sync.data.command.find((item) => item.name === cmd)) {
@@ -81,6 +94,9 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
         return false
       }
 
+      const prompt = hasMcpResources(input.draft.prompt) ? await materialize() : input.draft.prompt
+      const images = draftImages(prompt)
+
       await input.client.session.command({
         sessionID: input.draft.sessionID,
         command: cmd,
@@ -88,13 +104,28 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
         agent: input.draft.agent,
         model: `${input.draft.model.providerID}/${input.draft.model.modelID}`,
         variant: input.draft.variant,
-        parts: images.map((attachment) => ({
-          id: Identifier.ascending("part"),
-          type: "file" as const,
-          mime: attachment.mime,
-          url: attachment.dataUrl,
-          filename: attachment.filename,
-        })),
+        parts: [
+          ...images.map((attachment) => ({
+            id: Identifier.ascending("part"),
+            type: "file" as const,
+            mime: attachment.mime,
+            url: attachment.dataUrl,
+            filename: attachment.filename,
+          })),
+          ...prompt.flatMap((part) =>
+            part.type === "file" && part.url?.startsWith("data:")
+              ? [
+                  {
+                    id: Identifier.ascending("part"),
+                    type: "file" as const,
+                    mime: part.mime ?? "text/plain",
+                    url: part.url ?? part.path,
+                    filename: part.filename,
+                  },
+                ]
+              : [],
+          ),
+        ],
       })
       return true
     } catch (err) {
@@ -103,9 +134,26 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     }
   }
 
+  let ready = false
+  let prompt = input.draft.prompt
+  if (hasMcpResources(prompt)) {
+    setBusy()
+    if (!(await wait())) {
+      setIdle()
+      return false
+    }
+    try {
+      prompt = await materialize()
+    } catch (error) {
+      setIdle()
+      throw error
+    }
+    ready = true
+  }
+  const images = draftImages(prompt)
   const messageID = input.messageID ?? Identifier.ascending("message")
   const { requestParts, optimisticParts } = buildRequestParts({
-    prompt: input.draft.prompt,
+    prompt,
     context: input.draft.context,
     images,
     text,
@@ -144,7 +192,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
   })
 
   try {
-    if (!(await wait())) {
+    if (!ready && !(await wait())) {
       batch(() => {
         setIdle()
         remove()
@@ -455,39 +503,6 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           restoreInput()
         })
       return
-    }
-
-    if (text.startsWith("/")) {
-      const [cmdName, ...args] = text.split(" ")
-      const commandName = cmdName.slice(1)
-      const customCommand = sync().data.command.find((c) => c.name === commandName)
-      if (customCommand) {
-        clearInput()
-        client.session
-          .command({
-            sessionID: session.id,
-            command: commandName,
-            arguments: args.join(" "),
-            agent,
-            model: `${model.providerID}/${model.modelID}`,
-            variant,
-            parts: images.map((attachment) => ({
-              id: Identifier.ascending("part"),
-              type: "file" as const,
-              mime: attachment.mime,
-              url: attachment.dataUrl,
-              filename: attachment.filename,
-            })),
-          })
-          .catch((err) => {
-            showToast({
-              title: language.t("prompt.toast.commandSendFailed.title"),
-              description: formatServerError(err, language.t, language.t("common.requestFailed")),
-            })
-            restoreInput()
-          })
-        return
-      }
     }
 
     const commentItems = context.filter((item) => item.type === "file" && !!item.comment?.trim())

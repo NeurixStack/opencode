@@ -134,6 +134,28 @@ describe("applyGlobalEvent", () => {
 })
 
 describe("applyDirectoryEvent", () => {
+  test("refreshes MCP state after MCP events", () => {
+    const [store, setStore] = createStore(baseState())
+    const calls: string[] = []
+    const apply = (type: "mcp.status.changed" | "mcp.resources.changed") =>
+      applyDirectoryEvent({
+        event: { type, properties: { server: "docs" } },
+        store,
+        setStore,
+        push() {},
+        directory: "/tmp",
+        loadLsp() {},
+        loadMcp: () => calls.push("status"),
+        loadMcpResources: () => calls.push("resources"),
+      })
+
+    apply("mcp.resources.changed")
+    expect(calls).toEqual(["resources"])
+    calls.length = 0
+    apply("mcp.status.changed")
+    expect(calls).toEqual(["status", "resources"])
+  })
+
   test("initializes text delta accumulation from the current part text", () => {
     const part = { ...textPart("part", "session", "message"), text: "existing" }
     const [store, setStore] = createStore(baseState({ part: { message: [part] } }))

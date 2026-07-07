@@ -113,6 +113,8 @@ export function applyDirectoryEvent(input: {
   directory: string
   loadLsp: () => void
   loadReferences?: () => void
+  loadMcp?: () => void
+  loadMcpResources?: () => void
   vcsCache?: VcsCache
   setSessionTodo?: (sessionID: string, todos: Todo[] | undefined) => void
   retainedLimit?: number
@@ -407,6 +409,15 @@ export function applyDirectoryEvent(input: {
     }
     case "reference.updated": {
       input.loadReferences?.()
+      break
+    }
+    case "mcp.status.changed": {
+      input.loadMcp?.()
+      input.loadMcpResources?.()
+      break
+    }
+    case "mcp.resources.changed": {
+      input.loadMcpResources?.()
       break
     }
   }
