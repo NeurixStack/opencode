@@ -1,8 +1,9 @@
-import { Show, createEffect, createMemo, createResource, untrack } from "solid-js"
+import { Show, createEffect, createMemo, createResource, onCleanup, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useSearchParams } from "@solidjs/router"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { NewSessionDesignView } from "@/components/session"
 import { PromptInput } from "@/components/prompt-input"
 import { StatusPopoverV2 } from "@/components/status-popover"
@@ -19,6 +20,7 @@ import { useSync } from "@/context/sync"
 import { useServerSync } from "@/context/server-sync"
 import { useLanguage } from "@/context/language"
 import { useSettings } from "@/context/settings"
+import { useCommand } from "@/context/command"
 import { createPromptInputController, createPromptProjectControls } from "@/pages/session/composer"
 import { useSessionKey } from "@/pages/session/session-layout"
 import { useComposerCommands } from "@/pages/session/use-composer-commands"
@@ -41,11 +43,34 @@ export default function NewSessionPage() {
   const comments = useComments()
   const language = useLanguage()
   const settings = useSettings()
+  const command = useCommand()
+  const dialog = useDialog()
   const route = useSessionKey()
   const [searchParams, setSearchParams] = useSearchParams<{ draftId?: string; prompt?: string }>()
 
   useComposerCommands()
   useSettingsCommand()
+  let paletteRun = 0
+  let paletteDead = false
+  onCleanup(() => {
+    paletteDead = true
+  })
+  command.register("draft-palette", () => [
+    {
+      id: "file.open",
+      title: language.t("command.file.open"),
+      description: language.t("palette.search.placeholder"),
+      category: language.t("command.category.file"),
+      keybind: "mod+k,mod+p",
+      onSelect: () => {
+        const run = ++paletteRun
+        void import("@/components/dialog-select-file").then((module) => {
+          if (paletteDead || run !== paletteRun) return
+          dialog.show(() => <module.DialogSelectFile />)
+        })
+      },
+    },
+  ])
 
   let inputRef: HTMLDivElement | undefined
 

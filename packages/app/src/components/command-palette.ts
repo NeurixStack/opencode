@@ -86,6 +86,7 @@ export function createCommandPaletteModel(props: { filesOnly?: () => boolean; on
   const openFile = createCommandPaletteFileOpener(props.onOpenFile)
   const state = { cleanup: undefined as (() => void) | void, committed: false }
   const filesOnly = () => props.filesOnly?.() ?? false
+  const filesEnabled = () => filesOnly() || layout.route().type === "session"
 
   const allowedCommands = createMemo(() => {
     if (filesOnly()) return []
@@ -114,6 +115,7 @@ export function createCommandPaletteModel(props: { filesOnly?: () => boolean; on
     normalizeTab: (tab) => (tab.startsWith("file://") ? file.tab(tab) : tab),
   })
   const recentFileEntries = createMemo(() => {
+    if (!filesEnabled()) return []
     const all = tabState.openedTabs()
     const active = tabState.activeFileTab()
     const order = active ? [active, ...all.filter((item) => item !== active)] : all
@@ -130,6 +132,7 @@ export function createCommandPaletteModel(props: { filesOnly?: () => boolean; on
       .map((path) => createCommandPaletteFileEntry(path, category))
   })
   const rootFileEntries = createMemo(() => {
+    if (!filesEnabled()) return []
     const category = language.t("palette.group.files")
     return file.tree
       .children("")
@@ -211,6 +214,7 @@ export function createCommandPaletteModel(props: { filesOnly?: () => boolean; on
     preferredCommandEntries,
     recentFileEntries,
     rootFileEntries,
+    searchFiles: (query: string) => (filesEnabled() ? file.searchFiles(query) : Promise.resolve([])),
     sessions,
     highlight,
     select,

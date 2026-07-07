@@ -37,7 +37,7 @@ export function DialogCommandPaletteV2(props: { onOpenFile?: (path: string) => v
     const q = text.trim()
     if (!q) return [...palette.preferredCommandEntries(), ...palette.recentFileEntries()]
 
-    const [files, nextSessions] = await Promise.all([palette.file.searchFiles(q), Promise.resolve(palette.sessions(q))])
+    const [files, nextSessions] = await Promise.all([palette.searchFiles(q), Promise.resolve(palette.sessions(q))])
     const category = palette.language.t("palette.group.files")
     return [
       ...palette.commandEntries().filter((entry) => matchesEntry(entry, q)),
