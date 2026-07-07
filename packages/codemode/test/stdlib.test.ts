@@ -19,6 +19,161 @@ const error = async (code: string) => {
   return result.error
 }
 
+describe("JSON", () => {
+  test("parse revivers run post-order including the root", async () => {
+    expect(
+      await value(`
+        const order = []
+        const parsed = JSON.parse('{"item":{"count":2}}', (key, item) => {
+          order.push(key)
+          if (key === "count") return item + 1
+          if (key === "") return { parsed: item }
+          return item
+        })
+        return { parsed, order }
+      `),
+    ).toEqual({ parsed: { parsed: { item: { count: 3 } } }, order: ["count", "item", ""] })
+    expect(await value(`return JSON.parse("1", (key, value) => undefined) === undefined`)).toBe(true)
+  })
+
+  test("parse reviver deletion removes properties and creates array holes", async () => {
+    expect(
+      await value(`
+        const parsed = JSON.parse('{"keep":1,"drop":2,"items":[1,2,3]}', (key, item) =>
+          key === "drop" || key === "1" ? undefined : item
+        )
+        return { json: JSON.stringify(parsed), hasSecond: 1 in parsed.items, length: parsed.items.length }
+      `),
+    ).toEqual({ json: '{"keep":1,"items":[1,null,3]}', hasSecond: false, length: 3 })
+  })
+
+  test("stringify function replacers run root-first and apply JSON deletion rules", async () => {
+    expect(
+      await value(`
+        const order = []
+        const json = JSON.stringify({ keep: 1, drop: 2, items: [1, 2] }, (key, item) => {
+          order.push(key)
+          if (key === "drop" || key === "1") return undefined
+          return item
+        })
+        return { json, order }
+      `),
+    ).toEqual({ json: '{"keep":1,"items":[1,null]}', order: ["", "keep", "drop", "items", "0", "1"] })
+    expect(
+      await value(`
+        return [
+          JSON.stringify(1, (key, item) => key === "" ? new Date(0) : item),
+          JSON.stringify(1, (key, item) => key === "" ? new URL("https://example.test") : item),
+        ]
+      `),
+    ).toEqual(["{}", "{}"])
+  })
+
+  test("stringify function replacers observe live mutations and sandbox values", async () => {
+    expect(
+      await value(`
+        const item = { a: 1, b: 2 }
+        const visited = []
+        const mutated = JSON.stringify(item, (key, value) => {
+          visited.push(key)
+          if (key === "a") item.b = 3
+          return value
+        })
+        const mapped = JSON.stringify(new Map([["x", 1]]), (key, value) =>
+          value instanceof Map ? Object.fromEntries(value) : value
+        )
+        const removed = { a: 1, b: 2 }
+        const deleted = JSON.stringify(removed, (key, value) => {
+          if (key === "a") removed.b = undefined
+          if (key === "b") visited.push(value === undefined ? "missing" : "present")
+          return value
+        })
+        return { mutated, mapped, deleted, visited }
+      `),
+    ).toEqual({
+      mutated: '{"a":1,"b":3}',
+      mapped: '{"x":1}',
+      deleted: '{"a":1}',
+      visited: ["", "a", "b", "missing"],
+    })
+  })
+
+  test("stringify replacer arrays coerce, dedupe, and recursively filter object keys", async () => {
+    expect(
+      await value(`
+        return JSON.stringify(
+          { 1: "one", keep: { keep: 2, drop: 3 }, drop: 4, list: [{ keep: 5, drop: 6 }] },
+          ["keep", 1, "keep", null, {}, "list"],
+        )
+      `),
+    ).toBe('{"keep":{"keep":2},"1":"one","list":[{"keep":5}]}')
+  })
+
+  test("JSON callbacks settle async tool calls sequentially", async () => {
+    const calls: Array<number> = []
+    const transform = Tool.make({
+      description: "Transform a number",
+      input: Schema.Number,
+      output: Schema.Number,
+      run: (input) =>
+        Effect.sync(() => {
+          calls.push(input)
+          return input * 10
+        }),
+    })
+    const parse = await Effect.runPromise(
+      CodeMode.execute({
+        tools: { host: { transform } },
+        code: `return JSON.parse("[1,2]", async (key, item) => key === "" ? item : await tools.host.transform(item))`,
+      }),
+    )
+    expect(parse.ok && parse.value).toEqual([10, 20])
+    const stringify = await Effect.runPromise(
+      CodeMode.execute({
+        tools: { host: { transform } },
+        code: `return JSON.stringify([1,2], async (key, item) => key === "" ? item : await tools.host.transform(item))`,
+      }),
+    )
+    expect(stringify.ok && stringify.value).toBe("[10,20]")
+    expect(calls).toEqual([1, 2, 1, 2])
+  })
+
+  test("non-callable JSON callback arguments are ignored", async () => {
+    expect(await value(`return [JSON.parse("{\\"a\\":1}", 42), JSON.stringify({ a: 1 }, { nope: true })]`)).toEqual([
+      { a: 1 },
+      '{"a":1}',
+    ])
+    expect(await value(`return [JSON.parse("1", Boolean), JSON.stringify({ a: 1 }, String)]`)).toEqual([false, '""'])
+  })
+
+  test("supported global methods work as JSON callbacks", async () => {
+    expect(
+      await value(`return [JSON.parse("[1,2]", Number.isFinite), JSON.stringify({ a: 1 }, Number.isFinite)]`),
+    ).toEqual([false, "false"])
+  })
+
+  test("stringify replacers can prune values before the depth limit", async () => {
+    expect(
+      await value(`
+        let item = 1
+        for (let index = 0; index < 33; index++) item = { x: item }
+        let calls = 0
+        return JSON.stringify(item, (key, value) => ++calls === 34 ? undefined : value)
+      `),
+    ).toBe(`${'{"x":'.repeat(32)}{}${"}".repeat(32)}`)
+  })
+
+  test("stringify omits callable replacer results", async () => {
+    expect(
+      await value(`
+        return JSON.stringify({ object: 1, array: [1] }, (key, value) =>
+          key === "object" || key === "0" ? Number.isFinite : value
+        )
+      `),
+    ).toBe('{"array":[null]}')
+  })
+})
+
 describe("Date", () => {
   test("Date.now() returns a number", async () => {
     expect(await value(`return typeof Date.now()`)).toBe("number")

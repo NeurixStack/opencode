@@ -5,6 +5,7 @@ import {
   copyIn,
   copyOut,
   isBlockedMember,
+  MAX_VALUE_DEPTH,
   ToolReference,
   ToolRuntime,
   ToolRuntimeError,
@@ -2027,6 +2028,7 @@ class Interpreter<R> {
       }
       if (callable instanceof GlobalMethodReference) {
         if (callable.namespace === "console") return self.invokeConsole(callable.name, args, node)
+        if (callable.namespace === "JSON") return yield* self.invokeJsonMethod(callable.name, args, node)
         if (callable.namespace === "Object" && args[0] instanceof ToolReference) {
           return self.invokeObjectMethodOnTools(callable.name, args[0], node)
         }
@@ -2492,6 +2494,129 @@ class Interpreter<R> {
     })
   }
 
+  private invokeJsonMethod(
+    name: string,
+    args: Array<unknown>,
+    node: AstNode,
+  ): Effect.Effect<unknown, unknown, R> {
+    const callback = args[1]
+    const callable =
+      callback instanceof CodeModeFunction ||
+      callback instanceof CoercionFunction ||
+      callback instanceof GlobalMethodReference ||
+      callback instanceof UriFunction
+    if (name === "parse" && callable) return this.parseJsonWithReviver(args, node)
+    if (name === "stringify" && (callable || Array.isArray(callback))) {
+      return this.stringifyJsonWithReplacer(args, node)
+    }
+    return Effect.sync(() => invokeJsonMethod(name, args, node))
+  }
+
+  private parseJsonWithReviver(args: Array<unknown>, node: AstNode): Effect.Effect<unknown, unknown, R> {
+    const apply = this.applySettledCollectionCallback(args[1], "JSON.parse", node)
+    const visit = (key: string, item: unknown): Effect.Effect<unknown, unknown, R> =>
+      Effect.gen(function* () {
+        if (Array.isArray(item)) {
+          for (let index = 0; index < item.length; index += 1) {
+            if (!(index in item)) continue
+            const revived = yield* visit(String(index), item[index])
+            if (revived === undefined) {
+              delete item[index]
+              continue
+            }
+            item[index] = revived
+          }
+          return yield* apply([key, item])
+        }
+        if (item !== null && typeof item === "object" && !isSandboxValue(item)) {
+          const object = item as SafeObject
+          for (const childKey of Object.keys(object)) {
+            const revived = yield* visit(childKey, object[childKey])
+            if (revived === undefined) {
+              delete object[childKey]
+              continue
+            }
+            object[childKey] = revived
+          }
+        }
+        return yield* apply([key, item])
+      })
+    return visit("", invokeJsonMethod("parse", [args[0]], node))
+  }
+
+  private stringifyJsonWithReplacer(args: Array<unknown>, node: AstNode): Effect.Effect<unknown, unknown, R> {
+    const callback = args[1]
+    const apply = Array.isArray(callback)
+      ? undefined
+      : this.applySettledCollectionCallback(callback, "JSON.stringify", node)
+    const ancestors = new Set<object>()
+    const propertyList = Array.isArray(callback)
+      ? Array.from(
+          new Set(
+            callback
+              .filter((item): item is string | number => typeof item === "string" || typeof item === "number")
+              .map(String),
+          ),
+        )
+      : undefined
+    const visit = (key: string, item: unknown, depth: number): Effect.Effect<unknown, unknown, R> =>
+      Effect.gen(function* () {
+        const resolved = yield* (() => {
+          if (apply === undefined) return Effect.succeed(item)
+          return apply([
+            key,
+            item instanceof SandboxDate || item instanceof SandboxURL
+              ? copyIn(item, "JSON.stringify value")
+              : item,
+          ])
+        })()
+        if (typeofValue(resolved) === "function") return undefined
+        if (resolved === null || typeof resolved !== "object") return resolved
+        if (isSandboxValue(resolved)) {
+          return apply === undefined
+            ? copyIn(resolved, "JSON.stringify replacer result")
+            : (Object.create(null) as SafeObject)
+        }
+        if (!Array.isArray(resolved)) {
+          const prototype = Object.getPrototypeOf(resolved)
+          if (prototype !== Object.prototype && prototype !== null) {
+            return copyIn(resolved, "JSON.stringify replacer result")
+          }
+        }
+        if (depth > MAX_VALUE_DEPTH) {
+          throw new ToolRuntimeError(
+            "InvalidDataValue",
+            `JSON.stringify replacer result exceeds the maximum value depth of ${MAX_VALUE_DEPTH}.`,
+          )
+        }
+        if (ancestors.has(resolved)) {
+          throw new ToolRuntimeError("InvalidDataValue", "JSON.stringify replacer result contains a circular value.")
+        }
+        ancestors.add(resolved)
+        return yield* Effect.gen(function* () {
+          if (Array.isArray(resolved)) {
+            const output: Array<unknown> = []
+            const length = resolved.length
+            for (let index = 0; index < length; index += 1) {
+              output[index] = yield* visit(String(index), resolved[index], depth + 1)
+            }
+            return output
+          }
+          const output: SafeObject = Object.create(null) as SafeObject
+          for (const childKey of propertyList ?? Object.keys(resolved)) {
+            if (isBlockedMember(childKey)) continue
+            if (apply === undefined && !Object.hasOwn(resolved, childKey)) continue
+            const child = yield* visit(childKey, (resolved as SafeObject)[childKey], depth + 1)
+            if (child !== undefined) output[childKey] = child
+          }
+          return output
+        }).pipe(Effect.ensuring(Effect.sync(() => ancestors.delete(resolved))))
+      })
+    return Effect.map(visit("", args[0], 0), (value) =>
+      invokeJsonMethod("stringify", [value, propertyList, args[2]], node),
+    )
+  }
+
   // Runs a collection callback accepting a user function or supported builtin callable,
   // mirroring the array-method callback contract.
   private applyCollectionCallback(
@@ -2502,6 +2627,7 @@ class Interpreter<R> {
     if (
       !(callback instanceof CodeModeFunction) &&
       !(callback instanceof CoercionFunction) &&
+      !(callback instanceof GlobalMethodReference) &&
       !(callback instanceof UriFunction)
     ) {
       throw new InterpreterRuntimeError(`${name} expects a function callback.`, node)
@@ -2509,9 +2635,23 @@ class Interpreter<R> {
     return (callbackArgs) =>
       callback instanceof CoercionFunction
         ? Effect.succeed(invokeCoercion(callback, callbackArgs, node))
-        : callback instanceof UriFunction
-          ? Effect.succeed(invokeUriFunction(callback, callbackArgs, node))
-          : this.invokeFunction(callback, callbackArgs)
+        : callback instanceof GlobalMethodReference
+          ? Effect.succeed(invokeGlobalMethod(callback, callbackArgs, node))
+          : callback instanceof UriFunction
+            ? Effect.succeed(invokeUriFunction(callback, callbackArgs, node))
+            : this.invokeFunction(callback, callbackArgs)
+  }
+
+  private applySettledCollectionCallback(
+    callback: unknown,
+    name: string,
+    node: AstNode,
+  ): (args: Array<unknown>) => Effect.Effect<unknown, unknown, R> {
+    const apply = this.applyCollectionCallback(callback, name, node)
+    return (args) =>
+      Effect.flatMap(apply(args), (value) =>
+        value instanceof SandboxPromise ? this.settlePromise(value, node) : Effect.succeed(value),
+      )
   }
 
   private invokeMapMethod(
