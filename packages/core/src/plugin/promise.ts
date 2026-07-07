@@ -79,7 +79,6 @@ export function fromPromise(plugin: Plugin) {
           integration: {
             list: (input) => run(host.integration.list(input)),
             get: (input) => run(host.integration.get(input)),
-            selectCapability: (input) => run(host.integration.selectCapability(input)),
             connectKey: (input) => run(host.integration.connectKey(input)),
             connectOauth: (input) => run(host.integration.connectOauth(input)),
             attemptStatus: (input) => run(host.integration.attemptStatus(input)),

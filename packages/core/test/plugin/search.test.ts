@@ -36,7 +36,7 @@ describe("built-in search integrations", () => {
       expect(yield* integrations.get(Integration.ID.make("test-search"))).toMatchObject({
         name: "Test Search",
         methods: [{ type: "key", label: "API key" }],
-        capabilities: [{ type: "search", connection: "required" }],
+        search: { connection: "required" },
       })
       yield* registration.dispose
       expect(yield* integrations.get(Integration.ID.make("test-search"))).toBeUndefined()
@@ -53,9 +53,9 @@ describe("built-in search integrations", () => {
         id: "exa",
         name: "Exa",
         methods: [{ type: "key" }, { type: "env", names: ["EXA_API_KEY"] }],
-        capabilities: [{ type: "search", connection: "optional", selected: false }],
+        search: { connection: "optional" },
       })
-      const provider = yield* integrations.capability.search.get(Integration.ID.make("exa"))
+      const provider = yield* integrations.search.get(Integration.ID.make("exa"))
       if (!provider) return yield* Effect.die("Expected Exa search provider")
       expect(
         yield* provider.execute(
@@ -97,7 +97,7 @@ describe("built-in search integrations", () => {
     Effect.gen(function* () {
       const integrations = yield* Integration.Service
       yield* SearchParallel.Plugin.effect(host({ integration: integrationHost(integrations) }))
-      const provider = yield* integrations.capability.search.get(Integration.ID.make("parallel"))
+      const provider = yield* integrations.search.get(Integration.ID.make("parallel"))
       if (!provider) return yield* Effect.die("Expected Parallel search provider")
 
       const output = yield* provider.execute(

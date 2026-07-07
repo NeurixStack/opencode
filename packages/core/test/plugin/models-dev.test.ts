@@ -156,7 +156,6 @@ describe("ModelsDevPlugin", () => {
                   names: ["ACME_API_KEY"],
                 },
               ],
-              capabilities: [],
               connections: [],
             }),
           ])

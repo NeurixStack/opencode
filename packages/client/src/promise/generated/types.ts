@@ -2279,11 +2279,7 @@ export type IntegrationListOutput = {
       | { readonly type: "key"; readonly label?: string }
       | { readonly type: "env"; readonly names: ReadonlyArray<string> }
     >
-    readonly capabilities: ReadonlyArray<{
-      readonly type: "search"
-      readonly connection: "optional" | "required"
-      readonly selected: boolean
-    }>
+    readonly search?: { readonly connection: "optional" | "required" }
     readonly connections: ReadonlyArray<
       | { readonly type: "credential"; readonly id: string; readonly label: string }
       | { readonly type: "env"; readonly name: string }
@@ -2336,27 +2332,13 @@ export type IntegrationGetOutput = {
       | { readonly type: "key"; readonly label?: string }
       | { readonly type: "env"; readonly names: ReadonlyArray<string> }
     >
-    readonly capabilities: ReadonlyArray<{
-      readonly type: "search"
-      readonly connection: "optional" | "required"
-      readonly selected: boolean
-    }>
+    readonly search?: { readonly connection: "optional" | "required" }
     readonly connections: ReadonlyArray<
       | { readonly type: "credential"; readonly id: string; readonly label: string }
       | { readonly type: "env"; readonly name: string }
     >
   } | null
 }
-
-export type IntegrationSelectCapabilityInput = {
-  readonly integrationID: { readonly integrationID: string }["integrationID"]
-  readonly location?: {
-    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
-  }["location"]
-  readonly capability: { readonly capability: "search" }["capability"]
-}
-
-export type IntegrationSelectCapabilityOutput = void
 
 export type IntegrationConnectKeyInput = {
   readonly integrationID: { readonly integrationID: string }["integrationID"]
@@ -6190,6 +6172,30 @@ export type VcsDiffOutput = {
 }
 
 export type DebugLocationOutput = ReadonlyArray<{ readonly directory: string; readonly workspaceID?: string }>
+
+export type SearchProviderInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type SearchProviderOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: string | null
+}
+
+export type SearchSelectProviderInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+  readonly providerID: { readonly providerID: string }["providerID"]
+}
+
+export type SearchSelectProviderOutput = void
 
 export type SearchQueryInput = {
   readonly location?: {

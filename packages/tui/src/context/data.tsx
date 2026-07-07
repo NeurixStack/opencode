@@ -41,6 +41,7 @@ type LocationData = {
   model?: ModelV2Info[]
   provider?: ProviderV2Info[]
   reference?: ReferenceInfo[]
+  searchProvider?: string | null
   // Currently running shell commands for this location, keyed by shell id. Entries are removed
   // once the command exits or is deleted, so this only ever holds in-flight shells.
   shell?: Record<string, Shell>
@@ -752,6 +753,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             result.location.provider.refresh(event.location),
           ])
           break
+        case "config.updated":
+          void result.location.search.refresh(event.location)
+          break
         // Authenticating an MCP integration reconnects its server, which emits mcp.status.changed,
         // so the mcp list refreshes here rather than off integration.updated.
         case "mcp.status.changed":
@@ -974,6 +978,16 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             setStore("location", key, { ...store.location[key], reference: mutable(result.data) })
           },
         },
+        search: {
+          provider(location?: LocationRef) {
+            return store.location[locationKey(location ?? defaultLocation())]?.searchProvider ?? undefined
+          },
+          async refresh(ref?: LocationRef) {
+            const result = await sdk.api.search.provider({ location: locationQuery(ref ?? defaultLocation()) })
+            const key = locationKey(result.location)
+            setStore("location", key, { ...store.location[key], searchProvider: result.data ?? null })
+          },
+        },
         skill: {
           list(location?: LocationRef) {
             return store.location[locationKey(location ?? defaultLocation())]?.skill
@@ -1014,6 +1028,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         result.location.model.refresh(),
         result.location.provider.refresh(),
         result.location.reference.refresh(),
+        result.location.search.refresh(),
         result.location.command.refresh(),
         result.location.skill.refresh(),
         result.shell.refresh(),

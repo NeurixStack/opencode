@@ -50,7 +50,6 @@ export function host(overrides: Overrides = {}): PluginContext {
     integration: overrides.integration ?? {
       list: () => Effect.die("unused integration.list"),
       get: () => Effect.die("unused integration.get"),
-      selectCapability: () => Effect.die("unused integration.selectCapability"),
       connectKey: () => Effect.die("unused integration.connectKey"),
       connectOauth: () => Effect.die("unused integration.connectOauth"),
       attemptStatus: () => Effect.die("unused integration.attemptStatus"),
@@ -195,7 +194,6 @@ export function integrationHost(integration: Integration.Interface): PluginConte
   return {
     list: () => Effect.die("unused integration.list"),
     get: () => Effect.die("unused integration.get"),
-    selectCapability: () => Effect.die("unused integration.selectCapability"),
     connectKey: () => Effect.die("unused integration.connectKey"),
     connectOauth: () => Effect.die("unused integration.connectOauth"),
     attemptStatus: () => Effect.die("unused integration.attemptStatus"),
@@ -257,9 +255,9 @@ function registerIntegration(draft: Integration.Draft, definition: IntegrationDe
     )
   }
   if (!definition.search) return
-  draft.capability.search.update({
+  draft.search.update({
     integrationID,
-    capability: { type: "search", connection: definition.search.connection },
+    connection: definition.search.connection,
     execute: definition.search.execute,
   })
 }

@@ -5611,10 +5611,8 @@ export type IntegrationEnvMethod = {
   names: Array<string>
 }
 
-export type IntegrationSearchCapability = {
-  type: "search"
+export type IntegrationSearch = {
   connection: "optional" | "required"
-  selected: boolean
 }
 
 export type ConnectionCredentialInfo = {
@@ -5634,7 +5632,7 @@ export type IntegrationInfo = {
   id: string
   name: string
   methods: Array<IntegrationMethod>
-  capabilities: Array<IntegrationSearchCapability>
+  search?: IntegrationSearch
   connections: Array<ConnectionInfo>
 }
 
@@ -16486,46 +16484,6 @@ export type V2IntegrationGetResponses = {
 
 export type V2IntegrationGetResponse = V2IntegrationGetResponses[keyof V2IntegrationGetResponses]
 
-export type V2IntegrationCapabilitySelectData = {
-  body: {
-    capability: "search"
-  }
-  path: {
-    integrationID: string
-  }
-  query?: {
-    location?: {
-      directory?: string | null
-      workspace?: string | null
-    } | null
-  }
-  url: "/api/integration/{integrationID}/capability"
-}
-
-export type V2IntegrationCapabilitySelectErrors = {
-  /**
-   * InvalidRequestError
-   */
-  400: InvalidRequestError1 | InvalidRequestErrorV2
-  /**
-   * UnauthorizedError
-   */
-  401: UnauthorizedError
-}
-
-export type V2IntegrationCapabilitySelectError =
-  V2IntegrationCapabilitySelectErrors[keyof V2IntegrationCapabilitySelectErrors]
-
-export type V2IntegrationCapabilitySelectResponses = {
-  /**
-   * <No Content>
-   */
-  204: void
-}
-
-export type V2IntegrationCapabilitySelectResponse =
-  V2IntegrationCapabilitySelectResponses[keyof V2IntegrationCapabilitySelectResponses]
-
 export type V2IntegrationConnectKeyData = {
   body: {
     key: string
@@ -18657,6 +18615,83 @@ export type V2DebugLocationResponses = {
 }
 
 export type V2DebugLocationResponse = V2DebugLocationResponses[keyof V2DebugLocationResponses]
+
+export type V2SearchProviderGetData = {
+  body?: never
+  path?: never
+  query?: {
+    location?: {
+      directory?: string | null
+      workspace?: string | null
+    } | null
+  }
+  url: "/api/search/provider"
+}
+
+export type V2SearchProviderGetErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestErrorV2
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2SearchProviderGetError = V2SearchProviderGetErrors[keyof V2SearchProviderGetErrors]
+
+export type V2SearchProviderGetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfoV2
+    data: string | null
+  }
+}
+
+export type V2SearchProviderGetResponse = V2SearchProviderGetResponses[keyof V2SearchProviderGetResponses]
+
+export type V2SearchProviderSelectData = {
+  body: {
+    providerID: string
+  }
+  path?: never
+  query?: {
+    location?: {
+      directory?: string | null
+      workspace?: string | null
+    } | null
+  }
+  url: "/api/search/provider"
+}
+
+export type V2SearchProviderSelectErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError1 | InvalidRequestErrorV2
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableErrorV2
+}
+
+export type V2SearchProviderSelectError = V2SearchProviderSelectErrors[keyof V2SearchProviderSelectErrors]
+
+export type V2SearchProviderSelectResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2SearchProviderSelectResponse = V2SearchProviderSelectResponses[keyof V2SearchProviderSelectResponses]
 
 export type V2SearchQueryData = {
   body: {

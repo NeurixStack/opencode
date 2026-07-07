@@ -74,6 +74,8 @@ const permission = Layer.succeed(
 const search = Layer.succeed(
   Search.Service,
   Search.Service.of({
+    selected: () => Effect.succeed(undefined),
+    select: () => Effect.die("unused"),
     query: (input) =>
       Effect.sync(() => {
         queries.push(input)

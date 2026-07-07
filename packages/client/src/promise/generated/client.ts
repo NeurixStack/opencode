@@ -75,8 +75,6 @@ import type {
   IntegrationListOutput,
   IntegrationGetInput,
   IntegrationGetOutput,
-  IntegrationSelectCapabilityInput,
-  IntegrationSelectCapabilityOutput,
   IntegrationConnectKeyInput,
   IntegrationConnectKeyOutput,
   IntegrationConnectOauthInput,
@@ -180,6 +178,10 @@ import type {
   VcsDiffInput,
   VcsDiffOutput,
   DebugLocationOutput,
+  SearchProviderInput,
+  SearchProviderOutput,
+  SearchSelectProviderInput,
+  SearchSelectProviderOutput,
   SearchQueryInput,
   SearchQueryOutput,
 } from "./types"
@@ -814,19 +816,6 @@ export function make(options: ClientOptions) {
             successStatus: 200,
             declaredStatuses: [401, 400],
             empty: false,
-          },
-          requestOptions,
-        ),
-      selectCapability: (input: IntegrationSelectCapabilityInput, requestOptions?: RequestOptions) =>
-        request<IntegrationSelectCapabilityOutput>(
-          {
-            method: "POST",
-            path: `/api/integration/${encodeURIComponent(input.integrationID)}/capability`,
-            query: { location: input["location"] },
-            body: { capability: input["capability"] },
-            successStatus: 204,
-            declaredStatuses: [400, 401],
-            empty: true,
           },
           requestOptions,
         ),
@@ -1513,6 +1502,31 @@ export function make(options: ClientOptions) {
         ),
     },
     search: {
+      provider: (input?: SearchProviderInput, requestOptions?: RequestOptions) =>
+        request<SearchProviderOutput>(
+          {
+            method: "GET",
+            path: `/api/search/provider`,
+            query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      selectProvider: (input: SearchSelectProviderInput, requestOptions?: RequestOptions) =>
+        request<SearchSelectProviderOutput>(
+          {
+            method: "POST",
+            path: `/api/search/provider`,
+            query: { location: input["location"] },
+            body: { providerID: input["providerID"] },
+            successStatus: 204,
+            declaredStatuses: [400, 503, 401],
+            empty: true,
+          },
+          requestOptions,
+        ),
       query: (input: SearchQueryInput, requestOptions?: RequestOptions) =>
         request<SearchQueryOutput>(
           {

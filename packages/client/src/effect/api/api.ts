@@ -370,77 +370,63 @@ export type Endpoint9_1Input = {
 export type Endpoint9_1Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.get"]>>
 export type IntegrationGetOperation<E = never> = (input: Endpoint9_1Input) => Effect.Effect<Endpoint9_1Output, E>
 
-type Endpoint9_2Request = Parameters<RawClient["server.integration"]["integration.capability.select"]>[0]
+type Endpoint9_2Request = Parameters<RawClient["server.integration"]["integration.connect.key"]>[0]
 export type Endpoint9_2Input = {
   readonly integrationID: Endpoint9_2Request["params"]["integrationID"]
   readonly location?: Endpoint9_2Request["query"]["location"]
-  readonly capability: Endpoint9_2Request["payload"]["capability"]
+  readonly key: Endpoint9_2Request["payload"]["key"]
+  readonly label?: Endpoint9_2Request["payload"]["label"]
 }
-export type Endpoint9_2Output = EffectValue<
-  ReturnType<RawClient["server.integration"]["integration.capability.select"]>
->
-export type IntegrationSelectCapabilityOperation<E = never> = (
-  input: Endpoint9_2Input,
-) => Effect.Effect<Endpoint9_2Output, E>
+export type Endpoint9_2Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.connect.key"]>>
+export type IntegrationConnectKeyOperation<E = never> = (input: Endpoint9_2Input) => Effect.Effect<Endpoint9_2Output, E>
 
-type Endpoint9_3Request = Parameters<RawClient["server.integration"]["integration.connect.key"]>[0]
+type Endpoint9_3Request = Parameters<RawClient["server.integration"]["integration.connect.oauth"]>[0]
 export type Endpoint9_3Input = {
   readonly integrationID: Endpoint9_3Request["params"]["integrationID"]
   readonly location?: Endpoint9_3Request["query"]["location"]
-  readonly key: Endpoint9_3Request["payload"]["key"]
+  readonly methodID: Endpoint9_3Request["payload"]["methodID"]
+  readonly inputs: Endpoint9_3Request["payload"]["inputs"]
   readonly label?: Endpoint9_3Request["payload"]["label"]
 }
-export type Endpoint9_3Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.connect.key"]>>
-export type IntegrationConnectKeyOperation<E = never> = (input: Endpoint9_3Input) => Effect.Effect<Endpoint9_3Output, E>
-
-type Endpoint9_4Request = Parameters<RawClient["server.integration"]["integration.connect.oauth"]>[0]
-export type Endpoint9_4Input = {
-  readonly integrationID: Endpoint9_4Request["params"]["integrationID"]
-  readonly location?: Endpoint9_4Request["query"]["location"]
-  readonly methodID: Endpoint9_4Request["payload"]["methodID"]
-  readonly inputs: Endpoint9_4Request["payload"]["inputs"]
-  readonly label?: Endpoint9_4Request["payload"]["label"]
-}
-export type Endpoint9_4Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.connect.oauth"]>>
+export type Endpoint9_3Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.connect.oauth"]>>
 export type IntegrationConnectOauthOperation<E = never> = (
+  input: Endpoint9_3Input,
+) => Effect.Effect<Endpoint9_3Output, E>
+
+type Endpoint9_4Request = Parameters<RawClient["server.integration"]["integration.attempt.status"]>[0]
+export type Endpoint9_4Input = {
+  readonly attemptID: Endpoint9_4Request["params"]["attemptID"]
+  readonly location?: Endpoint9_4Request["query"]["location"]
+}
+export type Endpoint9_4Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.attempt.status"]>>
+export type IntegrationAttemptStatusOperation<E = never> = (
   input: Endpoint9_4Input,
 ) => Effect.Effect<Endpoint9_4Output, E>
 
-type Endpoint9_5Request = Parameters<RawClient["server.integration"]["integration.attempt.status"]>[0]
+type Endpoint9_5Request = Parameters<RawClient["server.integration"]["integration.attempt.complete"]>[0]
 export type Endpoint9_5Input = {
   readonly attemptID: Endpoint9_5Request["params"]["attemptID"]
   readonly location?: Endpoint9_5Request["query"]["location"]
+  readonly code?: Endpoint9_5Request["payload"]["code"]
 }
-export type Endpoint9_5Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.attempt.status"]>>
-export type IntegrationAttemptStatusOperation<E = never> = (
+export type Endpoint9_5Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.attempt.complete"]>>
+export type IntegrationAttemptCompleteOperation<E = never> = (
   input: Endpoint9_5Input,
 ) => Effect.Effect<Endpoint9_5Output, E>
 
-type Endpoint9_6Request = Parameters<RawClient["server.integration"]["integration.attempt.complete"]>[0]
+type Endpoint9_6Request = Parameters<RawClient["server.integration"]["integration.attempt.cancel"]>[0]
 export type Endpoint9_6Input = {
   readonly attemptID: Endpoint9_6Request["params"]["attemptID"]
   readonly location?: Endpoint9_6Request["query"]["location"]
-  readonly code?: Endpoint9_6Request["payload"]["code"]
 }
-export type Endpoint9_6Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.attempt.complete"]>>
-export type IntegrationAttemptCompleteOperation<E = never> = (
+export type Endpoint9_6Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.attempt.cancel"]>>
+export type IntegrationAttemptCancelOperation<E = never> = (
   input: Endpoint9_6Input,
 ) => Effect.Effect<Endpoint9_6Output, E>
-
-type Endpoint9_7Request = Parameters<RawClient["server.integration"]["integration.attempt.cancel"]>[0]
-export type Endpoint9_7Input = {
-  readonly attemptID: Endpoint9_7Request["params"]["attemptID"]
-  readonly location?: Endpoint9_7Request["query"]["location"]
-}
-export type Endpoint9_7Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.attempt.cancel"]>>
-export type IntegrationAttemptCancelOperation<E = never> = (
-  input: Endpoint9_7Input,
-) => Effect.Effect<Endpoint9_7Output, E>
 
 export interface IntegrationApi<E = never> {
   readonly list: IntegrationListOperation<E>
   readonly get: IntegrationGetOperation<E>
-  readonly selectCapability: IntegrationSelectCapabilityOperation<E>
   readonly connectKey: IntegrationConnectKeyOperation<E>
   readonly connectOauth: IntegrationConnectOauthOperation<E>
   readonly attemptStatus: IntegrationAttemptStatusOperation<E>
@@ -908,20 +894,37 @@ export interface DebugApi<E = never> {
   readonly location: DebugLocationOperation<E>
 }
 
-type Endpoint26_0Request = Parameters<RawClient["server.search"]["search.query"]>[0]
-export type Endpoint26_0Input = {
-  readonly location?: Endpoint26_0Request["query"]["location"]
-  readonly query: Endpoint26_0Request["payload"]["query"]
-  readonly providerID?: Endpoint26_0Request["payload"]["providerID"]
-  readonly numResults?: Endpoint26_0Request["payload"]["numResults"]
-  readonly livecrawl?: Endpoint26_0Request["payload"]["livecrawl"]
-  readonly type?: Endpoint26_0Request["payload"]["type"]
-  readonly contextMaxCharacters?: Endpoint26_0Request["payload"]["contextMaxCharacters"]
+type Endpoint26_0Request = Parameters<RawClient["server.search"]["search.provider.get"]>[0]
+export type Endpoint26_0Input = { readonly location?: Endpoint26_0Request["query"]["location"] }
+export type Endpoint26_0Output = EffectValue<ReturnType<RawClient["server.search"]["search.provider.get"]>>
+export type SearchProviderOperation<E = never> = (input?: Endpoint26_0Input) => Effect.Effect<Endpoint26_0Output, E>
+
+type Endpoint26_1Request = Parameters<RawClient["server.search"]["search.provider.select"]>[0]
+export type Endpoint26_1Input = {
+  readonly location?: Endpoint26_1Request["query"]["location"]
+  readonly providerID: Endpoint26_1Request["payload"]["providerID"]
 }
-export type Endpoint26_0Output = EffectValue<ReturnType<RawClient["server.search"]["search.query"]>>
-export type SearchQueryOperation<E = never> = (input: Endpoint26_0Input) => Effect.Effect<Endpoint26_0Output, E>
+export type Endpoint26_1Output = EffectValue<ReturnType<RawClient["server.search"]["search.provider.select"]>>
+export type SearchSelectProviderOperation<E = never> = (
+  input: Endpoint26_1Input,
+) => Effect.Effect<Endpoint26_1Output, E>
+
+type Endpoint26_2Request = Parameters<RawClient["server.search"]["search.query"]>[0]
+export type Endpoint26_2Input = {
+  readonly location?: Endpoint26_2Request["query"]["location"]
+  readonly query: Endpoint26_2Request["payload"]["query"]
+  readonly providerID?: Endpoint26_2Request["payload"]["providerID"]
+  readonly numResults?: Endpoint26_2Request["payload"]["numResults"]
+  readonly livecrawl?: Endpoint26_2Request["payload"]["livecrawl"]
+  readonly type?: Endpoint26_2Request["payload"]["type"]
+  readonly contextMaxCharacters?: Endpoint26_2Request["payload"]["contextMaxCharacters"]
+}
+export type Endpoint26_2Output = EffectValue<ReturnType<RawClient["server.search"]["search.query"]>>
+export type SearchQueryOperation<E = never> = (input: Endpoint26_2Input) => Effect.Effect<Endpoint26_2Output, E>
 
 export interface SearchApi<E = never> {
+  readonly provider: SearchProviderOperation<E>
+  readonly selectProvider: SearchSelectProviderOperation<E>
   readonly query: SearchQueryOperation<E>
 }
 

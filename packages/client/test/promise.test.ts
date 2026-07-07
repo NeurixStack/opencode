@@ -38,14 +38,13 @@ test("exposes every standard HTTP API group", () => {
   expect(Object.keys(client.integration)).toEqual([
     "list",
     "get",
-    "selectCapability",
     "connectKey",
     "connectOauth",
     "attemptStatus",
     "attemptComplete",
     "attemptCancel",
   ])
-  expect(Object.keys(client.search)).toEqual(["query"])
+  expect(Object.keys(client.search)).toEqual(["provider", "selectProvider", "query"])
   expect(Object.keys(client.file)).toEqual(["read", "list", "find"])
   expect(Object.keys(client.vcs)).toEqual(["status", "diff"])
   expect(Object.keys(client.pty)).toEqual(["list", "create", "get", "update", "remove"])
@@ -77,6 +76,31 @@ test("search.query uses the public HTTP contract", async () => {
   expect(request?.method).toBe("POST")
   expect(request?.url).toBe("http://localhost:3000/api/search?location%5Bdirectory%5D=%2Ftmp%2Fproject")
   expect(await request?.json()).toEqual({ query: "opencode", providerID: "exa", numResults: 5 })
+})
+
+test("search provider methods use the public HTTP contract", async () => {
+  const requests: Request[] = []
+  const client = OpenCode.make({
+    baseUrl: "http://localhost:3000",
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      requests.push(request)
+      if (request.method === "POST") return new Response(null, { status: 204 })
+      return Response.json({
+        location: { directory: "/tmp/project", project: { id: "proj_test", directory: "/tmp/project" } },
+        data: "exa",
+      })
+    },
+  })
+
+  expect(await client.search.provider({ location: { directory: "/tmp/project" } })).toMatchObject({ data: "exa" })
+  await client.search.selectProvider({ providerID: "parallel", location: { directory: "/tmp/project" } })
+
+  expect(requests.map((request) => [request.method, request.url])).toEqual([
+    ["GET", "http://localhost:3000/api/search/provider?location%5Bdirectory%5D=%2Ftmp%2Fproject"],
+    ["POST", "http://localhost:3000/api/search/provider?location%5Bdirectory%5D=%2Ftmp%2Fproject"],
+  ])
+  expect(await requests[1]?.json()).toEqual({ providerID: "parallel" })
 })
 
 test("file.read returns binary content from the public HTTP contract", async () => {

@@ -165,7 +165,6 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
     integration: {
       list: () => response(integration.list()),
       get: (input) => response(integration.get(Integration.ID.make(input.integrationID))),
-      selectCapability: (input) => integration.capability.search.select(Integration.ID.make(input.integrationID)),
       connectKey: (input) =>
         integration.connection.key({
           integrationID: Integration.ID.make(input.integrationID),
@@ -343,9 +342,9 @@ function registerIntegration(draft: Integration.Draft, definition: IntegrationDe
     )
   }
   if (!definition.search) return
-  draft.capability.search.update({
+  draft.search.update({
     integrationID,
-    capability: { type: "search", connection: definition.search.connection },
+    connection: definition.search.connection,
     execute: definition.search.execute,
   })
 }

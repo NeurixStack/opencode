@@ -65,7 +65,8 @@ export function DialogIntegration(
       .map((integration) => {
         const methods = connectMethods(integration)
         const connected = integration.connections.length > 0
-        const search = integration.capabilities.find((capability) => capability.type === "search")
+        const search = integration.search
+        const selected = data.location.search.provider() === integration.id
         const credentials = credentialConnections(integration)
         const description = search?.connection === "optional" ? "API key optional" : undefined
         const category = search ? "Web search" : undefined
@@ -74,7 +75,7 @@ export function DialogIntegration(
           value: integration.id,
           description: description ?? (methods.length === 0 ? "Environment only" : undefined),
           footer:
-            [connectionSummary(integration), search?.selected ? "Web search default" : undefined]
+            [connectionSummary(integration), selected ? "Web search default" : undefined]
               .filter((value) => value !== undefined && value.length > 0)
               .join(" · ") || undefined,
           category: category ?? (integration.id in INTEGRATION_PRIORITY ? "Popular" : "Services"),
@@ -111,7 +112,7 @@ export function DialogIntegration(
 function manageIntegration(
   integration: IntegrationInfo,
   methods: ConnectMethod[],
-  search: IntegrationInfo["capabilities"][number],
+  search: NonNullable<IntegrationInfo["search"]>,
   dialog: ReturnType<typeof useDialog>,
 ) {
   const connected = integration.connections.length > 0
@@ -120,15 +121,15 @@ function manageIntegration(
     const sdk = useSDK()
     const toast = useToast()
     const credentials = credentialConnections(integration)
+    const selected = () => data.location.search.provider() === integration.id
     const selectSearch = () => {
-      void sdk.api.integration
-        .selectCapability({
-          integrationID: integration.id,
-          capability: "search",
+      void sdk.api.search
+        .selectProvider({
+          providerID: integration.id,
           location: location(data),
         })
         .then(async () => {
-          await data.location.integration.refresh()
+          await Promise.all([data.location.integration.refresh(), data.location.search.refresh()])
           toast.show({ variant: "success", message: `${integration.name} is now the web search default` })
           dialog.clear()
         })
@@ -140,9 +141,9 @@ function manageIntegration(
         title={integration.name}
         options={[
           {
-            title: search.selected ? "Web search default" : "Use for web search",
+            title: selected() ? "Web search default" : "Use for web search",
             value: "search",
-            disabled: search.selected,
+            disabled: selected(),
             onSelect:
               search.connection === "required" && !connected
                 ? () => selectMethod(integration, methods, dialog, selectSearch)

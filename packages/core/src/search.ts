@@ -1,10 +1,16 @@
 export * as Search from "./search"
 
 import { Search } from "@opencode-ai/schema/search"
-import { Context, Effect, Layer, Schema, Semaphore } from "effect"
+import { Config as ConfigSchema } from "@opencode-ai/schema/config"
+import { Context, Effect, Layer, Schema, Semaphore, Stream } from "effect"
+import path from "node:path"
 import { Config } from "./config"
+import { ConfigGlobal } from "./config/global"
+import { ConfigSearch } from "./config/search"
 import { makeLocationNode } from "./effect/app-node"
+import { EventV2 } from "./event"
 import { Form } from "./form"
+import { Global } from "./global"
 import { Integration } from "./integration"
 import { truthy } from "./flag/flag"
 
@@ -50,6 +56,8 @@ export interface QueryInput extends Input {
 }
 
 export interface Interface {
+  readonly selected: () => Effect.Effect<Integration.ID | undefined>
+  readonly select: (providerID: Integration.ID) => Effect.Effect<void, ProviderNotFoundError>
   readonly query: (input: QueryInput) => Effect.Effect<Result, Error>
 }
 
@@ -59,10 +67,14 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
+    const configGlobal = yield* ConfigGlobal.Service
+    const events = yield* EventV2.Service
     const forms = yield* Form.Service
+    const global = yield* Global.Service
     const integrations = yield* Integration.Service
     const onboarding = Semaphore.makeUnsafe(1)
     const decodeOutput = Schema.decodeUnknownEffect(ProviderOutput)
+    let pending: Integration.ID | undefined
 
     const requireProvider = (
       providers: Map<Integration.ID, Integration.SearchImplementation>,
@@ -85,6 +97,39 @@ const layer = Layer.effect(
         return Integration.ID.make("exa")
       }
     })
+
+    const globalProvider = Effect.fn("Search.globalProvider")(function* () {
+      const entries = (yield* config.entries()).filter(
+        (entry) => entry.type === "document" && entry.path && path.dirname(entry.path) === path.resolve(global.config),
+      )
+      return Config.latest(entries, "search")?.provider
+    })
+
+    const selected = Effect.fn("Search.selected")(function* () {
+      return pending ?? (yield* globalProvider())
+    })
+
+    const save = Effect.fn("Search.save")(function* (providerID: Integration.ID) {
+      pending = providerID
+      yield* configGlobal.update(["search"], new ConfigSearch.Info({ provider: providerID })).pipe(
+        Effect.tapError(() => Effect.sync(() => (pending = undefined))),
+        Effect.orDie,
+      )
+    })
+
+    yield* events.subscribe(ConfigSchema.Event.Updated).pipe(
+      Stream.runForEach(() =>
+        globalProvider().pipe(
+          Effect.tap((providerID) =>
+            Effect.sync(() => {
+              if (providerID === pending) pending = undefined
+            }),
+          ),
+          Effect.ignore,
+        ),
+      ),
+      Effect.forkScoped,
+    )
 
     const ask = Effect.fn("Search.ask")(function* (
       providers: Map<Integration.ID, Integration.SearchImplementation>,
@@ -110,8 +155,7 @@ const layer = Layer.effect(
                 .flatMap((provider) => {
                   const info = infos.get(provider.integrationID)
                   if (!info) return []
-                  const disconnected =
-                    provider.capability.connection === "optional" ? "Keyless available" : "Connection required"
+                  const disconnected = provider.connection === "optional" ? "Keyless available" : "Connection required"
                   return [{ info, description: info.connections.length ? "Connected" : disconnected }]
                 })
                 .toSorted((a, b) => a.info.name.localeCompare(b.info.name))
@@ -135,7 +179,7 @@ const layer = Layer.effect(
       sessionID?: string,
     ) {
       const active = yield* integrations.connection.active(provider.integrationID)
-      if (active || provider.capability.connection === "optional") return active
+      if (active || provider.connection === "optional") return active
       if (!sessionID) return yield* new ConnectionRequiredError({ providerID: provider.integrationID })
       const state = yield* forms
         .ask({
@@ -152,34 +196,40 @@ const layer = Layer.effect(
       return connected
     })
 
-    const select = Effect.fn("Search.select")(function* (input: QueryInput) {
+    const resolve = Effect.fn("Search.resolve")(function* (input: QueryInput) {
       const providers = new Map(
-        (yield* integrations.capability.search.list()).map((provider) => [provider.integrationID, provider]),
+        (yield* integrations.search.list()).map((provider) => [provider.integrationID, provider]),
       )
       if (input.providerID) return yield* requireProvider(providers, input.providerID)
       const override = yield* configuredProvider()
       if (override) return yield* requireProvider(providers, override)
-      const selected = yield* integrations.capability.search.selected()
-      const provider = selected ? providers.get(selected) : undefined
+      const providerID = yield* selected()
+      const provider = providerID ? providers.get(providerID) : undefined
       if (provider) return provider
       const sessionID = input.sessionID
       if (!sessionID) return yield* new ProviderRequiredError()
       return yield* onboarding.withPermit(
         Effect.gen(function* () {
-          const current = yield* integrations.capability.search.selected()
-          const selected = current ? providers.get(current) : undefined
-          if (selected) return selected
+          const current = yield* selected()
+          const selectedProvider = current ? providers.get(current) : undefined
+          if (selectedProvider) return selectedProvider
           const provider = yield* ask(providers, sessionID)
           yield* connect(provider, sessionID)
-          yield* integrations.capability.search.select(provider.integrationID)
+          yield* save(provider.integrationID)
           return provider
         }),
       )
     })
 
     return Service.of({
+      selected,
+      select: Effect.fn("Search.select")(function* (providerID) {
+        const provider = yield* integrations.search.get(providerID)
+        if (!provider) return yield* new ProviderNotFoundError({ providerID })
+        yield* save(providerID)
+      }),
       query: Effect.fn("Search.query")(function* (input) {
-        const provider = yield* select(input)
+        const provider = yield* resolve(input)
         const connection = yield* connect(provider, input.sessionID)
         const credential = connection
           ? yield* integrations.connection
@@ -196,4 +246,8 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [Config.node, Form.node, Integration.node] })
+export const node = makeLocationNode({
+  service: Service,
+  layer,
+  deps: [Config.node, ConfigGlobal.node, EventV2.node, Form.node, Global.node, Integration.node],
+})

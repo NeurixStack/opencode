@@ -64,7 +64,8 @@ export const groupNames = {
 export const endpointNames = {
   "session.messages": "list",
   "integration.connect.key": "connectKey",
-  "integration.capability.select": "selectCapability",
+  "search.provider.get": "provider",
+  "search.provider.select": "selectProvider",
   "integration.connect.oauth": "connectOauth",
   "integration.attempt.status": "attemptStatus",
   "integration.attempt.complete": "attemptComplete",

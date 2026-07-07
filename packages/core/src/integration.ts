@@ -1,7 +1,6 @@
 export * as Integration from "./integration"
 
 import { makeLocationNode } from "./effect/app-node"
-import { eq } from "drizzle-orm"
 import {
   Cause,
   Clock,
@@ -19,11 +18,9 @@ import {
 import { Integration } from "@opencode-ai/schema/integration"
 import { Search } from "@opencode-ai/schema/search"
 import { Credential } from "./credential"
-import { Database } from "./database/database"
 import { State } from "./state"
 import { EventV2 } from "./event"
 import { IntegrationConnection } from "./integration/connection"
-import { IntegrationCapabilityTable } from "./integration/sql"
 
 export const ID = Integration.ID
 export type ID = Integration.ID
@@ -64,12 +61,6 @@ export type Info = Integration.Info
 export const Inputs = Integration.Inputs
 export type Inputs = Integration.Inputs
 
-export const SearchCapability = Integration.SearchCapability
-export type SearchCapability = Omit<Integration.SearchCapability, "selected">
-
-export const Capability = Integration.Capability
-export type Capability = Integration.Capability
-
 export type OAuthAuthorization = {
   readonly url: string
   readonly instructions: string
@@ -106,7 +97,7 @@ export type Implementation = OAuthImplementation | KeyImplementation | EnvImplem
 
 export interface SearchImplementation {
   readonly integrationID: ID
-  readonly capability: SearchCapability
+  readonly connection: Integration.Search["connection"]
   readonly execute: (
     input: Search.Input,
     context: { readonly credential?: Credential.Value; readonly sessionID?: string },
@@ -155,12 +146,10 @@ export type Draft = {
     update: (implementation: Implementation) => void
     remove: (integrationID: ID, method: Method) => void
   }
-  capability: {
-    search: {
-      list: () => readonly SearchImplementation[]
-      update: (implementation: SearchImplementation) => void
-      remove: (integrationID: ID) => void
-    }
+  search: {
+    list: () => readonly SearchImplementation[]
+    update: (implementation: SearchImplementation) => void
+    remove: (integrationID: ID) => void
   }
 }
 
@@ -218,13 +207,9 @@ export interface Interface extends State.Transformable<Draft> {
     /** Cancels an attempt and releases its resources. */
     readonly cancel: (attemptID: AttemptID) => Effect.Effect<void>
   }
-  readonly capability: {
-    readonly search: {
-      readonly list: () => Effect.Effect<readonly SearchImplementation[]>
-      readonly get: (integrationID: ID) => Effect.Effect<SearchImplementation | undefined>
-      readonly selected: () => Effect.Effect<ID | undefined>
-      readonly select: (integrationID: ID) => Effect.Effect<void>
-    }
+  readonly search: {
+    readonly list: () => Effect.Effect<readonly SearchImplementation[]>
+    readonly get: (integrationID: ID) => Effect.Effect<SearchImplementation | undefined>
   }
 }
 
@@ -257,7 +242,6 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const credentials = yield* Credential.Service
-    const { db } = yield* Database.Service
     const events = yield* EventV2.Service
     const scope = yield* Scope.Scope
     const attempts = SynchronizedRef.makeUnsafe(new Map<AttemptID, AttemptEntry>())
@@ -317,30 +301,28 @@ const layer = Layer.effect(
             if (method.type === "oauth") current.implementations.delete(method.id)
           },
         },
-        capability: {
-          search: {
-            list: () =>
-              Array.from(draft.integrations.values()).flatMap((entry) =>
-                entry.search ? [entry.search as SearchImplementation] : [],
-              ),
-            update: (implementation) => {
-              const current = draft.integrations.get(implementation.integrationID) ?? {
-                ref: {
-                  id: implementation.integrationID,
-                  name: implementation.integrationID,
-                },
-                methods: [],
-                implementations: new Map<MethodID, Types.DeepMutable<OAuthImplementation>>(),
-              }
-              if (!draft.integrations.has(implementation.integrationID)) {
-                draft.integrations.set(implementation.integrationID, current)
-              }
-              current.search = implementation as Types.DeepMutable<SearchImplementation>
-            },
-            remove: (integrationID) => {
-              const current = draft.integrations.get(integrationID)
-              if (current) delete current.search
-            },
+        search: {
+          list: () =>
+            Array.from(draft.integrations.values()).flatMap((entry) =>
+              entry.search ? [entry.search as SearchImplementation] : [],
+            ),
+          update: (implementation) => {
+            const current = draft.integrations.get(implementation.integrationID) ?? {
+              ref: {
+                id: implementation.integrationID,
+                name: implementation.integrationID,
+              },
+              methods: [],
+              implementations: new Map<MethodID, Types.DeepMutable<OAuthImplementation>>(),
+            }
+            if (!draft.integrations.has(implementation.integrationID)) {
+              draft.integrations.set(implementation.integrationID, current)
+            }
+            current.search = implementation as Types.DeepMutable<SearchImplementation>
+          },
+          remove: (integrationID) => {
+            const current = draft.integrations.get(integrationID)
+            if (current) delete current.search
           },
         },
       }),
@@ -362,23 +344,14 @@ const layer = Layer.effect(
       return [...credentials, ...env]
     }
 
-    const project = (entry: Entry, connections: IntegrationConnection.Info[], selectedSearch: ID | undefined) =>
+    const project = (entry: Entry, connections: IntegrationConnection.Info[]) =>
       new Info({
         id: entry.ref.id,
         name: entry.ref.name,
         methods: entry.methods,
-        capabilities: entry.search ? [{ ...entry.search.capability, selected: entry.ref.id === selectedSearch }] : [],
+        search: entry.search ? { connection: entry.search.connection } : undefined,
         connections,
       })
-
-    const selectedSearch = Effect.fn("Integration.capability.search.selected")(function* () {
-      return (yield* db
-        .select({ integrationID: IntegrationCapabilityTable.integration_id })
-        .from(IntegrationCapabilityTable)
-        .where(eq(IntegrationCapabilityTable.capability, "search"))
-        .get()
-        .pipe(Effect.orDie))?.integrationID
-    })
 
     const authorize = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       effect.pipe(Effect.mapError((cause) => new AuthorizationError({ cause })))
@@ -441,13 +414,12 @@ const layer = Layer.effect(
       get: Effect.fn("Integration.get")(function* (id) {
         const entry = state.get().integrations.get(id)
         if (!entry) return undefined
-        return project(entry, resolveConnections(entry, yield* credentials.list(id)), yield* selectedSearch())
+        return project(entry, resolveConnections(entry, yield* credentials.list(id)))
       }),
       list: Effect.fn("Integration.list")(function* () {
         const saved = Map.groupBy(yield* credentials.all(), (credential) => credential.integrationID)
-        const selected = yield* selectedSearch()
         return Array.from(state.get().integrations.values(), (entry) =>
-          project(entry, resolveConnections(entry, saved.get(entry.ref.id) ?? []), selected),
+          project(entry, resolveConnections(entry, saved.get(entry.ref.id) ?? [])),
         ).toSorted((a, b) => a.name.localeCompare(b.name))
       }),
       connection: {
@@ -587,36 +559,18 @@ const layer = Layer.effect(
           if (attempt) yield* Scope.close(attempt.scope, Exit.void)
         }),
       },
-      capability: {
-        search: {
-          list: Effect.fn("Integration.capability.search.list")(function* () {
-            return Array.from(state.get().integrations.values()).flatMap((entry) =>
-              entry.search ? [entry.search as SearchImplementation] : [],
-            )
-          }),
-          get: Effect.fn("Integration.capability.search.get")(function* (integrationID) {
-            return state.get().integrations.get(integrationID)?.search as SearchImplementation | undefined
-          }),
-          selected: selectedSearch,
-          select: Effect.fn("Integration.capability.search.select")(function* (integrationID) {
-            if (!state.get().integrations.get(integrationID)?.search) {
-              return yield* Effect.die(new Error(`Search capability not found: ${integrationID}`))
-            }
-            yield* db
-              .insert(IntegrationCapabilityTable)
-              .values({ capability: "search", integration_id: integrationID })
-              .onConflictDoUpdate({
-                target: IntegrationCapabilityTable.capability,
-                set: { integration_id: integrationID },
-              })
-              .run()
-              .pipe(Effect.orDie)
-            yield* events.publish(Event.Updated, {})
-          }),
-        },
+      search: {
+        list: Effect.fn("Integration.search.list")(function* () {
+          return Array.from(state.get().integrations.values()).flatMap((entry) =>
+            entry.search ? [entry.search as SearchImplementation] : [],
+          )
+        }),
+        get: Effect.fn("Integration.search.get")(function* (integrationID) {
+          return state.get().integrations.get(integrationID)?.search as SearchImplementation | undefined
+        }),
       },
     })
   }),
 )
 
-export const node = makeLocationNode({ service: Service, layer, deps: [Credential.node, Database.node, EventV2.node] })
+export const node = makeLocationNode({ service: Service, layer, deps: [Credential.node, EventV2.node] })

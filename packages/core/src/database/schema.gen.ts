@@ -88,14 +88,6 @@ export default {
         );
       `)
       yield* tx.run(`
-        CREATE TABLE \`integration_capability\` (
-          \`capability\` text PRIMARY KEY,
-          \`integration_id\` text NOT NULL,
-          \`time_created\` integer NOT NULL,
-          \`time_updated\` integer NOT NULL
-        );
-      `)
-      yield* tx.run(`
         CREATE TABLE \`permission\` (
           \`id\` text PRIMARY KEY,
           \`project_id\` text NOT NULL,

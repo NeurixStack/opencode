@@ -120,7 +120,7 @@ describe("fromPromise", () => {
         name: "Promise Search",
         methods: [{ type: "env", names: ["PROMISE_SEARCH_KEY"] }],
       })
-      const provider = yield* integrations.capability.search.get(Integration.ID.make("promise-search"))
+      const provider = yield* integrations.search.get(Integration.ID.make("promise-search"))
       if (!provider) return yield* Effect.die("Expected promise search provider")
       expect(yield* provider.execute({ query: "effect" }, {})).toEqual({ text: "promise: effect" })
     }),

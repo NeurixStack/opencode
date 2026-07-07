@@ -4,6 +4,7 @@ import { describe, expect } from "bun:test"
 import { Effect, Fiber, Layer, PubSub, Schema, Stream } from "effect"
 import { FastCheck } from "effect/testing"
 import { Config } from "@opencode-ai/core/config"
+import { ConfigGlobal } from "@opencode-ai/core/config/global"
 import { ConfigModel } from "@opencode-ai/core/config/model"
 import { Config as ConfigSchema } from "@opencode-ai/schema/config"
 import { ConfigProvider } from "@opencode-ai/core/config/provider"
@@ -22,6 +23,7 @@ import { AbsolutePath } from "@opencode-ai/core/schema"
 import { location } from "../fixture/location"
 import { tmpdir } from "../fixture/tmpdir"
 import { testEffect } from "../lib/effect"
+import { parse } from "jsonc-parser"
 
 const it = testEffect(Layer.empty)
 const selection = Schema.decodeUnknownSync(ConfigModel.Selection)
@@ -58,6 +60,37 @@ const provider = {
 }
 
 describe("Config", () => {
+  it.live("updates the global JSONC config without removing comments", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const global = path.join(tmp.path, "global")
+          const file = path.join(global, "opencode.jsonc")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(global, { recursive: true })
+            await fs.writeFile(file, `// user config\n{\n  "username": "tester"\n}\n`)
+          })
+
+          const config = yield* ConfigGlobal.Service
+          yield* config.update(["search"], { provider: "exa" })
+
+          const text = yield* Effect.promise(() => Bun.file(file).text())
+          expect(text).toContain("// user config")
+          expect(parse(text)).toEqual({ username: "tester", search: { provider: "exa" } })
+        }).pipe(
+          Effect.provide(
+            AppNodeBuilder.build(LayerNode.group([ConfigGlobal.node]), [
+              [Global.node, Global.layerWith({ config: path.join(tmp.path, "global") })],
+            ]),
+          ),
+        ),
+      ),
+    ),
+  )
+
   it.live("reloads external config and publishes directory updates", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),

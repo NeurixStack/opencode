@@ -38,23 +38,6 @@ export const IntegrationGroup = HttpApiGroup.make("server.integration")
       ),
   )
   .add(
-    HttpApiEndpoint.post("integration.capability.select", "/api/integration/:integrationID/capability", {
-      params: { integrationID: Integration.ID },
-      query: LocationQuery,
-      payload: Schema.Struct({ capability: Schema.Literal("search") }),
-      success: HttpApiSchema.NoContent,
-      error: InvalidRequestError,
-    })
-      .annotateMerge(locationQueryOpenApi)
-      .annotateMerge(
-        OpenApi.annotations({
-          identifier: "v2.integration.capability.select",
-          summary: "Select integration capability",
-          description: "Set the default integration for a capability.",
-        }),
-      ),
-  )
-  .add(
     HttpApiEndpoint.post("integration.connect.key", "/api/integration/:integrationID/connect/key", {
       params: { integrationID: Integration.ID },
       query: LocationQuery,

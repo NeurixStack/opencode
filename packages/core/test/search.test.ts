@@ -1,22 +1,34 @@
 import { beforeEach, describe, expect } from "bun:test"
 import { Effect, Exit, Fiber, Layer, Scope } from "effect"
+import path from "node:path"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Config } from "@opencode-ai/core/config"
+import { ConfigGlobal } from "@opencode-ai/core/config/global"
 import { ConfigSearch } from "@opencode-ai/core/config/search"
 import { Credential } from "@opencode-ai/core/credential"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Form } from "@opencode-ai/core/form"
+import { Global } from "@opencode-ai/core/global"
 import { Integration } from "@opencode-ai/core/integration"
 import { Search } from "@opencode-ai/core/search"
 import { testEffect } from "./lib/effect"
 
 let entries: Config.Entry[] = []
+const writes: { path: readonly (string | number)[]; value: unknown }[] = []
 const config = Layer.succeed(Config.Service, Config.Service.of({ entries: () => Effect.succeed(entries) }))
+const configGlobal = Layer.succeed(
+  ConfigGlobal.Service,
+  ConfigGlobal.Service.of({ update: (path, value) => Effect.sync(() => writes.push({ path, value })) }),
+)
 const it = testEffect(
-  AppNodeBuilder.build(LayerNode.group([Search.node, Integration.node, Credential.node, EventV2.node, Form.node]), [
-    [Config.node, config],
-  ]),
+  AppNodeBuilder.build(
+    LayerNode.group([Search.node, Integration.node, Credential.node, EventV2.node, Form.node, ConfigGlobal.node]),
+    [
+      [Config.node, config],
+      [ConfigGlobal.node, configGlobal],
+    ],
+  ),
 )
 
 const register = (id: string, connection: "optional" | "required" = "optional") =>
@@ -26,9 +38,9 @@ const register = (id: string, connection: "optional" | "required" = "optional") 
     const calls: { input: Search.Input; credential?: Credential.Value; sessionID?: string }[] = []
     yield* integrations.transform((draft) => {
       draft.update(integrationID, (integration) => (integration.name = id.toUpperCase()))
-      draft.capability.search.update({
+      draft.search.update({
         integrationID,
-        capability: { type: "search", connection },
+        connection,
         execute: (input, context) =>
           Effect.sync(() => {
             calls.push({ input, ...context })
@@ -41,6 +53,7 @@ const register = (id: string, connection: "optional" | "required" = "optional") 
 
 beforeEach(() => {
   entries = []
+  writes.length = 0
 })
 
 describe("Search", () => {
@@ -48,7 +61,6 @@ describe("Search", () => {
     Effect.gen(function* () {
       const provider = yield* register("exa")
       const search = yield* Search.Service
-      const integrations = yield* Integration.Service
 
       expect(yield* search.query({ query: "effect", providerID: provider.integrationID })).toEqual(
         new Search.Result({
@@ -57,7 +69,7 @@ describe("Search", () => {
           metadata: { id: "exa" },
         }),
       )
-      expect(yield* integrations.capability.search.selected()).toBeUndefined()
+      expect(yield* search.selected()).toBeUndefined()
       expect(provider.calls).toEqual([
         {
           input: { query: "effect", providerID: provider.integrationID },
@@ -68,18 +80,33 @@ describe("Search", () => {
     }),
   )
 
-  it.effect("uses the persisted integration capability selection", () =>
+  it.effect("uses and persists the global provider selection", () =>
     Effect.gen(function* () {
       yield* register("exa")
       const parallel = yield* register("parallel")
-      const integrations = yield* Integration.Service
       const search = yield* Search.Service
-      yield* integrations.capability.search.select(parallel.integrationID)
+      yield* search.select(parallel.integrationID)
 
       expect((yield* search.query({ query: "layers" })).providerID).toBe(parallel.integrationID)
-      expect((yield* integrations.get(parallel.integrationID))?.capabilities).toEqual([
-        { type: "search", connection: "optional", selected: true },
-      ])
+      expect(yield* search.selected()).toBe(parallel.integrationID)
+      expect(writes).toEqual([{ path: ["search"], value: new ConfigSearch.Info({ provider: parallel.integrationID }) }])
+    }),
+  )
+
+  it.effect("reads the selected provider from global config", () =>
+    Effect.gen(function* () {
+      const provider = yield* register("exa")
+      const search = yield* Search.Service
+      entries = [
+        new Config.Document({
+          type: "document",
+          path: path.join(Global.Path.config, "opencode.json"),
+          info: new Config.Info({ search: new ConfigSearch.Info({ provider: provider.integrationID }) }),
+        }),
+      ]
+
+      expect(yield* search.selected()).toBe(provider.integrationID)
+      expect((yield* search.query({ query: "configured" })).providerID).toBe(provider.integrationID)
     }),
   )
 
@@ -87,9 +114,8 @@ describe("Search", () => {
     Effect.gen(function* () {
       const exa = yield* register("exa")
       const parallel = yield* register("parallel")
-      const integrations = yield* Integration.Service
       const search = yield* Search.Service
-      yield* integrations.capability.search.select(exa.integrationID)
+      yield* search.select(exa.integrationID)
       entries = [
         new Config.Document({
           type: "document",
@@ -106,7 +132,6 @@ describe("Search", () => {
       const provider = yield* register("exa")
       const search = yield* Search.Service
       const forms = yield* Form.Service
-      const integrations = yield* Integration.Service
       const first = yield* search.query({ query: "one", sessionID: "ses_search" }).pipe(Effect.forkChild)
       const second = yield* search.query({ query: "two", sessionID: "ses_search" }).pipe(Effect.forkChild)
       yield* Effect.yieldNow
@@ -119,7 +144,7 @@ describe("Search", () => {
 
       expect((yield* Fiber.join(first)).providerID).toBe(provider.integrationID)
       expect((yield* Fiber.join(second)).providerID).toBe(provider.integrationID)
-      expect(yield* integrations.capability.search.selected()).toBe(provider.integrationID)
+      expect(yield* search.selected()).toBe(provider.integrationID)
     }),
   )
 
@@ -140,9 +165,9 @@ describe("Search", () => {
       const integrations = yield* Integration.Service
       const scope = yield* Scope.fork(yield* Scope.Scope)
       const provider = yield* register("temporary").pipe(Scope.provide(scope))
-      expect(yield* integrations.capability.search.get(provider.integrationID)).toBeDefined()
+      expect(yield* integrations.search.get(provider.integrationID)).toBeDefined()
       yield* Scope.close(scope, Exit.void)
-      expect(yield* integrations.capability.search.get(provider.integrationID)).toBeUndefined()
+      expect(yield* integrations.search.get(provider.integrationID)).toBeUndefined()
     }),
   )
 })

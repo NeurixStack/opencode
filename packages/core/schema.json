@@ -37,10 +37,6 @@
       "entityType": "tables"
     },
     {
-      "name": "integration_capability",
-      "entityType": "tables"
-    },
-    {
       "name": "permission",
       "entityType": "tables"
     },
@@ -557,46 +553,6 @@
       "name": "data",
       "entityType": "columns",
       "table": "event"
-    },
-    {
-      "type": "text",
-      "notNull": false,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "capability",
-      "entityType": "columns",
-      "table": "integration_capability"
-    },
-    {
-      "type": "text",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "integration_id",
-      "entityType": "columns",
-      "table": "integration_capability"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_created",
-      "entityType": "columns",
-      "table": "integration_capability"
-    },
-    {
-      "type": "integer",
-      "notNull": true,
-      "autoincrement": false,
-      "default": null,
-      "generated": null,
-      "name": "time_updated",
-      "entityType": "columns",
-      "table": "integration_capability"
     },
     {
       "type": "text",
@@ -1847,13 +1803,6 @@
       "nameExplicit": false,
       "name": "event_pk",
       "table": "event",
-      "entityType": "pks"
-    },
-    {
-      "columns": ["capability"],
-      "nameExplicit": false,
-      "name": "integration_capability_pk",
-      "table": "integration_capability",
       "entityType": "pks"
     },
     {

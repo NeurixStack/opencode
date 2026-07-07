@@ -37,7 +37,7 @@ import type {
 } from "@opencode-ai/sdk/v2"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
-import { selectedWebSearchProvider, webSearchProviderLabel } from "../../util/tool-display"
+import { webSearchProviderLabel } from "../../util/tool-display"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import { useSDK } from "../../context/sdk"
 import { useEditorContext } from "../../context/editor"
@@ -2346,12 +2346,10 @@ function WebFetch(props: ToolProps) {
 
 function WebSearch(props: ToolProps) {
   const data = useData()
-  const [provider, setProvider] = createSignal(
-    selectedWebSearchProvider(data.location.integration.list() ?? []) ?? stringValue(props.metadata.provider),
-  )
+  const [provider, setProvider] = createSignal(data.location.search.provider() ?? stringValue(props.metadata.provider))
   createEffect(() => {
     if (provider()) return
-    const next = selectedWebSearchProvider(data.location.integration.list() ?? [])
+    const next = data.location.search.provider()
     if (next) setProvider(next)
   })
   return (

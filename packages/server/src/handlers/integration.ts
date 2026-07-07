@@ -34,21 +34,6 @@ export const IntegrationHandler = HttpApiBuilder.group(Api, "server.integration"
         }),
       )
       .handle(
-        "integration.capability.select",
-        Effect.fn(function* (ctx) {
-          const service = yield* Integration.Service
-          const integration = yield* service.get(ctx.params.integrationID)
-          if (!integration?.capabilities.some((capability) => capability.type === ctx.payload.capability)) {
-            return yield* new InvalidRequestError({
-              message: `Capability not found: ${ctx.payload.capability}`,
-              kind: "integration_capability_not_found",
-            })
-          }
-          yield* service.capability.search.select(ctx.params.integrationID)
-          return HttpApiSchema.NoContent.make()
-        }),
-      )
-      .handle(
         "integration.connect.key",
         Effect.fn(function* (ctx) {
           const service = yield* Integration.Service
