@@ -56,32 +56,39 @@ export const Plugin = {
     const search = yield* Search.Service
 
     yield* ctx.tool
-      .register({
-        [name]: Tool.make({
-          description,
-          input: Input,
-          output: Output,
-          toModelOutput: ({ output }) => [{ type: "text", text: output.text }],
-          execute: (input, context) =>
-            Effect.gen(function* () {
-              yield* permission.assert({
-                action: name,
-                resources: [input.query],
-                save: ["*"],
-                metadata: input,
-                sessionID: context.sessionID,
-                agent: context.agent,
-                source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
-              })
-              const result = yield* search.query({ ...input, sessionID: context.sessionID })
-              return {
-                provider: result.providerID,
-                text: result.text || NO_RESULTS,
-                metadata: result.metadata,
-              }
-            }).pipe(Effect.mapError(() => new ToolFailure({ message: `Unable to search the web for ${input.query}` }))),
-        }),
-      })
+      .transform((draft) =>
+        draft.add(
+          name,
+          Tool.make({
+            description,
+            input: Input,
+            output: Output,
+            toModelOutput: ({ output }) => [{ type: "text", text: output.text }],
+            execute: (input, context) =>
+              Effect.gen(function* () {
+                yield* permission.assert({
+                  action: name,
+                  resources: [input.query],
+                  save: ["*"],
+                  metadata: input,
+                  sessionID: context.sessionID,
+                  agent: context.agent,
+                  source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
+                })
+                const result = yield* search.query({ ...input, sessionID: context.sessionID })
+                return {
+                  provider: result.providerID,
+                  text: result.text || NO_RESULTS,
+                  metadata: result.metadata,
+                }
+              }).pipe(
+                Effect.mapError(
+                  (error) => new ToolFailure({ message: `Unable to search the web for ${input.query}`, error }),
+                ),
+              ),
+          }),
+        ),
+      )
       .pipe(Effect.orDie)
   }),
 }

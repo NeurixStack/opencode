@@ -16,7 +16,9 @@
     "lint": "oxlint",
     "lint:effect-patterns": "ast-grep scan -c script/ast-grep/sgconfig.yml packages/core/src packages/server/src packages/protocol/src packages/cli/src",
     "test:lint-rules": "ast-grep test -c script/ast-grep/sgconfig.yml",
-    "typecheck": "bun turbo typecheck",
+    "typecheck": "bun turbo typecheck --concurrency=3",
+    "typecheck:profile": "bun script/profile-typecheck.ts",
+    "typecheck:profile:packages": "bun script/profile-typecheck-packages.ts",
     "upgrade-opentui": "bun run script/upgrade-opentui.ts",
     "postinstall": "bun run --cwd packages/core fix-node-pty",
     "prepare": "husky",
@@ -42,9 +44,9 @@
       "@octokit/rest": "22.0.0",
       "@hono/standard-validator": "0.2.0",
       "@hono/zod-validator": "0.4.2",
-      "@opentui/core": "0.3.4",
-      "@opentui/keymap": "0.3.4",
-      "@opentui/solid": "0.3.4",
+      "@opentui/core": "0.4.3",
+      "@opentui/keymap": "0.4.3",
+      "@opentui/solid": "0.4.3",
       "@tanstack/solid-virtual": "3.13.28",
       "@shikijs/stream": "4.2.0",
       "ulid": "3.0.1",
@@ -108,7 +110,7 @@
     "prettier": "3.6.2",
     "semver": "^7.6.0",
     "sst": "catalog:",
-    "turbo": "2.8.13"
+    "turbo": "2.10.2"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.933.0",

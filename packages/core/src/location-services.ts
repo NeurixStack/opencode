@@ -45,9 +45,9 @@ import { SessionTodo } from "./session/todo"
 import { SkillV2 } from "./skill"
 import { SkillGuidance } from "./skill/guidance"
 import { Snapshot } from "./snapshot"
-import { InstructionContext } from "./instruction-context"
-import { SystemContextBuiltIns } from "./system-context/builtins"
-import { SessionContextEntry } from "./session/context-entry"
+import { InstructionDiscovery } from "./instruction-discovery"
+import { InstructionBuiltIns } from "./instructions/builtins"
+import { InstructionEntry } from "./session/instruction-entry"
 import { SessionInstructions } from "./session/instructions"
 import { McpTool } from "./tool/mcp"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
@@ -113,8 +113,8 @@ const locationServiceNodes = [
   Pty.node,
   Shell.node,
   SkillV2.node,
-  SystemContextBuiltIns.node,
-  InstructionContext.node,
+  InstructionBuiltIns.node,
+  InstructionDiscovery.node,
   LocationMutation.node,
   FileMutation.node,
   MCP.node,
@@ -126,7 +126,7 @@ const locationServiceNodes = [
   SkillGuidance.node,
   ReferenceGuidance.node,
   SessionTodo.node,
-  SessionContextEntry.node,
+  InstructionEntry.node,
   Form.node,
   QuestionV2.node,
   Generate.node,

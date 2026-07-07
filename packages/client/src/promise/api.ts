@@ -7,6 +7,7 @@ import type {
   PluginApi as EffectPluginApi,
   ProviderApi as EffectProviderApi,
   ReferenceApi as EffectReferenceApi,
+  SearchApi as EffectSearchApi,
   SessionApi as EffectSessionApi,
   SkillApi as EffectSkillApi,
 } from "../effect/api/api.js"
@@ -18,7 +19,11 @@ type PromisifyOperation<Operation> = Operation extends (
   ? (...args: Args) => Promise<Success>
   : Operation extends (...args: infer Args) => Stream.Stream<infer Success, unknown, unknown>
     ? (...args: Args) => AsyncIterable<Success>
-    : Operation
+    : Operation extends (...args: infer _Args) => unknown
+      ? Operation
+      : Operation extends object
+        ? PromisifyApi<Operation>
+        : Operation
 
 type PromisifyApi<Api> = {
   readonly [Name in keyof Api]: PromisifyOperation<Api[Name]>
@@ -32,6 +37,7 @@ export type ModelApi = PromisifyApi<EffectModelApi<unknown>>
 export type PluginApi = PromisifyApi<EffectPluginApi<unknown>>
 export type ProviderApi = PromisifyApi<EffectProviderApi<unknown>>
 export type ReferenceApi = PromisifyApi<EffectReferenceApi<unknown>>
+export type SearchApi = PromisifyApi<EffectSearchApi<unknown>>
 export type SessionApi = PromisifyApi<EffectSessionApi<unknown>>
 export type SkillApi = PromisifyApi<EffectSkillApi<unknown>>
 

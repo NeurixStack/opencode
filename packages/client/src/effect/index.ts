@@ -14,6 +14,7 @@ export type {
   PluginApi,
   ProviderApi,
   ReferenceApi,
+  SearchApi,
   SessionApi,
   SkillApi,
 } from "./api.js"
@@ -36,11 +37,13 @@ export { Provider } from "@opencode-ai/schema/provider"
 export { Pty } from "@opencode-ai/schema/pty"
 export { Question } from "@opencode-ai/schema/question"
 export { Reference } from "@opencode-ai/schema/reference"
+export { Search } from "@opencode-ai/schema/search"
 export { AbsolutePath, RelativePath } from "@opencode-ai/schema/schema"
 export { Session } from "@opencode-ai/schema/session"
 export { SessionInput } from "@opencode-ai/schema/session-input"
 export { SessionMessage } from "@opencode-ai/schema/session-message"
 export { Skill } from "@opencode-ai/schema/skill"
 export { Prompt } from "@opencode-ai/schema/prompt"
+export { PromptInput } from "@opencode-ai/schema/prompt-input"
 export type { OpenCodeEvent } from "@opencode-ai/protocol/groups/event"
 export type OpenCodeClient = Effect.Success<ReturnType<typeof import("./generated/client").make>>
