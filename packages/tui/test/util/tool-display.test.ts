@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { toolDisplayMetadata, webSearchProviderLabel } from "../../src/util/tool-display"
+import { selectedWebSearchProvider, toolDisplayMetadata, webSearchProviderLabel } from "../../src/util/tool-display"
 
 describe("webSearchProviderLabel", () => {
   test("labels known providers", () => {
@@ -19,6 +19,25 @@ describe("webSearchProviderLabel", () => {
       expect(webSearchProviderLabel(provider)).toBe("Web Search")
     })
   }
+})
+
+describe("selectedWebSearchProvider", () => {
+  test("returns the selected search integration", () => {
+    expect(
+      selectedWebSearchProvider([
+        { id: "exa", capabilities: [{ type: "search", connection: "optional", selected: false }] },
+        { id: "parallel", capabilities: [{ type: "search", connection: "optional", selected: true }] },
+      ]),
+    ).toBe("parallel")
+  })
+
+  test("ignores unselected and unrelated capabilities", () => {
+    expect(
+      selectedWebSearchProvider([
+        { id: "exa", capabilities: [{ type: "search", connection: "optional", selected: false }] },
+      ]),
+    ).toBeUndefined()
+  })
 })
 
 describe("toolDisplayMetadata", () => {
