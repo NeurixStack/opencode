@@ -766,15 +766,15 @@ describe("Config", () => {
               settings: { apiKey: "secret" },
               models: {
                 model: {
-                  capabilities: { tools: false, input: ["text", "image"], output: ["text"] },
+                  capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
                   settings: { reasoningEffort: "high" },
                   variants: [{ id: "fast", settings: { temperature: 0.2 } }],
                 },
                 text: {
-                  capabilities: { tools: false, input: ["text"], output: ["text"] },
+                  capabilities: { tools: true, input: ["text"], output: ["text"] },
                 },
                 audio: {
-                  capabilities: { tools: false, input: ["audio"], output: ["audio"] },
+                  capabilities: { tools: true, input: ["audio"], output: ["audio"] },
                 },
               },
             })

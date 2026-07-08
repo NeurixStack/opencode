@@ -38,7 +38,7 @@ export const Capabilities = Schema.Struct({
         } = {},
       ) =>
         schema.make({
-          tools: input.tools ?? false,
+          tools: input.tools ?? true,
           input: input.input === undefined ? ["text", "image"] : [...input.input],
           output: input.output === undefined ? ["text"] : [...input.output],
         }),
