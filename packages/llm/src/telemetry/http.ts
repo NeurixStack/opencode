@@ -2,7 +2,7 @@ export * as LLMHttpTelemetry from "./http"
 
 import { Cause, Clock, Context, Effect, Exit, Option, References, Stream } from "effect"
 import { ParentSpan, type Span } from "effect/Tracer"
-import { HttpClient, HttpClientRequest } from "effect/unstable/http"
+import { HttpClient, HttpClientRequest, HttpTraceContext } from "effect/unstable/http"
 import {
   ATTR_ERROR_TYPE,
   ATTR_HTTP_REQUEST_METHOD,
@@ -40,11 +40,14 @@ const observe = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     () => Effect.void,
   )
 
-export const stream = <A, R>(request: HttpClientRequest.HttpClientRequest, source: Stream.Stream<A, LLMError, R>) =>
+export const stream = <A, R>(
+  request: HttpClientRequest.HttpClientRequest,
+  source: (request: HttpClientRequest.HttpClientRequest) => Stream.Stream<A, LLMError, R>,
+) =>
   Stream.unwrap(
     Effect.gen(function* () {
       const parent = yield* CurrentModelSpan
-      if (!parent) return source
+      if (!parent) return source(request)
       const url = URL.canParse(request.url) ? new URL(request.url) : undefined
       const port = url?.port
         ? Number(url.port)
@@ -71,12 +74,16 @@ export const stream = <A, R>(request: HttpClientRequest.HttpClientRequest, sourc
       })
       const state: State = { responseReceived: false }
       yield* Effect.addFinalizer((exit) => observe(finalize(span, state, exit)))
-      return observeStream(span, state, source)
+      return observeStream(
+        span,
+        state,
+        source(HttpClientRequest.setHeaders(request, HttpTraceContext.toHeaders(span))),
+      )
     }).pipe(
       Effect.withTracerEnabled(true),
       Effect.catchCauseIf(
         (cause) => !Cause.hasInterrupts(cause),
-        () => Effect.succeed(source),
+        () => Effect.succeed(source(request)),
       ),
     ),
   )

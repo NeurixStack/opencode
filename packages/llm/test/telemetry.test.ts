@@ -184,7 +184,8 @@ describe("GenAI telemetry", () => {
           ? span.status.endTime >= http.status.endTime
           : false,
       ).toBeTrue()
-      expect(traceparent).toBeUndefined()
+      expect(traceparent?.split("-")[1]).toBe(http?.traceId)
+      expect(traceparent?.split("-")[2]).toBe(http?.spanId)
     }),
   )
 
@@ -303,7 +304,7 @@ describe("GenAI telemetry", () => {
       yield* Effect.useSpan("ambient", () =>
         Effect.all(
           [
-            LLMHttpTelemetry.stream(HttpClientRequest.post("https://example.test/path"), Stream.empty).pipe(
+            LLMHttpTelemetry.stream(HttpClientRequest.post("https://example.test/path"), () => Stream.empty).pipe(
               Stream.runDrain,
             ),
             LLMWebSocketTelemetry.stream("wss://example.test/path", Stream.empty).pipe(Stream.runDrain),
@@ -524,7 +525,7 @@ describe("GenAI telemetry", () => {
     }),
   )
 
-  it.live("does not mutate provider request headers", () =>
+  it.live("propagates the transport span to provider requests", () =>
     Effect.acquireUseRelease(
       Effect.sync(() => {
         const received: { traceparent?: string; b3?: string } = {}
@@ -564,9 +565,10 @@ describe("GenAI telemetry", () => {
           )
 
           const http = spans.find((span) => span.attributes.get(ATTR_HTTP_REQUEST_METHOD) === "POST")
-          expect(http).toBeDefined()
-          expect(received.traceparent).toBeUndefined()
-          expect(received.b3).toBeUndefined()
+          const traceparent = received.traceparent?.split("-")
+          expect(traceparent?.[1]).toBe(http?.traceId)
+          expect(traceparent?.[2]).toBe(http?.spanId)
+          expect(received.b3).toStartWith(`${http?.traceId}-${http?.spanId}-`)
         }),
       ({ server }) => Effect.promise(() => server.stop(true)),
     ),

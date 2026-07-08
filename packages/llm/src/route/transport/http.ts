@@ -131,31 +131,32 @@ export const httpJson = <Body, Frame>(input: HttpJsonInput<Body, Frame>): HttpJs
   frames: (prepared, request, runtime) =>
     LLMHttpTelemetry.stream(
       prepared.request,
-      Stream.unwrap(
-        runtime.http.execute(prepared.request).pipe(
-          Effect.map((response) =>
-            Stream.unwrap(
-              Effect.gen(function* () {
-                const received = yield* LLMHttpTelemetry.ResponseReceived
-                if (received) yield* received(response.status)
-                const firstChunk = yield* LLMHttpTelemetry.ResponseChunkReceived
-                return prepared.framing.frame(
-                  response.stream.pipe(
-                    Stream.tap(() => firstChunk ?? Effect.void),
-                    Stream.mapError((error) =>
-                      ProviderShared.eventError(
-                        `${request.model.provider}/${request.model.route.id}`,
-                        `Failed to read ${request.model.provider}/${request.model.route.id} stream`,
-                        ProviderShared.errorText(error),
+      (providerRequest) =>
+        Stream.unwrap(
+          runtime.http.execute(providerRequest).pipe(
+            Effect.map((response) =>
+              Stream.unwrap(
+                Effect.gen(function* () {
+                  const received = yield* LLMHttpTelemetry.ResponseReceived
+                  if (received) yield* received(response.status)
+                  const firstChunk = yield* LLMHttpTelemetry.ResponseChunkReceived
+                  return prepared.framing.frame(
+                    response.stream.pipe(
+                      Stream.tap(() => firstChunk ?? Effect.void),
+                      Stream.mapError((error) =>
+                        ProviderShared.eventError(
+                          `${request.model.provider}/${request.model.route.id}`,
+                          `Failed to read ${request.model.provider}/${request.model.route.id} stream`,
+                          ProviderShared.errorText(error),
+                        ),
                       ),
                     ),
-                  ),
-                )
-              }),
+                  )
+                }),
+              ),
             ),
           ),
         ),
-      ),
     ),
 })
 
