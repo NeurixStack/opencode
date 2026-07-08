@@ -86,6 +86,7 @@ function makeRoutes<AuthError, AuthServices>(auth: Layer.Layer<ServerAuth.Config
     : AppNodeBuilder.build(applicationServices, replacements)
 
   return serviceLayer.pipe(
+    Layer.provideMerge(Observability.layer),
     Layer.flatMap((context) => {
       const services = Layer.succeedContext(context)
       const requestServices = Layer.succeedContext(Context.pick(PermissionSaved.Service, Project.Service)(context))
@@ -97,7 +98,6 @@ function makeRoutes<AuthError, AuthServices>(auth: Layer.Layer<ServerAuth.Config
         Layer.provide(authorizationLayer),
         Layer.provide(schemaErrorLayer),
         Layer.provide(auth),
-        Layer.provide(Observability.layer),
         Layer.merge(ServerObservability.httpTracingDisabled),
         HttpRouter.provideRequest(requestServices),
         Layer.provideMerge(services),

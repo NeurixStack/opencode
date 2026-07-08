@@ -12,6 +12,7 @@ import {
   ATTR_GEN_AI_TOOL_TYPE,
   ATTR_OPENCODE_ERROR_SOURCE,
   ATTR_OPENCODE_ERROR_STAGE,
+  ATTR_OPENCODE_LINK_TYPE,
   ATTR_OPENCODE_SESSION_PARENT_ID,
   ATTR_OPENCODE_SUBAGENT_AGENT_NAME,
   ATTR_OPENCODE_SUBAGENT_SESSION_ID,
@@ -86,7 +87,7 @@ export const execute = <A, E, R>(
               span.end(yield* Clock.currentTimeNanos, exit)
             }),
           )
-        const canceled = Cause.hasInterruptsOnly(exit.cause)
+        const canceled = Cause.hasInterrupts(exit.cause)
         return observe(
           Effect.gen(function* () {
             const type = canceled
@@ -120,6 +121,12 @@ export const child = (input: { readonly agent: string; readonly sessionID: strin
       )
     return {
       resume: <A, E, R>(effect: Effect.Effect<A, E, R>, background: boolean) =>
-        effect.pipe(Effect.provideService(SessionTelemetry.TraceParent, background ? null : span)),
+        effect.pipe(
+          Effect.provideService(SessionTelemetry.TraceParent, background ? null : span),
+          Effect.provideService(
+            SessionTelemetry.TraceLinks,
+            background && span ? [{ span, attributes: { [ATTR_OPENCODE_LINK_TYPE]: "subagent" } }] : [],
+          ),
+        ),
     }
   })

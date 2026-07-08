@@ -40,11 +40,11 @@ import {
 } from "./semconv"
 import { LLMError, LLMEvent, type LLMRequest, type Usage } from "./schema"
 import { RequestIssued, ResponseChunkReceived } from "./telemetry/http"
+import { CurrentModelSpan } from "./telemetry/context"
 
 export { RequestIssued, ResponseChunkReceived } from "./telemetry/http"
 
 type TelemetryState = {
-  ended: boolean
   requestIssued?: bigint
   firstChunkReceived?: bigint
   usage?: Usage
@@ -102,7 +102,7 @@ export function stream(request: LLMRequest, source: Stream.Stream<LLMEvent, LLME
         kind: "client",
         attributes,
       })
-      const state: TelemetryState = { ended: false }
+      const state: TelemetryState = {}
       yield* Effect.addFinalizer((exit) => observe(finalize(span, state, exit)))
       return observeStream({
         span,
@@ -131,10 +131,7 @@ function observeStream(input: {
     if (errorType) input.span.attribute(ATTR_ERROR_TYPE, errorType)
     return true
   }
-  return Stream.concat(
-    input.stream,
-    Stream.fromEffect(Effect.sync(() => (input.state.ended = true))).pipe(Stream.drain),
-  ).pipe(
+  return input.stream.pipe(
     Stream.onStart(
       observe(
         Effect.sync(() => {
@@ -149,9 +146,14 @@ function observeStream(input: {
           if (input.state.terminal) return
           if ("usage" in event && event.usage !== undefined) input.state.usage = event.usage
           if (LLMEvent.is.finish(event)) {
-            if (!terminate(Exit.void)) return
+            const type = event.reason === "error" ? "provider_error" : undefined
+            if (!terminate(type ? Exit.fail(new Error(type)) : Exit.void, type)) return
             const attributes = finishAttributes(event)
             for (const [key, value] of Object.entries(attributes)) input.span.attribute(key, value)
+            if (type) {
+              input.span.attribute(ATTR_OPENCODE_ERROR_SOURCE, "provider")
+              input.span.attribute(ATTR_OPENCODE_ERROR_STAGE, "response")
+            }
           }
           if (LLMEvent.is.providerError(event)) {
             const type = errorType(event)
@@ -174,20 +176,24 @@ function observeStream(input: {
         }),
       ),
     ),
-    Stream.onEnd(Effect.sync(() => (input.state.ended = true))),
     Stream.provideService(ParentSpan, input.span),
+    Stream.provideService(CurrentModelSpan, input.span),
     Stream.provideService(RequestIssued, (time) =>
-      Effect.sync(() => {
-        input.state.requestIssued ??= time
-        recordFirstChunk(input.span, input.state)
-      }),
+      observe(
+        Effect.sync(() => {
+          input.state.requestIssued ??= time
+          recordFirstChunk(input.span, input.state)
+        }),
+      ),
     ),
     Stream.provideService(
       ResponseChunkReceived,
-      Effect.gen(function* () {
-        input.state.firstChunkReceived ??= yield* Clock.currentTimeNanos
-        recordFirstChunk(input.span, input.state)
-      }),
+      observe(
+        Effect.gen(function* () {
+          input.state.firstChunkReceived ??= yield* Clock.currentTimeNanos
+          recordFirstChunk(input.span, input.state)
+        }),
+      ),
     ),
     Stream.provideService(References.TracerEnabled, false),
   )
@@ -196,13 +202,9 @@ function observeStream(input: {
 function finalize(span: Span, state: TelemetryState, scopeExit: Exit.Exit<unknown, unknown>) {
   return Effect.gen(function* () {
     if (!state.terminal) {
-      const type = state.ended
-        ? "incomplete_response"
-        : Exit.isFailure(scopeExit) && Cause.hasInterruptsOnly(scopeExit.cause)
-          ? "canceled"
-          : Exit.isFailure(scopeExit)
-            ? causeErrorType(scopeExit.cause)
-            : "incomplete_response"
+      const type = Exit.isFailure(scopeExit) && Cause.hasInterruptsOnly(scopeExit.cause)
+        ? "canceled"
+        : "incomplete_response"
       span.attribute(ATTR_ERROR_TYPE, type)
       state.terminal = Exit.fail(new Error(type))
     }

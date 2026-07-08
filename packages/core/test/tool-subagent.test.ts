@@ -1,6 +1,7 @@
 import { describe, expect } from "bun:test"
 import { DateTime, Effect, Layer, Schema, Tracer } from "effect"
 import {
+  ATTR_OPENCODE_LINK_TYPE,
   ATTR_OPENCODE_SUBAGENT_AGENT_NAME,
   ATTR_OPENCODE_SUBAGENT_SESSION_ID,
 } from "@opencode-ai/core/observability/semconv"
@@ -36,7 +37,11 @@ const childText = "child final response"
 const childModel = ModelV2.Ref.make({ id: ModelV2.ID.make("child"), providerID: ProviderV2.ID.make("test") })
 const parentModel = ModelV2.Ref.make({ id: ModelV2.ID.make("parent"), providerID: ProviderV2.ID.make("test") })
 const tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
-let resumedWith: Tracer.AnySpan | undefined
+const resumedContexts: Array<{
+  readonly sessionID: SessionV2.ID
+  readonly parent: Tracer.AnySpan | null | undefined
+  readonly links: ReadonlyArray<Tracer.SpanLink>
+}> = []
 
 const outputSessionID = (value: unknown) => Schema.decodeUnknownSync(SubagentTool.Output)(value).sessionID
 
@@ -85,7 +90,11 @@ const executionNode = makeGlobalNode({
         active: Effect.succeed(new Set()),
         resume: (sessionID) =>
           Effect.gen(function* () {
-            resumedWith = (yield* SessionTelemetry.TraceParent) ?? undefined
+            resumedContexts.push({
+              sessionID,
+              parent: yield* SessionTelemetry.TraceParent,
+              links: yield* SessionTelemetry.TraceLinks,
+            })
             return yield* complete(sessionID)
           }),
         wake: () => Effect.void,
@@ -153,6 +162,7 @@ describe("SubagentTool", () => {
           const locations = yield* LocationServiceMap.Service
           const registry = yield* ToolRegistry.Service.pipe(Effect.provide(locations.get(parent.location)))
           yield* waitForTool(registry, SubagentTool.name)
+          resumedContexts.length = 0
           expect((yield* registry.materialize({ model: testModel })).definitions.map((tool) => tool.name)).toContain(
             SubagentTool.name,
           )
@@ -218,7 +228,9 @@ describe("SubagentTool", () => {
           const span = spans.find((span) => span.name === "execute_tool subagent")
           expect(span?.attributes.get(ATTR_OPENCODE_SUBAGENT_AGENT_NAME)).toBe("reviewer")
           expect(span?.attributes.get(ATTR_OPENCODE_SUBAGENT_SESSION_ID)).toBe(child.id)
-          expect(resumedWith?.spanId).toBe(span?.spanId)
+          const resumed = resumedContexts.find((context) => context.sessionID === child.id)
+          expect(resumed?.parent?.spanId).toBe(span?.spanId)
+          expect(resumed?.links).toEqual([])
 
           const fallback = yield* settleTool(registry, {
             sessionID: parent.id,
@@ -283,7 +295,7 @@ describe("SubagentTool", () => {
           const locations = yield* LocationServiceMap.Service
           const registry = yield* ToolRegistry.Service.pipe(Effect.provide(locations.get(parent.location)))
           yield* waitForTool(registry, SubagentTool.name)
-          resumedWith = undefined
+          resumedContexts.length = 0
           const spans: Tracer.NativeSpan[] = []
           const tracer = Tracer.make({
             span(options) {
@@ -311,7 +323,14 @@ describe("SubagentTool", () => {
           expect(synthetic).toHaveLength(1)
           expect(synthetic[0]?.text).toContain(`<subagent id="${childID}" state="completed"`)
           expect(synthetic[0]?.text).toContain(childText)
-          expect(resumedWith).toBeUndefined()
+          const resumed = resumedContexts.find((context) => context.sessionID === childID)
+          expect(resumed?.parent).toBeNull()
+          const span = spans.find((span) => span.name === "execute_tool subagent")
+          expect(span).toBeDefined()
+          if (!span) return
+          expect(resumed?.links).toHaveLength(1)
+          expect(resumed?.links[0]?.span.spanId).toBe(span.spanId)
+          expect(resumed?.links[0]?.attributes[ATTR_OPENCODE_LINK_TYPE]).toBe("subagent")
         }),
       ),
     ),

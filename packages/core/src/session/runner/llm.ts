@@ -12,7 +12,7 @@ import {
 } from "@opencode-ai/llm"
 import { SessionError } from "@opencode-ai/schema/session-error"
 import { Money } from "@opencode-ai/schema/money"
-import { Cause, Effect, Exit, Fiber, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
+import { Cause, Effect, Exit, Fiber, FiberSet, Layer, Option, References, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
 import { Config } from "../../config"
 import { Database } from "../../database/database"
@@ -337,6 +337,7 @@ const layer = Layer.effect(
         "model",
         telemetry.run(
           llm.stream(hookedRequest).pipe(
+            Stream.provideService(References.TracerEnabled, true),
             Stream.runForEach((event) =>
               Effect.gen(function* () {
                 if (overflowFailure || publisher.hasProviderError()) return
@@ -724,32 +725,36 @@ const layer = Layer.effect(
         let trigger: AgentTelemetry.ModelCallTrigger = hasSteer || hasQueue ? "input" : "resume"
         let shouldRun = input.force || hasSteer || hasQueue
         while (shouldRun) {
-          let needsContinuation = true
-          let step = 1
-          // Repeat steps while continuation is needed. A step needs continuation only
-          // when it recorded local tool calls whose results the model has not yet seen;
-          // a provider error suppresses it. Pending steers also continue the loop so
-          // interjections are answered before the session goes idle.
-          while (needsContinuation) {
-            const result = yield* runStep(input.sessionID, promotion, step, trigger)
-            // Steer/queue promotion inside runStep has already made the pending input a visible
-            // user message by this point, so the first-user-message check below is reliable.
-            if (!titleAttempted.has(input.sessionID)) {
-              titleAttempted.add(input.sessionID)
-              forkTitle(title.generateForFirstPrompt(yield* getSession(input.sessionID)).pipe(Effect.ignore))
-            }
-            needsContinuation = result.needsContinuation
-            step = result.step + 1
-            if (needsContinuation) {
-              promotion = (yield* SessionInput.pendingCompaction(db, input.sessionID)) ? undefined : "steer"
-              trigger = "tool_result"
-              continue
-            }
-            yield* runPendingCompaction(input.sessionID)
-            promotion = "steer"
-            trigger = "tool_result"
-            needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
-          }
+          const invocationAgent = yield* agents.select((yield* getSession(input.sessionID)).agent)
+          yield* AgentTelemetry.invoke(
+            { sessionID: input.sessionID, agent: invocationAgent.id, errorType: (cause) => toSessionError(cause).type },
+            Effect.gen(function* () {
+              let needsContinuation = true
+              let step = 1
+              // One agent turn runs from initial input promotion until the Session would become idle.
+              // Model calls remain individual steps beneath this turn span.
+              while (needsContinuation) {
+                const result = yield* runStep(input.sessionID, promotion, step, trigger)
+                // Steer/queue promotion inside runStep has already made the pending input a visible
+                // user message by this point, so the first-user-message check below is reliable.
+                if (!titleAttempted.has(input.sessionID)) {
+                  titleAttempted.add(input.sessionID)
+                  forkTitle(title.generateForFirstPrompt(yield* getSession(input.sessionID)).pipe(Effect.ignore))
+                }
+                needsContinuation = result.needsContinuation
+                step = result.step + 1
+                if (needsContinuation) {
+                  promotion = (yield* SessionInput.pendingCompaction(db, input.sessionID)) ? undefined : "steer"
+                  trigger = "tool_result"
+                  continue
+                }
+                yield* runPendingCompaction(input.sessionID)
+                promotion = "steer"
+                trigger = "tool_result"
+                needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+              }
+            }),
+          )
           yield* runPendingCompaction(input.sessionID)
           const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
           const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
@@ -758,10 +763,7 @@ const layer = Layer.effect(
           trigger = hasSteer || hasQueue ? "input" : "resume"
         }
       })
-      return yield* AgentTelemetry.invoke(
-        { sessionID: input.sessionID, errorType: (cause) => toSessionError(cause).type },
-        run,
-      )
+      return yield* run
     })
 
     return Service.of({ drain })

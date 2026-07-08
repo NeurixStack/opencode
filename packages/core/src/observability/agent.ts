@@ -21,6 +21,7 @@ import {
   ATTR_OPENCODE_COMPACTION_REASON,
   ATTR_OPENCODE_ERROR_SOURCE,
   ATTR_OPENCODE_ERROR_STAGE,
+  ATTR_OPENCODE_LINK_TYPE,
   ATTR_OPENCODE_RETRY_ATTEMPT,
   ATTR_OPENCODE_RETRY_DELAY_MS,
   ATTR_OPENCODE_RETRY_DELAY_SOURCE,
@@ -61,59 +62,82 @@ const observe = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   )
 
 export const invoke = <A, E, R>(
-  input: { readonly sessionID: string; readonly errorType: (cause: unknown) => string },
+  input: { readonly sessionID: string; readonly agent: string; readonly errorType: (cause: unknown) => string },
   effect: Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const traceParent = yield* SessionTelemetry.TraceParent
+    const traceLinks = yield* SessionTelemetry.TraceLinks
+    const turnLinks = yield* SessionTelemetry.TurnLinks
+    const previousTurn = turnLinks?.previous()
     const failureState: { stage?: string } = {}
-    const span = yield* Effect.makeSpan("invoke_agent", {
-      kind: "internal",
-      parent: traceParent ?? undefined,
-      root: traceParent === null,
-      attributes: {
-        [ATTR_GEN_AI_OPERATION_NAME]: GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
-        [ATTR_GEN_AI_CONVERSATION_ID]: input.sessionID,
-      },
-    }).pipe(
-      Effect.withTracerEnabled(true),
-      Effect.catchCause(() => Effect.succeed(undefined)),
-    )
-    if (!span) return yield* effect
-    return yield* effect.pipe(
-      Effect.onExit((exit) =>
-        observe(
-          Effect.gen(function* () {
-            if (Exit.isSuccess(exit)) {
-              span.end(yield* Clock.currentTimeNanos, exit)
-              return
-            }
-            const canceled = Cause.hasInterruptsOnly(exit.cause)
-            const type = canceled
-              ? "canceled"
-              : yield* classify(() => input.errorType(Cause.squash(exit.cause)))
-            const source = canceled
-              ? "cancellation"
-              : type.startsWith("provider.")
-                ? "provider"
-                : type.startsWith("permission.")
-                  ? "permission"
-                  : type.startsWith("tool.")
-                    ? "tool"
-                    : "session"
-            span.attribute(ATTR_ERROR_TYPE, type)
-            span.attribute(ATTR_OPENCODE_ERROR_SOURCE, source)
-            if (failureState.stage) span.attribute(ATTR_OPENCODE_ERROR_STAGE, failureState.stage)
-            span.end(yield* Clock.currentTimeNanos, Exit.fail(new Error(type)))
-          }),
+    return yield* Effect.acquireUseRelease(
+      Effect.makeSpan(`invoke_agent ${input.agent}`, {
+        kind: "internal",
+        parent: traceParent ?? undefined,
+        root: traceParent === null,
+        links: previousTurn
+          ? [...traceLinks, { span: previousTurn, attributes: { [ATTR_OPENCODE_LINK_TYPE]: "previous_turn" } }]
+          : traceLinks,
+        attributes: {
+          [ATTR_GEN_AI_OPERATION_NAME]: GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
+          [ATTR_GEN_AI_CONVERSATION_ID]: input.sessionID,
+          [ATTR_GEN_AI_AGENT_NAME]: input.agent,
+        },
+      }).pipe(
+        Effect.withTracerEnabled(true),
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterrupts(cause),
+          () => Effect.succeed(undefined),
         ),
       ),
-      Effect.withParentSpan(span, { captureStackTrace: false }),
-      Effect.provideService(Current, span),
-      Effect.provideService(FailureState, failureState),
-      Effect.withTracerEnabled(false),
+      (span) =>
+        span
+          ? Effect.sync(() => turnLinks?.set(span)).pipe(
+              Effect.andThen(
+                effect.pipe(
+                  Effect.withParentSpan(span, { captureStackTrace: false }),
+                  Effect.provideService(Current, span),
+                  Effect.provideService(FailureState, failureState),
+                  Effect.withTracerEnabled(false),
+                ),
+              ),
+            )
+          : effect,
+      (span, exit) => span ? finishSpan(span, exit, failureState, input.errorType) : Effect.void,
     )
   })
+
+function finishSpan<E>(
+  span: Span,
+  exit: Exit.Exit<unknown, E>,
+  failureState: { stage?: string },
+  errorType: (cause: unknown) => string,
+) {
+  return observe(
+    Effect.gen(function* () {
+      if (Exit.isSuccess(exit)) {
+        span.end(yield* Clock.currentTimeNanos, exit)
+        return
+      }
+      const canceled = Cause.hasInterruptsOnly(exit.cause)
+      const type = canceled ? "canceled" : yield* classify(() => errorType(Cause.squash(exit.cause)))
+      const source = canceled
+        ? "cancellation"
+        : type.startsWith("provider.")
+          ? "provider"
+          : type.startsWith("permission.")
+            ? "permission"
+            : type.startsWith("tool.")
+              ? "tool"
+              : "session"
+      span.attribute(ATTR_ERROR_TYPE, type)
+      span.attribute(ATTR_OPENCODE_ERROR_SOURCE, source)
+      if (failureState.stage) span.attribute(ATTR_OPENCODE_ERROR_STAGE, failureState.stage)
+      span.end(yield* Clock.currentTimeNanos, Exit.fail(new Error(type)))
+    }),
+  )
+}
 
 export const identify = (input: { readonly agent: string; readonly parentSessionID?: string }) =>
   withCurrent((span) => {
@@ -195,9 +219,8 @@ export const modelCall = (input: {
           ...(typeof parentSessionID === "string" ? { [ATTR_OPENCODE_SESSION_PARENT_ID]: parentSessionID } : {}),
         }),
       )
-      const traced = observed.pipe(Effect.withTracerEnabled(true))
-      if (!span) return yield* traced
-      return yield* traced.pipe(Effect.withParentSpan(span, { captureStackTrace: false }))
+      if (!span) return yield* observed
+      return yield* observed.pipe(Effect.withParentSpan(span, { captureStackTrace: false }))
     })
   return { observe: observeEvent, run }
 }

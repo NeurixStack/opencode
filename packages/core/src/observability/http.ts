@@ -112,10 +112,7 @@ function safeUrl(url: URL) {
   const safe = new URL(url)
   safe.username = ""
   safe.password = ""
-  for (const key of safe.searchParams.keys()) {
-    if (/(?:api[-_]?key|token|secret|signature|credential|password|authorization|auth)/i.test(key))
-      safe.searchParams.set(key, "[REDACTED]")
-  }
+  safe.search = ""
   safe.hash = ""
   return safe.toString()
 }

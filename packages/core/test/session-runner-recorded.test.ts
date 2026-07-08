@@ -42,9 +42,10 @@ import { Instructions } from "@opencode-ai/core/instructions"
 import { SkillGuidance } from "@opencode-ai/core/skill/guidance"
 import { ReferenceGuidance } from "@opencode-ai/core/reference/guidance"
 import { McpGuidance } from "@opencode-ai/core/mcp/guidance"
+import { SessionTelemetry } from "@opencode-ai/core/observability/session"
 import { describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
-import { Effect, Layer, Tracer } from "effect"
+import { Effect, Layer, References, Tracer } from "effect"
 import path from "node:path"
 import { testEffect } from "./lib/effect"
 
@@ -108,12 +109,14 @@ const execution = Layer.effect(
   SessionExecution.Service,
   Effect.gen(function* () {
     const sessionRunner = yield* SessionRunner.Service
+    const telemetry = SessionTelemetry.makeExecution<SessionV2.ID>()
     const coordinator = yield* SessionRunCoordinator.make<SessionV2.ID, SessionRunner.RunError>({
-      drain: (sessionID, force) => sessionRunner.drain({ sessionID, force }),
+      drain: (sessionID, force) => telemetry.drain(sessionID, sessionRunner.drain({ sessionID, force })),
+      settled: (sessionID) => telemetry.settled(sessionID),
     })
     return SessionExecution.Service.of({
       active: coordinator.active,
-      resume: coordinator.run,
+      resume: (sessionID) => telemetry.resume(sessionID, coordinator.run(sessionID)),
       wake: coordinator.wake,
       interrupt: coordinator.interrupt,
       awaitIdle: coordinator.awaitIdle,
@@ -121,7 +124,12 @@ const execution = Layer.effect(
   }),
 ).pipe(
   Layer.provide(runnerLayer),
-  Layer.updateService(Tracer.Tracer, () => tracer),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      Layer.succeed(Tracer.Tracer, tracer),
+      Layer.succeed(References.TracerEnabled, false),
+    ),
+  ),
 )
 const it = testEffect(
   AppNodeBuilder.build(
@@ -191,7 +199,7 @@ describe("SessionRunnerLLM recorded", () => {
         resume: false,
       })
 
-      yield* session.resume(sessionID)
+      yield* session.resume(sessionID).pipe(Effect.provideService(SessionTelemetry.TraceParent, null))
 
       const messages = yield* session.context(sessionID)
       expect(messages).toHaveLength(2)
@@ -200,14 +208,16 @@ describe("SessionRunnerLLM recorded", () => {
       expect(messages[1]?.type === "assistant" ? messages[1].content : []).toMatchObject([
         { type: "text", text: "Hello!" },
       ])
-      const agent = spans.find((span) => span.name === "invoke_agent")
+      const agent = spans.find((span) => span.name === "invoke_agent build")
       const model = spans.find((span) => span.name === "chat gpt-4o-mini")
       const http = spans.find((span) => span.attributes.get(ATTR_HTTP_REQUEST_METHOD) === "POST")
+      expect(agent?.parent._tag).toBe("None")
       expect(agent?.attributes.get(ATTR_GEN_AI_CONVERSATION_ID)).toBe(sessionID)
       expect(model?.parent._tag === "Some" ? model.parent.value.spanId : undefined).toBe(agent?.spanId)
       expect(http?.parent._tag === "Some" ? http.parent.value.spanId : undefined).toBe(model?.spanId)
       expect(model?.attributes.get(ATTR_GEN_AI_USAGE_INPUT_TOKENS)).toBeNumber()
       expect(model?.attributes.get(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS)).toBeNumber()
+      expect(spans.filter((span) => span.name.startsWith("SessionRunner."))).toEqual([])
       expect(
         (yield* db
           .select({ type: EventTable.type })

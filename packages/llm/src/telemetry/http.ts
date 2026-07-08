@@ -16,6 +16,7 @@ import {
   ATTR_URL_SCHEME,
 } from "../semconv"
 import { LLMError } from "../schema"
+import { CurrentModelSpan } from "./context"
 
 export const RequestIssued = Context.Reference<((time: bigint) => Effect.Effect<void>) | undefined>(
   "@opencode/LLM/Telemetry/RequestIssued",
@@ -42,8 +43,8 @@ const observe = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 export const stream = <A, R>(request: HttpClientRequest.HttpClientRequest, source: Stream.Stream<A, LLMError, R>) =>
   Stream.unwrap(
     Effect.gen(function* () {
-      const parent = Option.getOrUndefined(yield* Effect.serviceOption(ParentSpan))
-      if (parent?._tag !== "Span") return source
+      const parent = yield* CurrentModelSpan
+      if (!parent) return source
       const url = URL.canParse(request.url) ? new URL(request.url) : undefined
       const port = url?.port
         ? Number(url.port)
@@ -68,7 +69,7 @@ export const stream = <A, R>(request: HttpClientRequest.HttpClientRequest, sourc
             : {}),
         },
       })
-      const state: State = { ended: false, responseReceived: false }
+      const state: State = { responseReceived: false }
       yield* Effect.addFinalizer((exit) => observe(finalize(span, state, exit)))
       return observeStream(span, state, source)
     }).pipe(
@@ -81,7 +82,6 @@ export const stream = <A, R>(request: HttpClientRequest.HttpClientRequest, sourc
   )
 
 type State = {
-  ended: boolean
   responseReceived: boolean
   terminal?: Exit.Exit<void, unknown>
 }
@@ -92,7 +92,7 @@ function observeStream<A, R>(span: Span, state: State, source: Stream.Stream<A, 
     state.terminal = exit
     if (type) span.attribute(ATTR_ERROR_TYPE, type)
   }
-  return Stream.concat(source, Stream.fromEffect(Effect.sync(() => (state.ended = true))).pipe(Stream.drain)).pipe(
+  return source.pipe(
     Stream.onStart(
       observe(
         Effect.gen(function* () {
@@ -130,10 +130,12 @@ function observeStream<A, R>(span: Span, state: State, source: Stream.Stream<A, 
     ),
     Stream.provideService(ParentSpan, span),
     Stream.provideService(ResponseReceived, (status) =>
-      Effect.sync(() => {
-        state.responseReceived = true
-        span.attribute(ATTR_HTTP_RESPONSE_STATUS_CODE, status)
-      }),
+      observe(
+        Effect.sync(() => {
+          state.responseReceived = true
+          span.attribute(ATTR_HTTP_RESPONSE_STATUS_CODE, status)
+        }),
+      ),
     ),
     Stream.provideService(HttpClient.TracerDisabledWhen, () => true),
     Stream.provideService(HttpClient.TracerPropagationEnabled, false),
@@ -144,11 +146,9 @@ function observeStream<A, R>(span: Span, state: State, source: Stream.Stream<A, 
 function finalize(span: Span, state: State, scopeExit: Exit.Exit<unknown, unknown>) {
   return Effect.gen(function* () {
     if (!state.terminal) {
-      state.terminal = state.ended
-        ? Exit.void
-        : Exit.isFailure(scopeExit)
-          ? Exit.failCause(scopeExit.cause)
-          : Exit.void
+      state.terminal = Exit.isFailure(scopeExit) && Cause.hasInterruptsOnly(scopeExit.cause)
+        ? Exit.failCause(scopeExit.cause)
+        : Exit.void
     }
     span.end(yield* Clock.currentTimeNanos, state.terminal)
   })
@@ -158,10 +158,7 @@ export function safeUrl(url: URL) {
   const safe = new URL(url)
   safe.username = ""
   safe.password = ""
-  for (const key of safe.searchParams.keys()) {
-    if (/(?:api[-_]?key|token|secret|signature|credential|password|authorization|auth)/i.test(key))
-      safe.searchParams.set(key, "[REDACTED]")
-  }
+  safe.search = ""
   safe.hash = ""
   return safe.toString()
 }

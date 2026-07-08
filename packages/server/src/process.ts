@@ -50,7 +50,9 @@ function bind(hostname: string, port: number, password: string) {
   return Layer.build(
     createRoutes(password).pipe(
       Layer.flatMap((context) =>
-        HttpServer.serve(Context.get(context, HttpRouter.HttpRouter).asHttpEffect(), HttpMiddleware.logger),
+        HttpServer.serve(Context.get(context, HttpRouter.HttpRouter).asHttpEffect(), HttpMiddleware.logger).pipe(
+          Layer.provide(Layer.succeedContext(context)),
+        ),
       ),
       Layer.provideMerge(NodeHttpServer.layer(() => server, { port, host: hostname })),
     ),

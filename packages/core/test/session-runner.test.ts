@@ -92,10 +92,11 @@ import { InstructionDiscovery } from "@opencode-ai/core/instruction-discovery"
 import { SkillGuidance } from "@opencode-ai/core/skill/guidance"
 import { ReferenceGuidance } from "@opencode-ai/core/reference/guidance"
 import { McpGuidance } from "@opencode-ai/core/mcp/guidance"
+import { SessionTelemetry } from "@opencode-ai/core/observability/session"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Location } from "@opencode-ai/core/location"
 import { ProviderV2 } from "@opencode-ai/core/provider"
-import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Schema, Stream, Tracer } from "effect"
+import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, References, Schema, Stream, Tracer } from "effect"
 import { TestClock } from "effect/testing"
 import { asc, eq } from "drizzle-orm"
 import { testEffect } from "./lib/effect"
@@ -366,12 +367,14 @@ const execution = Layer.effect(
   SessionExecution.Service,
   Effect.gen(function* () {
     const sessionRunner = yield* SessionRunner.Service
+    const telemetry = SessionTelemetry.makeExecution<SessionV2.ID>()
     const coordinator = yield* SessionRunCoordinator.make<SessionV2.ID, SessionRunner.RunError>({
-      drain: (sessionID, force) => sessionRunner.drain({ sessionID, force }),
+      drain: (sessionID, force) => telemetry.drain(sessionID, sessionRunner.drain({ sessionID, force })),
+      settled: (sessionID) => telemetry.settled(sessionID),
     })
     return SessionExecution.Service.of({
       active: coordinator.active,
-      resume: coordinator.run,
+      resume: (sessionID) => telemetry.resume(sessionID, coordinator.run(sessionID)),
       wake: coordinator.wake,
       interrupt: coordinator.interrupt,
       awaitIdle: coordinator.awaitIdle,
@@ -379,7 +382,12 @@ const execution = Layer.effect(
   }),
 ).pipe(
   Layer.provide(runnerLayer),
-  Layer.updateService(Tracer.Tracer, () => tracer),
+  Layer.provideMerge(
+    Layer.mergeAll(
+      Layer.succeed(Tracer.Tracer, tracer),
+      Layer.succeed(References.TracerEnabled, false),
+    ),
+  ),
 )
 const it = testEffect(
   AppNodeBuilder.build(
@@ -773,7 +781,7 @@ describe("SessionRunnerLLM", () => {
 
       yield* session.resume(sessionID)
 
-      const agent = spans.find((span) => span.name === "invoke_agent")
+      const agent = spans.find((span) => span.name === "invoke_agent build")
       const tool = spans.find((span) => span.name === "execute_tool echo")
       expect(agent?.attributes).toMatchObject(
         new Map([
@@ -786,7 +794,8 @@ describe("SessionRunnerLLM", () => {
         [ATTR_OPENCODE_SESSION_INPUT_DELIVERY]: "steer",
         [ATTR_OPENCODE_SESSION_INPUT_COUNT]: 1,
       })
-      expect(ancestorNames(agent)).toContain("SessionRunner.drain")
+      expect(agent?.parent._tag).toBe("None")
+      expect(spans.filter((span) => span.name.startsWith("SessionRunner."))).toEqual([])
       expect(agent?.attributes.get(ATTR_GEN_AI_USAGE_INPUT_TOKENS)).toBe(8)
       expect(agent?.attributes.get(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS)).toBe(3)
       expect(agent?.attributes.get(ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS)).toBe(2)
@@ -800,7 +809,7 @@ describe("SessionRunnerLLM", () => {
           [ATTR_GEN_AI_CONVERSATION_ID, sessionID],
         ]),
       )
-      expect(ancestorNames(tool)).toContain("invoke_agent")
+      expect(ancestorNames(tool).some((name) => name.startsWith("invoke_agent"))).toBeTrue()
       expect(ancestorNames(tool)).not.toContain("SessionRunner.attemptStep")
       expect(ancestorNames(tool)).not.toContain("chat fake-model")
       expect(tool?.status._tag === "Ended" && tool.status.exit._tag).toBe("Success")
@@ -841,7 +850,7 @@ describe("SessionRunnerLLM", () => {
       ]
       yield* session.resume(child.id)
 
-      const agent = spans.find((span) => span.name === "invoke_agent")
+      const agent = spans.find((span) => span.name === "invoke_agent explore")
       const tool = spans.find((span) => span.name === "execute_tool echo")
       expect(agent?.attributes).toMatchObject(
         new Map([
@@ -858,7 +867,7 @@ describe("SessionRunnerLLM", () => {
           [ATTR_OPENCODE_SESSION_PARENT_ID, sessionID],
         ]),
       )
-      expect(ancestorNames(tool)).toContain("invoke_agent")
+      expect(ancestorNames(tool).some((name) => name.startsWith("invoke_agent"))).toBeTrue()
     }),
   )
 
@@ -1686,7 +1695,7 @@ describe("SessionRunnerLLM", () => {
       expect(requests).toHaveLength(2)
       expect(
         spans
-          .filter((span) => span.name === "invoke_agent")
+          .filter((span) => span.name.startsWith("invoke_agent"))
           .at(-1)
           ?.events.find(([name]) => name === EVENT_OPENCODE_COMPACTION_COMPLETED)?.[2],
       ).toMatchObject({ [ATTR_OPENCODE_COMPACTION_REASON]: "automatic" })
@@ -2480,6 +2489,11 @@ describe("SessionRunnerLLM", () => {
       expect(userTexts(requests[0]!)).toEqual(["Start working"])
       expect(userTexts(requests[1]!)).toEqual(["Start working", "Queue first"])
       expect(userTexts(requests[2]!)).toEqual(["Start working", "Queue first", "Queue second"])
+      const turns = spans.filter((span) => span.name === "invoke_agent build")
+      expect(turns).toHaveLength(3)
+      expect(new Set(turns.map((span) => span.traceId)).size).toBe(3)
+      expect(turns[1]?.links.at(-1)?.span).toBe(turns[0])
+      expect(turns[2]?.links.at(-1)?.span).toBe(turns[1])
     }),
   )
 
@@ -3310,7 +3324,7 @@ describe("SessionRunnerLLM", () => {
         { type: "assistant", finish: "error", error: { type: "aborted", message: "Step interrupted" } },
       ])
       expect(yield* recordedEventTypes(sessionID)).toContain("session.step.failed.1")
-      const agent = spans.find((span) => span.name === "invoke_agent")
+      const agent = spans.find((span) => span.name.startsWith("invoke_agent"))
       expect(agent?.attributes.get(ATTR_ERROR_TYPE)).toBe("canceled")
       expect(agent?.status._tag === "Ended" && agent.status.exit._tag).toBe("Failure")
       yield* session.interrupt(sessionID)
@@ -3591,7 +3605,7 @@ describe("SessionRunnerLLM", () => {
       expect(eventTypes).toContain("session.retry.scheduled.1")
       expect(
         spans
-          .find((span) => span.name === "invoke_agent")
+          .find((span) => span.name.startsWith("invoke_agent"))
           ?.events.find(([name]) => name === EVENT_OPENCODE_RETRY_SCHEDULED)?.[2],
       ).toMatchObject({
         [ATTR_OPENCODE_RETRY_ATTEMPT]: 2,
@@ -3602,7 +3616,9 @@ describe("SessionRunnerLLM", () => {
         [ATTR_ERROR_TYPE]: "provider.transport",
       })
       expect(eventTypes.filter((type) => type === "session.step.started.1")).toHaveLength(2)
-      expect(spans.find((span) => span.name === "invoke_agent")?.attributes.has(ATTR_OPENCODE_ERROR_STAGE)).toBeFalse()
+      expect(
+        spans.find((span) => span.name.startsWith("invoke_agent"))?.attributes.has(ATTR_OPENCODE_ERROR_STAGE),
+      ).toBeFalse()
       expect(yield* session.context(sessionID)).toMatchObject([
         { type: "user" },
         { type: "assistant", finish: "stop", content: [{ type: "text", text: "Recovered" }] },
@@ -3660,7 +3676,7 @@ describe("SessionRunnerLLM", () => {
       ])
       expect(
         spans
-          .find((span) => span.name === "invoke_agent")
+          .find((span) => span.name.startsWith("invoke_agent"))
           ?.events.find(([name]) => name === EVENT_OPENCODE_RETRY_STOPPED)?.[2],
       ).toMatchObject({
         [ATTR_OPENCODE_RETRY_DECISION]: "exhausted",
@@ -3669,7 +3685,7 @@ describe("SessionRunnerLLM", () => {
       })
       expect((yield* recordedEventTypes(sessionID)).filter((type) => type === "session.step.started.1")).toHaveLength(5)
       expect((yield* session.context(sessionID)).filter((message) => message.type === "assistant")).toHaveLength(1)
-      const agent = spans.find((span) => span.name === "invoke_agent")
+      const agent = spans.find((span) => span.name.startsWith("invoke_agent"))
       expect(agent?.attributes.get(ATTR_ERROR_TYPE)).toBe("provider.transport")
       expect(agent?.attributes.get(ATTR_OPENCODE_ERROR_SOURCE)).toBe("provider")
       expect(agent?.attributes.get(ATTR_OPENCODE_ERROR_STAGE)).toBe("model")

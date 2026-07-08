@@ -1,8 +1,10 @@
 import { OpenCode } from "@opencode-ai/client/effect"
 import { SdkPlugins } from "@opencode-ai/core/plugin/sdk"
 import { createEmbeddedRoutes } from "@opencode-ai/server/routes"
-import { Context, Effect, Layer, ManagedRuntime } from "effect"
-import { FetchHttpClient, HttpEffect, HttpRouter, HttpServer } from "effect/unstable/http"
+import { Context, Effect, Layer, ManagedRuntime, Scope } from "effect"
+import { FetchHttpClient, HttpEffect, HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http"
+
+type Services = Layer.Success<ReturnType<typeof createEmbeddedRoutes>>
 
 export const create = Effect.fn("OpenCode.create")(function* () {
   const runtime = yield* Effect.acquireRelease(
@@ -12,7 +14,9 @@ export const create = Effect.fn("OpenCode.create")(function* () {
   const context = yield* runtime.contextEffect
   const plugins = Context.get(context, SdkPlugins.Service)
   const router = Context.get(context, HttpRouter.HttpRouter)
-  const handler = HttpEffect.toWebHandler(router.asHttpEffect())
+  const handler = HttpEffect.toWebHandlerWith<Services, HttpServerRequest.HttpServerRequest | Scope.Scope>(context)(
+    router.asHttpEffect(),
+  )
   const fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => handler(new Request(input, init)), {
     preconnect: () => undefined,
   }) satisfies typeof globalThis.fetch

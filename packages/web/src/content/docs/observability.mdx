@@ -52,9 +52,11 @@ export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer ${DASH0_AUTH_TOKEN},Dash
 
 ### AI model spans
 
-The V2 Session runner emits an `invoke_agent` span around each Session drain, a `chat <model>` client span around every model call, and an `execute_tool <name>` span around local tool execution. Provider HTTP response streams and WebSocket connections are client spans beneath their model calls. Spans include safe OpenTelemetry GenAI attributes for the agent, configured provider identity, requested model, generation settings, response timing, finish reason, token usage, cache usage, reasoning usage, conversation ID, tool identity, and transport endpoint. First-chunk latency is measured from request issuance to the first normalized model response event.
+The V2 Session runner emits an `invoke_agent <agent>` span around each agent turn, from initial input promotion until the Session would become idle. Each `chat <model>` client span is one model step beneath that turn, and `execute_tool <name>` spans cover local tool execution. Provider HTTP response streams and WebSocket connections are client spans beneath their model calls. Spans include safe OpenTelemetry GenAI attributes for the agent, configured provider identity, requested model, generation settings, response timing, finish reason, token usage, cache usage, reasoning usage, conversation ID, tool identity, and transport endpoint. First-chunk latency is measured from request issuance to the first provider transport chunk or WebSocket message.
 
-Agent spans record input promotion, provider retry decisions, hosted-tool activity, and compaction lifecycle as span events. Subagent tool spans identify the child Session and target agent; foreground child agents remain nested while background child traces include `opencode.session.parent.id` for correlation.
+Agent spans record input promotion, provider retry decisions, hosted-tool activity, and compaction lifecycle as span events. Subagent tool spans identify the child Session and target agent. Foreground child agents remain nested, while background child traces link to the spawning tool span and include `opencode.session.parent.id` for searchable correlation.
+
+Each new turn also links to the previous turn observed for that Session in the current process. This process-local chain lets linked-trace navigation walk backward through recent conversation turns without keeping one long-lived trace open or adding durable turn state.
 
 Failed spans use existing typed error categories, error source and stage, HTTP status, transport kind, retry decision, and provider request ID attributes when available. Built-in provider stream errors preserve structured provider codes without inferring retry policy from message text. Raw provider bodies, exception messages, prompt content, and tool output are excluded from spans.
 
@@ -67,6 +69,35 @@ Prompt admission and control-plane HTTP requests are not traced. Admission, Sess
 Prompt content, model output, system instructions, tool definitions, tool arguments, headers, and credentials are not recorded on these spans.
 
 The `experimental.openTelemetry` configuration option only controls AI SDK telemetry on the legacy Session implementation. V2 GenAI spans are exported whenever OTLP tracing is configured.
+
+### Navigate conversations
+
+Each agent turn is a separate trace. Use the Session ID in `gen_ai.conversation.id` to find the full conversation. In Dash0, also filter `gen_ai.operation.name = invoke_agent` to show turn roots, then sort by start time. **Links to** opens the previous turn; **Linked from** opens the next turn. The oldest turn has no `previous_turn` link.
+
+List conversation turns with the Dash0 CLI:
+
+```bash
+dash0 spans query \
+  --dataset production \
+  --from now-4h \
+  --filter "gen_ai.conversation.id is <session-id>" \
+  --filter "gen_ai.operation.name is invoke_agent" \
+  --column timestamp \
+  --column "span name" \
+  --column "trace id" \
+  --column "span links"
+```
+
+Follow links from the newest turn:
+
+```bash
+dash0 traces get <trace-id> \
+  --dataset production \
+  --from now-4h \
+  --follow-span-links
+```
+
+Foreground subagents are child spans in the spawning turn. Background subagents use linked traces with `opencode.link.type=subagent`; turn links use `opencode.link.type=previous_turn`. Links are process-local, so use `gen_ai.conversation.id` across restarts.
 
 ---
 

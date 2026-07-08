@@ -86,7 +86,12 @@ describe("GenAI telemetry", () => {
         completion_tokens_details: { reasoning_tokens: 1 },
       }
       const model = OpenAIChat.route
-        .with({ endpoint: { baseURL: "https://api.openai.test/v1", query: { api_key: "secret-key" } } })
+        .with({
+          endpoint: {
+            baseURL: "https://api.openai.test/v1",
+            query: { api_key: "secret-key", key: "short-key", sig: "signed-value" },
+          },
+        })
         .model({ id: "gpt-4o-mini" })
       let traceparent: string | undefined
       const request = LLM.request({
@@ -168,6 +173,8 @@ describe("GenAI telemetry", () => {
       expect(http?.attributes.get(ATTR_SERVER_PORT)).toBe(443)
       expect(http?.attributes.get(ATTR_URL_FULL)).toStartWith("https://api.openai.test/")
       expect(http?.attributes.get(ATTR_URL_FULL)).not.toContain("secret-key")
+      expect(http?.attributes.get(ATTR_URL_FULL)).not.toContain("short-key")
+      expect(http?.attributes.get(ATTR_URL_FULL)).not.toContain("signed-value")
       expect(ancestorNames(http)).toContain("chat gpt-4o-mini")
       expect(
         span?.status._tag === "Ended" && http?.status._tag === "Ended"
@@ -251,6 +258,31 @@ describe("GenAI telemetry", () => {
 
       expect(Array.from(result)).toEqual(events)
       expect(spans).toHaveLength(0)
+    }),
+  )
+
+  it.effect("does not create transport spans beneath a disabled model span", () =>
+    Effect.gen(function* () {
+      const spans: Tracer.NativeSpan[] = []
+      const tracer = Tracer.make({
+        span(options) {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        },
+      })
+      const model = OpenAIChat.route
+        .with({ endpoint: { baseURL: "https://api.openai.test/v1" } })
+        .model({ id: "disabled-transport-model" })
+
+      yield* Effect.useSpan("parent", () =>
+        LLMClient.generate(LLM.request({ model, prompt: "secret" })).pipe(
+          Effect.provide(fixedResponse(sseEvents(deltaChunk({}, "stop")))),
+          Effect.withTracerEnabled(false),
+        ),
+      ).pipe(Effect.provideService(Tracer.Tracer, tracer))
+
+      expect(spans.map((span) => span.name)).toEqual(["parent"])
     }),
   )
 
@@ -368,6 +400,32 @@ describe("GenAI telemetry", () => {
       expect(span?.attributes.get(ATTR_GEN_AI_RESPONSE_FINISH_REASONS)).toEqual(["stop"])
       expect(span?.attributes.get(ATTR_GEN_AI_USAGE_INPUT_TOKENS)).toBe(5)
       expect(span?.status._tag === "Ended" && span.status.exit._tag).toBe("Success")
+    }),
+  )
+
+  it.effect("marks error finish reasons as provider failures", () =>
+    Effect.gen(function* () {
+      const spans: Tracer.NativeSpan[] = []
+      const tracer = Tracer.make({
+        span(options) {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        },
+      })
+      const model = OpenAIChat.route
+        .with({ endpoint: { baseURL: "https://api.openai.test/v1" } })
+        .model({ id: "error-finish-model" })
+
+      yield* instrument(
+        LLM.request({ model, prompt: "secret" }),
+        Stream.succeed(LLMEvent.finish({ reason: "error" })),
+      ).pipe(Stream.runDrain, Effect.provideService(Tracer.Tracer, tracer))
+
+      const span = spans.find((span) => span.name === "chat error-finish-model")
+      expect(span?.attributes.get(ATTR_ERROR_TYPE)).toBe("provider_error")
+      expect(span?.attributes.get(ATTR_OPENCODE_ERROR_SOURCE)).toBe("provider")
+      expect(span?.status._tag === "Ended" && span.status.exit._tag).toBe("Failure")
     }),
   )
 

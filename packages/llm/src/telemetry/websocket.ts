@@ -15,9 +15,10 @@ import {
   ATTR_URL_SCHEME,
 } from "../semconv"
 import { LLMError } from "../schema"
-import { RequestIssued, safeUrl } from "./http"
+import { safeUrl } from "./http"
+import { CurrentModelSpan } from "./context"
 
-export { ResponseChunkReceived } from "./http"
+export { RequestIssued, ResponseChunkReceived } from "./http"
 
 const observe = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.catchCauseIf(
@@ -29,8 +30,8 @@ const observe = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 export const stream = <A, R>(urlValue: string, source: Stream.Stream<A, LLMError, R>) =>
   Stream.unwrap(
     Effect.gen(function* () {
-      const parent = Option.getOrUndefined(yield* Effect.serviceOption(ParentSpan))
-      if (parent?._tag !== "Span") return source
+      const parent = yield* CurrentModelSpan
+      if (!parent) return source
       const url = URL.canParse(urlValue) ? new URL(urlValue) : undefined
       const port = url?.port
         ? Number(url.port)
@@ -56,7 +57,7 @@ export const stream = <A, R>(urlValue: string, source: Stream.Stream<A, LLMError
             : {}),
         },
       })
-      const state: State = { ended: false }
+      const state: State = {}
       yield* Effect.addFinalizer((exit) => observe(finalize(span, state, exit)))
       return observeStream(span, state, source)
     }).pipe(
@@ -68,7 +69,7 @@ export const stream = <A, R>(urlValue: string, source: Stream.Stream<A, LLMError
     ),
   )
 
-type State = { ended: boolean; terminal?: Exit.Exit<void, unknown> }
+type State = { terminal?: Exit.Exit<void, unknown> }
 
 function observeStream<A, R>(span: Span, state: State, source: Stream.Stream<A, LLMError, R>) {
   const terminate = (exit: Exit.Exit<void, unknown>, type?: string) => {
@@ -76,15 +77,7 @@ function observeStream<A, R>(span: Span, state: State, source: Stream.Stream<A, 
     state.terminal = exit
     if (type) span.attribute(ATTR_ERROR_TYPE, type)
   }
-  return Stream.concat(source, Stream.fromEffect(Effect.sync(() => (state.ended = true))).pipe(Stream.drain)).pipe(
-    Stream.onStart(
-      observe(
-        Effect.gen(function* () {
-          const requestIssued = yield* RequestIssued
-          if (requestIssued) yield* requestIssued(yield* Clock.currentTimeNanos)
-        }),
-      ),
-    ),
+  return source.pipe(
     Stream.tapCause((cause) =>
       observe(
         Effect.gen(function* () {
@@ -115,11 +108,9 @@ function observeStream<A, R>(span: Span, state: State, source: Stream.Stream<A, 
 function finalize(span: Span, state: State, scopeExit: Exit.Exit<unknown, unknown>) {
   return Effect.gen(function* () {
     if (!state.terminal) {
-      state.terminal = state.ended
-        ? Exit.void
-        : Exit.isFailure(scopeExit)
-          ? Exit.failCause(scopeExit.cause)
-          : Exit.void
+      state.terminal = Exit.isFailure(scopeExit) && Cause.hasInterruptsOnly(scopeExit.cause)
+        ? Exit.failCause(scopeExit.cause)
+        : Exit.void
     }
     span.end(yield* Clock.currentTimeNanos, state.terminal)
   })

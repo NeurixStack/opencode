@@ -1,4 +1,4 @@
-import { Cause, Context, Effect, Layer, Queue, Stream } from "effect"
+import { Cause, Clock, Context, Effect, Layer, Queue, Stream } from "effect"
 import { Headers } from "effect/unstable/http"
 import { LLMError, TransportReason } from "../../schema"
 import { LLMWebSocketTelemetry } from "../../telemetry/websocket"
@@ -256,6 +256,8 @@ export const json = <Body, Message>(input: JsonInput<Body, Message>): JsonTransp
             webSocket.open({ url: prepared.url, headers: prepared.headers }),
             (connection) => connection.close,
           )
+          const requestIssued = yield* LLMWebSocketTelemetry.RequestIssued
+          if (requestIssued) yield* requestIssued(yield* Clock.currentTimeNanos)
           yield* connection.sendText(prepared.message)
           const firstChunk = yield* LLMWebSocketTelemetry.ResponseChunkReceived
           return connection.messages.pipe(

@@ -2,12 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { NodeFileSystem } from "@effect/platform-node"
 import {
   ATTR_DEPLOYMENT_ENVIRONMENT_NAME,
+  ATTR_ERROR_TYPE,
+  ATTR_OPENCODE_LINK_TYPE,
   ATTR_OPENCODE_CLIENT,
   ATTR_OPENCODE_RUN,
   ATTR_SERVICE_INSTANCE_ID,
   ATTR_SERVICE_NAMESPACE,
 } from "@opencode-ai/core/observability/semconv"
-import { Deferred, Effect, Fiber, Layer, Logger, Option, Tracer } from "effect"
+import { Cause, Deferred, Effect, Fiber, Layer, Logger, Option, Tracer } from "effect"
 import { ParentSpan, type Span } from "effect/Tracer"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import fs from "fs/promises"
@@ -17,6 +19,8 @@ import { fileLogger } from "../../src/observability/logging"
 import { resource } from "../../src/observability/otlp"
 import { SessionTelemetry } from "../../src/observability/session"
 import { HttpTelemetry } from "../../src/observability/http"
+import { AgentTelemetry } from "../../src/observability/agent"
+import { ToolTelemetry } from "../../src/observability/tool"
 import { it } from "../lib/effect"
 
 const otelResourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES
@@ -103,6 +107,148 @@ it.effect("retains an external ambient trace parent", () =>
     const retained = Option.getOrUndefined(yield* telemetry.drain("session", Effect.serviceOption(ParentSpan)))
 
     expect(retained).toBe(parent)
+  }),
+)
+
+it.effect("detaches a top-level execution from its acquisition parent", () =>
+  Effect.gen(function* () {
+    const spans: Tracer.NativeSpan[] = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      },
+    })
+    const telemetry = SessionTelemetry.makeExecution<string>()
+
+    yield* Effect.useSpan("startup", () =>
+      telemetry.drain(
+        "session",
+        AgentTelemetry.invoke({ sessionID: "session", agent: "build", errorType: () => "unknown" }, Effect.void),
+      ),
+    ).pipe(Effect.provideService(Tracer.Tracer, tracer))
+
+    expect(spans.find((span) => span.name === "invoke_agent build")?.parent._tag).toBe("None")
+  }),
+)
+
+it.effect("links a detached execution to its spawning span", () =>
+  Effect.gen(function* () {
+    const spans: Tracer.NativeSpan[] = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      },
+    })
+    const telemetry = SessionTelemetry.makeExecution<string>()
+
+    yield* Effect.useSpan("execute_tool subagent", (parent) =>
+      telemetry
+        .resume("session", Effect.void)
+        .pipe(
+          Effect.provideService(SessionTelemetry.TraceParent, null),
+          Effect.provideService(SessionTelemetry.TraceLinks, [{ span: parent, attributes: {} }]),
+        ),
+    ).pipe(Effect.provideService(Tracer.Tracer, tracer))
+    yield* telemetry
+      .drain(
+        "session",
+        AgentTelemetry.invoke({ sessionID: "session", agent: "explore", errorType: () => "unknown" }, Effect.void),
+      )
+      .pipe(Effect.provideService(Tracer.Tracer, tracer))
+
+    const parent = spans.find((span) => span.name === "execute_tool subagent")
+    const child = spans.find((span) => span.name === "invoke_agent explore")
+    expect(child?.parent._tag).toBe("None")
+    expect(child?.links).toHaveLength(1)
+    expect(child?.links[0]?.span).toBe(parent)
+  }),
+)
+
+it.effect("links each agent turn to the previous Session turn", () =>
+  Effect.gen(function* () {
+    const spans: Tracer.NativeSpan[] = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      },
+    })
+    const telemetry = SessionTelemetry.makeExecution<string>()
+    const run = telemetry
+      .drain(
+        "session",
+        AgentTelemetry.invoke({ sessionID: "session", agent: "build", errorType: () => "unknown" }, Effect.void),
+      )
+      .pipe(Effect.provideService(Tracer.Tracer, tracer))
+
+    yield* run
+    yield* telemetry.settled("session")
+    yield* run
+
+    const turns = spans.filter((span) => span.name === "invoke_agent build")
+    expect(turns).toHaveLength(2)
+    expect(turns[1]?.links).toHaveLength(1)
+    expect(turns[1]?.links[0]?.span).toBe(turns[0])
+    expect(turns[1]?.links[0]?.attributes[ATTR_OPENCODE_LINK_TYPE]).toBe("previous_turn")
+  }),
+)
+
+it.effect("closes an active agent span when its execution scope is interrupted", () =>
+  Effect.gen(function* () {
+    const spans: Tracer.NativeSpan[] = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      },
+    })
+    const started = yield* Deferred.make<void>()
+
+    yield* Effect.gen(function* () {
+      const fiber = yield* AgentTelemetry.invoke(
+        { sessionID: "session", agent: "build", errorType: () => "unknown" },
+        Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)),
+      ).pipe(Effect.provideService(SessionTelemetry.TraceParent, null), Effect.forkChild)
+      yield* Deferred.await(started)
+      yield* Fiber.interrupt(fiber)
+    }).pipe(Effect.provideService(Tracer.Tracer, tracer))
+
+    const span = spans.find((span) => span.name === "invoke_agent build")
+    expect(span?.attributes.get(ATTR_ERROR_TYPE)).toBe("canceled")
+    expect(span?.status._tag === "Ended" && span.status.exit._tag).toBe("Failure")
+  }),
+)
+
+it.effect("classifies a tool cause containing interruption as canceled", () =>
+  Effect.gen(function* () {
+    const spans: Tracer.NativeSpan[] = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      },
+    })
+    const cause = Cause.fromReasons([
+      Cause.makeFailReason(new Error("concurrent failure")),
+      Cause.makeInterruptReason(),
+    ])
+
+    yield* ToolTelemetry.execute(
+      { sessionID: "session", agent: "explore", call: { id: "call", name: "read" } },
+      Effect.failCause(cause),
+      () => "tool.execution",
+    ).pipe(Effect.exit, Effect.provideService(Tracer.Tracer, tracer))
+
+    const span = spans.find((span) => span.name === "execute_tool read")
+    expect(span?.attributes.get(ATTR_ERROR_TYPE)).toBe("canceled")
+    expect(span?.status._tag === "Ended" && span.status.exit._tag).toBe("Failure")
   }),
 )
 
