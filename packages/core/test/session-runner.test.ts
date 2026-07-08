@@ -1346,16 +1346,22 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
-  it.effect("interrupts active work to run one durable compaction barrier before later prompts", () =>
+  it.effect("runs compaction at the next step boundary before continuation, steer, and queue", () =>
     Effect.gen(function* () {
       yield* setup
       requests.length = 0
+      executions.length = 0
       currentModel = recoveryModel
       const session = yield* SessionV2.Service
       streamGate = yield* Deferred.make<void>()
       streamStarted = yield* Deferred.make<void>()
       responses = [
-        fragmentFixture("text", "text-active", ["Active complete"]).completeEvents,
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-before-compaction", name: "echo", input: { text: "before compaction" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
         [LLMEvent.textDelta({ id: "summary", text: "durable summary" })],
         fragmentFixture("text", "text-steer", ["Steer complete"]).completeEvents,
         fragmentFixture("text", "text-queue", ["Queue complete"]).completeEvents,
@@ -1365,8 +1371,12 @@ describe("SessionRunnerLLM", () => {
       yield* Deferred.await(streamStarted)
 
       const first = yield* session.compact({ sessionID })
-      const second = yield* session.compact({ sessionID })
-      expect(second.id).toBe(first.id)
+      const [exactRetry, coalesced] = yield* Effect.all(
+        [session.compact({ id: first.id, sessionID }), session.compact({ sessionID })],
+        { concurrency: "unbounded" },
+      )
+      expect(exactRetry.id).toBe(first.id)
+      expect(coalesced.id).toBe(first.id)
       expect(yield* SessionInput.pendingCompaction((yield* Database.Service).db, sessionID)).toMatchObject({
         id: first.id,
       })
@@ -1389,10 +1399,11 @@ describe("SessionRunnerLLM", () => {
       expect(yield* SessionInput.hasPending((yield* Database.Service).db, sessionID, "steer")).toBe(false)
 
       yield* Deferred.succeed(streamGate, undefined)
-      expect(yield* Fiber.await(active)).toMatchObject({ _tag: "Failure" })
-      yield* session.wait(sessionID)
+      yield* Fiber.join(active)
 
       expect(requests).toHaveLength(4)
+      expect(executions).toEqual(["before compaction"])
+      expect(userTexts(requests[0])).toContain("Active work")
       expect(userTexts(requests[1])[0]).toContain("Create a new anchored summary")
       expect(userTexts(requests[2])).toContain("Steer after compaction")
       expect(userTexts(requests[3])).toContain("Queue after compaction")
@@ -1430,8 +1441,7 @@ describe("SessionRunnerLLM", () => {
         resume: false,
       })
       yield* Deferred.succeed(streamGate, undefined)
-      expect(yield* Fiber.await(active)).toMatchObject({ _tag: "Failure" })
-      yield* session.wait(sessionID)
+      yield* Fiber.join(active)
 
       expect(requests).toHaveLength(3)
       expect(userTexts(requests[2])).toContain("Continue after failure")

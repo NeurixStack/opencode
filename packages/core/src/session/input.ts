@@ -142,12 +142,11 @@ export const admitCompaction = Effect.fn("SessionInput.admitCompaction")(functio
     Effect.gen(function* () {
       const exact = yield* find(db, input.id)
       if (exact) {
-        if (exact.type === "compaction" && exact.sessionID === input.sessionID)
-          return { entry: exact, newlyAdmitted: false }
+        if (exact.type === "compaction" && exact.sessionID === input.sessionID) return exact
         return yield* Effect.die(new LifecycleConflict({ id: input.id }))
       }
       const pending = yield* pendingCompaction(db, input.sessionID)
-      if (pending) return { entry: pending, newlyAdmitted: false }
+      if (pending) return pending
       return yield* events
         .publish(SessionEvent.Compaction.Admitted, {
           inputID: input.id,
@@ -159,17 +158,13 @@ export const admitCompaction = Effect.fn("SessionInput.admitCompaction")(functio
               return Effect.die(new Error("Compaction admission event is missing aggregate sequence"))
             return pendingCompaction(db, input.sessionID).pipe(
               Effect.flatMap((stored) =>
-                stored
-                  ? Effect.succeed({ entry: stored, newlyAdmitted: stored.id === input.id })
-                  : Effect.die(new LifecycleConflict({ id: input.id })),
+                stored ? Effect.succeed(stored) : Effect.die(new LifecycleConflict({ id: input.id })),
               ),
             )
           }),
           Effect.catchDefect((defect) =>
             pendingCompaction(db, input.sessionID).pipe(
-              Effect.flatMap((stored) =>
-                stored ? Effect.succeed({ entry: stored, newlyAdmitted: false }) : Effect.die(defect),
-              ),
+              Effect.flatMap((stored) => (stored ? Effect.succeed(stored) : Effect.die(defect))),
             ),
           ),
         )

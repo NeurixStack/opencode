@@ -624,13 +624,10 @@ const layer = Layer.effect(
           }
           needsContinuation = result.needsContinuation
           step = result.step + 1
-          if (needsContinuation) {
-            promotion = (yield* SessionInput.pendingCompaction(db, input.sessionID)) ? undefined : "steer"
-            continue
-          }
+          // Manual compaction is a barrier: handle it before continuing or promoting steers.
           yield* runPendingCompaction(input.sessionID)
           promotion = "steer"
-          needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+          if (!needsContinuation) needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
         }
         yield* runPendingCompaction(input.sessionID)
         const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
