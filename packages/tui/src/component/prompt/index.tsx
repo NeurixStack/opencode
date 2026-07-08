@@ -61,8 +61,6 @@ import { lastAssistantWithUsage } from "../../util/session"
 
 registerOpencodeSpinner()
 
-registerOpencodeSpinner()
-
 export type PromptProps = {
   sessionID?: string
   visible?: boolean
