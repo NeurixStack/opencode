@@ -96,6 +96,16 @@ describe("ModelsDevPlugin", () => {
                   modalities: { input: ["audio"], output: ["audio"] },
                   limit: { context: 128_000, output: 8_192 },
                 },
+                legacy: {
+                  id: "legacy",
+                  name: "Legacy",
+                  release_date: "2026-01-01",
+                  attachment: true,
+                  reasoning: false,
+                  temperature: true,
+                  tool_call: true,
+                  limit: { context: 128_000, output: 8_192 },
+                },
               },
             },
           } satisfies Record<string, ModelsDev.Provider>),
@@ -114,12 +124,14 @@ describe("ModelsDevPlugin", () => {
       const fast = yield* catalog.model.get(providerID, ModelV2.ID.make("gpt-5.4-fast"))
       const defaults = yield* catalog.model.get(providerID, ModelV2.ID.make("default"))
       const explicit = yield* catalog.model.get(providerID, ModelV2.ID.make("explicit"))
+      const legacy = yield* catalog.model.get(providerID, ModelV2.ID.make("legacy"))
 
       expect(base?.variants).toEqual([])
       expect(base?.request.body).toEqual({})
       expect(base?.capabilities).toEqual({ tools: true, input: ["text"], output: ["text"] })
       expect(defaults?.capabilities).toEqual({ tools: false, input: ["text", "image"], output: ["text"] })
       expect(explicit?.capabilities).toEqual({ tools: false, input: ["audio"], output: ["audio"] })
+      expect(legacy?.capabilities).toEqual({ tools: true, input: ["text", "image"], output: ["text"] })
       expect(fast).toMatchObject({
         id: "gpt-5.4-fast",
         providerID: "acme",
@@ -184,9 +196,6 @@ describe("ModelsDevPlugin", () => {
               connections: [],
             }),
           ])
-          expect(yield* catalog.model.get(ProviderV2.ID.opencode, ModelV2.ID.make("gpt-5.5"))).toMatchObject({
-            capabilities: { tools: true, input: ["text", "image"], output: ["text"] },
-          })
         }).pipe(Effect.provide(AppNodeBuilder.build(ModelsDev.node))),
       (previous) =>
         Effect.sync(() => {
