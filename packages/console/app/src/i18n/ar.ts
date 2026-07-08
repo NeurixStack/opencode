@@ -704,7 +704,7 @@ export const dict = {
 
   "download.title": "OpenCode | تنزيل",
   "download.meta.description": "نزّل OpenCode لـ macOS، Windows، وLinux",
-  "download.hero.title": "تنزيل OpenCode",
+  "download.hero.title": "تنزيل OpenCode لسطح المكتب",
   "download.hero.subtitle": "متاح في نسخة تجريبية لـ macOS، Windows، وLinux",
   "download.hero.button": "تنزيل لـ {{os}}",
   "download.section.terminal": "OpenCode للطرفية",

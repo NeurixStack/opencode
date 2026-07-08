@@ -707,7 +707,7 @@ export const dict = {
 
   "download.title": "OpenCode | ดาวน์โหลด",
   "download.meta.description": "ดาวน์โหลด OpenCode สำหรับ macOS, Windows และ Linux",
-  "download.hero.title": "ดาวน์โหลด OpenCode",
+  "download.hero.title": "ดาวน์โหลด OpenCode สำหรับเดสก์ท็อป",
   "download.hero.subtitle": "พร้อมใช้งานในเวอร์ชันเบต้าสำหรับ macOS, Windows และ Linux",
   "download.hero.button": "ดาวน์โหลดสำหรับ {{os}}",
   "download.section.terminal": "OpenCode Terminal",

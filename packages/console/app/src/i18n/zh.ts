@@ -686,7 +686,7 @@ export const dict = {
 
   "download.title": "OpenCode | 下载",
   "download.meta.description": "下载适用于 macOS, Windows, 和 Linux 的 OpenCode",
-  "download.hero.title": "下载 OpenCode",
+  "download.hero.title": "下载 OpenCode 桌面版",
   "download.hero.subtitle": "适用于 macOS, Windows, 和 Linux 的 Beta 版",
   "download.hero.button": "下载 {{os}} 版",
   "download.section.terminal": "OpenCode 终端",

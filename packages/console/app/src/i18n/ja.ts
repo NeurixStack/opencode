@@ -712,7 +712,7 @@ export const dict = {
 
   "download.title": "OpenCode | ダウンロード",
   "download.meta.description": "OpenCode を macOS、Windows、Linux 向けにダウンロード",
-  "download.hero.title": "OpenCode をダウンロード",
+  "download.hero.title": "OpenCode デスクトップ版をダウンロード",
   "download.hero.subtitle": "macOS、Windows、Linux 向けベータ版を利用可能",
   "download.hero.button": "{{os}} 向けダウンロード",
   "download.section.terminal": "OpenCode Terminal",

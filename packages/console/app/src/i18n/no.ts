@@ -711,7 +711,7 @@ export const dict = {
 
   "download.title": "OpenCode | Last ned",
   "download.meta.description": "Last ned OpenCode for macOS, Windows og Linux",
-  "download.hero.title": "Last ned OpenCode",
+  "download.hero.title": "Last ned OpenCode Desktop",
   "download.hero.subtitle": "Tilgjengelig i beta for macOS, Windows og Linux",
   "download.hero.button": "Last ned for {{os}}",
   "download.section.terminal": "OpenCode Terminal",
