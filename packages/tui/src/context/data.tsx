@@ -114,6 +114,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     const sessionRefreshApplied = new Map<string, number>()
     const sessionUsage = new Map<string, { generation: number; cost: number; tokens: SessionV2Info["tokens"] }>()
     let connectionGeneration = 0
+    let shellGeneration = 0
     let statusChanges: Set<string> | undefined
     let bootstrapping: Promise<void> | undefined
 
@@ -758,6 +759,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           )
           break
         case "shell.created":
+          shellGeneration++
           setStore("location", locationKey(event.location ?? defaultLocation()), (data) => ({
             ...data,
             shell: { ...data?.shell, [event.data.info.id]: event.data.info },
@@ -765,6 +767,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           break
         case "shell.exited":
         case "shell.deleted":
+          shellGeneration++
           if (event.location) {
             setStore("location", locationKey(event.location), (data) => ({
               ...data,
@@ -932,12 +935,14 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             .map((data) => data.shell?.[id])
             .find((shell) => shell !== undefined)
         },
-        async refresh(ref?: LocationRef) {
-          const result = await sdk.api.shell.list({ location: locationQuery(ref) })
-          const key = locationKey(result.location)
+        async refresh(ref?: LocationRef): Promise<void> {
+          const generation = shellGeneration
+          const response = await sdk.api.shell.list({ location: locationQuery(ref) })
+          if (generation !== shellGeneration) return result.shell.refresh(ref)
+          const key = locationKey(response.location)
           setStore("location", key, {
             ...store.location[key],
-            shell: Object.fromEntries(mutable(result.data).map((info) => [info.id, info])),
+            shell: Object.fromEntries(mutable(response.data).map((info) => [info.id, info])),
           })
         },
       },

@@ -9,7 +9,7 @@ import { ProjectProvider } from "../../../src/context/project"
 import { SDKProvider } from "../../../src/context/sdk"
 import { DataProvider, useData } from "../../../src/context/data"
 import { createSessionRows, type SessionRow } from "../../../src/routes/session/rows"
-import { createApi, createClient, createEventStream, createFetch, directory, json } from "../../fixture/tui-sdk"
+import { createApi, createClient, createEventStream, createFetch, directory, json, worktree } from "../../fixture/tui-sdk"
 import { TestTuiContexts } from "../../fixture/tui-environment"
 
 async function wait(fn: () => boolean, timeout = 2000) {
@@ -1447,6 +1447,66 @@ test("keeps shell state scoped to location", async () => {
     })
     await wait(() => data.shell.list({ directory: other }).some((shell) => shell.id === "sh_live_other"))
     expect(data.shell.list().map((shell) => shell.id)).toEqual(["sh_default"])
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("retries a shell refresh when a lifecycle event races its response", async () => {
+  const events = createEventStream()
+  let requests = 0
+  let resolveFirst!: (response: Response) => void
+  const first = new Promise<Response>((resolve) => {
+    resolveFirst = resolve
+  })
+  const location = { directory, project: { id: "proj_test", directory: worktree } }
+  const shell = {
+    id: "sh_stale",
+    status: "running" as const,
+    command: "bun test",
+    cwd: directory,
+    shell: "/bin/sh",
+    file: "/tmp/opencode-shell",
+    metadata: { sessionID: "ses_default" },
+    time: { started: 1 },
+  }
+  const calls = createFetch((url) => {
+    if (url.pathname !== "/api/shell") return
+    requests++
+    if (requests === 1) return first
+    return json({ location, data: [] })
+  }, events)
+  let data!: ReturnType<typeof useData>
+
+  function Probe() {
+    data = useData()
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    await wait(() => requests === 1)
+    emitEvent(events, {
+      id: "evt_shell_exited",
+      created: 0,
+      type: "shell.exited",
+      data: { id: "sh_stale", exit: 0, status: "exited" },
+    })
+    resolveFirst(json({ location, data: [shell] }))
+
+    await wait(() => requests === 2)
+    expect(data.shell.list()).toEqual([])
   } finally {
     app.renderer.destroy()
   }
