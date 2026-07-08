@@ -1346,7 +1346,7 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
-  it.effect("runs one durable compaction barrier before later steer and queued prompts", () =>
+  it.effect("interrupts active work to run one durable compaction barrier before later prompts", () =>
     Effect.gen(function* () {
       yield* setup
       requests.length = 0
@@ -1389,7 +1389,8 @@ describe("SessionRunnerLLM", () => {
       expect(yield* SessionInput.hasPending((yield* Database.Service).db, sessionID, "steer")).toBe(false)
 
       yield* Deferred.succeed(streamGate, undefined)
-      yield* Fiber.join(active)
+      expect(yield* Fiber.await(active)).toMatchObject({ _tag: "Failure" })
+      yield* session.wait(sessionID)
 
       expect(requests).toHaveLength(4)
       expect(userTexts(requests[1])[0]).toContain("Create a new anchored summary")
@@ -1429,7 +1430,8 @@ describe("SessionRunnerLLM", () => {
         resume: false,
       })
       yield* Deferred.succeed(streamGate, undefined)
-      yield* Fiber.join(active)
+      expect(yield* Fiber.await(active)).toMatchObject({ _tag: "Failure" })
+      yield* session.wait(sessionID)
 
       expect(requests).toHaveLength(3)
       expect(userTexts(requests[2])).toContain("Continue after failure")

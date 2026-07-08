@@ -637,7 +637,7 @@ const layer = Layer.effect(
       compact: Effect.fn("V2Session.compact")(function* (input) {
         yield* result.get(input.sessionID)
         const inputID = input.id ?? SessionMessage.ID.create()
-        const admitted = yield* SessionInput.admitCompaction(db, events, {
+        const admission = yield* SessionInput.admitCompaction(db, events, {
           id: inputID,
           sessionID: input.sessionID,
         }).pipe(
@@ -647,8 +647,9 @@ const layer = Layer.effect(
               : Effect.die(defect),
           ),
         )
+        if (admission.newlyAdmitted) yield* execution.interrupt(input.sessionID)
         yield* execution.wake(input.sessionID)
-        return admitted
+        return admission.entry
       }),
       wait: Effect.fn("V2Session.wait")(function* (sessionID) {
         yield* result.get(sessionID)
