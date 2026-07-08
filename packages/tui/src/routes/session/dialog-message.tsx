@@ -5,8 +5,9 @@ import { useClipboard } from "../../context/clipboard"
 import { useToast } from "../../ui/toast"
 import { useSDK } from "../../context/sdk"
 import { errorMessage } from "../../util/error"
+import { DialogFork } from "./dialog-fork"
 
-export function DialogMessage(props: { messageID: string; sessionID: string; setPrompt?: unknown }) {
+export function DialogMessage(props: { messageID: string; sessionID: string }) {
   const data = useData()
   const clipboard = useClipboard()
   const toast = useToast()
@@ -23,7 +24,7 @@ export function DialogMessage(props: { messageID: string; sessionID: string; set
           description: "undo messages and file changes",
           onSelect: async (dialog) => {
             await sdk.api.session
-              .revertStage({ sessionID: props.sessionID, messageID: props.messageID })
+              .revert.stage({ sessionID: props.sessionID, messageID: props.messageID })
               .catch((error) => toast.show({ message: errorMessage(error), variant: "error", duration: 5000 }))
             dialog.clear()
           },
@@ -55,8 +56,9 @@ export function DialogMessage(props: { messageID: string; sessionID: string; set
           value: "session.fork",
           description: "create a new session",
           onSelect: (dialog) => {
-            toast.show({ message: "Forking is not implemented for V2 sessions yet", variant: "error", duration: 5000 })
-            dialog.clear()
+            const value = message()
+            if (!value || value.type !== "user") return
+            dialog.replace(() => <DialogFork sessionID={props.sessionID} messageID={props.messageID} />)
           },
         },
       ]}

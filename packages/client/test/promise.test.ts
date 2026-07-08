@@ -33,21 +33,39 @@ test("exposes every standard HTTP API group", () => {
     "debug",
   ])
   expect(Object.keys(client.debug)).toEqual(["location"])
+  expect(Object.keys(client.debug.location)).toEqual(["list", "evict"])
   expect(Object.keys(client.message)).toEqual(["list"])
-  expect(Object.keys(client.integration)).toEqual([
-    "list",
-    "get",
-    "connectKey",
-    "connectOauth",
-    "attemptStatus",
-    "attemptComplete",
-    "attemptCancel",
-  ])
+  expect(Object.keys(client.integration)).toEqual(["list", "get", "connect", "attempt"])
+  expect(Object.keys(client.integration.connect)).toEqual(["key", "oauth"])
+  expect(Object.keys(client.integration.attempt)).toEqual(["status", "complete", "cancel"])
   expect(Object.keys(client.file)).toEqual(["read", "list", "find"])
   expect(Object.keys(client.vcs)).toEqual(["status", "diff"])
   expect(Object.keys(client.pty)).toEqual(["list", "create", "get", "update", "remove"])
-  expect(Object.keys(client.shell)).toEqual(["list", "create", "get", "output", "remove"])
+  expect(Object.keys(client.shell)).toEqual(["list", "create", "get", "timeout", "output", "remove"])
   expect(Object.keys(client.project)).toEqual(["list", "current", "directories"])
+})
+
+test("MCP resource catalog uses the public HTTP contract", async () => {
+  let request: Request | undefined
+  const client = OpenCode.make({
+    baseUrl: "http://localhost:3000",
+    fetch: async (input) => {
+      request = input instanceof Request ? input : new Request(input)
+      return Response.json({
+        location: { directory: "/tmp/project", project: { id: "proj_test", directory: "/tmp/project" } },
+        data: {
+          resources: [{ server: "docs", name: "Readme", uri: "docs://readme" }],
+          templates: [{ server: "docs", name: "File", uriTemplate: "docs://{path}" }],
+        },
+      })
+    },
+  })
+
+  const result = await client["server.mcp"].resource.catalog({ location: { directory: "/tmp/project" } })
+
+  expect(result.data.resources[0]?.uri).toBe("docs://readme")
+  expect(request?.method).toBe("GET")
+  expect(request?.url).toBe("http://localhost:3000/api/mcp/resource?location%5Bdirectory%5D=%2Ftmp%2Fproject")
 })
 
 test("file.read returns binary content from the public HTTP contract", async () => {
@@ -240,10 +258,10 @@ test("session methods use the public HTTP contract", async () => {
         })
       }
       if (url.includes("/prompt")) return Response.json(admission)
+      if (url.endsWith("/compact")) return Response.json(compactionAdmission)
       if (url.includes("/context")) return Response.json({ data: [] })
       if (url.includes("/message/")) return Response.json({ data: modelSwitchedMessage })
-      if (url.endsWith("/api/session/active"))
-        return Response.json({ data: { ses_test: { type: "running" } } })
+      if (url.endsWith("/api/session/active")) return Response.json({ data: { ses_test: { type: "running" } } })
       if (init?.method === "POST" && url.endsWith("/api/session")) return Response.json(session)
       if (init?.method === "POST") return new Response(null, { status: 204 })
       return Response.json({ data: [session.data], cursor: { next: "next" } })
@@ -360,6 +378,16 @@ const admission = {
     sessionID: "ses_test",
     prompt: { text: "Hello" },
     delivery: "steer",
+    timeCreated: 1_717_171_717_000,
+  },
+}
+
+const compactionAdmission = {
+  data: {
+    type: "compaction",
+    admittedSeq: 1,
+    id: "msg_compaction",
+    sessionID: "ses_test",
     timeCreated: 1_717_171_717_000,
   },
 }

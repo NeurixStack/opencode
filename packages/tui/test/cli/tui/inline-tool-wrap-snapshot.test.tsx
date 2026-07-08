@@ -89,6 +89,19 @@ function FailedCompleteToolFixture() {
   )
 }
 
+function ReminderAlignmentFixture() {
+  return (
+    <box flexDirection="column">
+      <box paddingLeft={3}>
+        <text>Switched variant to medium</text>
+      </box>
+      <InlineToolRow icon="◈" complete={true} pending="Notice">
+        Instructions updated
+      </InlineToolRow>
+    </box>
+  )
+}
+
 async function renderFrame(component: () => JSX.Element, options: { width: number; height: number }) {
   testSetup = await testRender(component, options)
   await testSetup.renderOnce()
@@ -109,6 +122,8 @@ describe("TUI inline tool wrapping", () => {
     // Legacy tool names normalize to their renamed views.
     expect(toolDisplay("bash")).toBe("shell")
     expect(toolDisplay("task")).toBe("subagent")
+    expect(toolDisplay("apply_patch")).toBe("patch")
+    expect(toolDisplay("patch")).toBe("patch")
     expect(toolDisplay("plugin_tool")).toBe("generic")
   })
 
@@ -122,6 +137,12 @@ describe("TUI inline tool wrapping", () => {
     const frame = await renderFrame(() => <FailedCompleteToolFixture />, { width: 72, height: 3 })
     expect(frame).toContain("Read src/index.ts")
     expect(frame).not.toContain("Read failed")
+  })
+
+  test("aligns switch reminders with instruction reminders", async () => {
+    expect(await renderFrame(() => <ReminderAlignmentFixture />, { width: 35, height: 2 })).toBe(
+      "   Switched variant to medium\n   ◈ Instructions updated",
+    )
   })
 
   test("filters malformed nested tool wire data", () => {

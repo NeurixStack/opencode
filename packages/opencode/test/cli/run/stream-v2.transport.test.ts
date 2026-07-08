@@ -2,7 +2,12 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
 import { pathToFileURL } from "node:url"
-import { OpenCode, type EventSubscribeOutput, type MessageListOutput, type OpenCodeClient } from "@opencode-ai/client/promise"
+import {
+  OpenCode,
+  type EventSubscribeOutput,
+  type MessageListOutput,
+  type OpenCodeClient,
+} from "@opencode-ai/client/promise"
 import { createSessionTransport } from "@opencode-ai/cli/mini/stream-v2.transport"
 import type { FooterApi, FooterEvent, StreamCommit } from "@opencode-ai/cli/mini/types"
 import { tmpdir } from "../../fixture/fixture"
@@ -48,7 +53,13 @@ function connected(id = "evt_connected") {
   return { id, type: "server.connected", data: {} } satisfies RunV2Event
 }
 
-function durable(sessionID: string, seq = 0, version = 1) {
+function durable(sessionID: string, seq?: number): { aggregateID: string; seq: number; version: 1 }
+function durable<const Version extends 1 | 2>(
+  sessionID: string,
+  seq: number,
+  version: Version,
+): { aggregateID: string; seq: number; version: Version }
+function durable(sessionID: string, seq = 0, version: 1 | 2 = 1) {
   return { aggregateID: sessionID, seq, version }
 }
 
@@ -200,15 +211,16 @@ describe("V2 mini transport", () => {
       data: {
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
-        textID: "txt_1",
+        ordinal: 0,
         delta: "answer",
       },
     })
     events.push({
       id: "evt_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_1", outcome: "success" },
+      type: "session.execution.succeeded",
+      durable: durable("ses_1"),
+      data: { sessionID: "ses_1" },
     })
     await turn
 
@@ -253,8 +265,9 @@ describe("V2 mini transport", () => {
         events.push({
           id: "evt_settled",
           created: 0,
-          type: "session.execution.settled",
-          data: { sessionID: "ses_1", outcome: "success" },
+          type: "session.execution.succeeded",
+          durable: durable("ses_1"),
+          data: { sessionID: "ses_1" },
         })
       })
       return ok({
@@ -347,8 +360,9 @@ describe("V2 mini transport", () => {
         events.push({
           id: "evt_settled",
           created: 0,
-          type: "session.execution.settled",
-          data: { sessionID: "ses_1", outcome: "success" },
+          type: "session.execution.succeeded",
+          durable: durable("ses_1"),
+          data: { sessionID: "ses_1" },
         })
       })
       return ok({
@@ -444,8 +458,9 @@ describe("V2 mini transport", () => {
         events.push({
           id: "evt_settled",
           created: 0,
-          type: "session.execution.settled",
-          data: { sessionID: "ses_1", outcome: "success" },
+          type: "session.execution.succeeded",
+          durable: durable("ses_1"),
+          data: { sessionID: "ses_1" },
         })
       })
       return ok({
@@ -693,7 +708,7 @@ describe("V2 mini transport", () => {
             type: "assistant",
             agent: "build",
             model: { providerID: "test", id: "model" },
-            content: [{ type: "text", id: "txt_1", text: "the answer" }],
+            content: [{ type: "text", text: "the answer" }],
             time: { created: 2, completed: 3 },
           },
         ],
@@ -706,13 +721,24 @@ describe("V2 mini transport", () => {
     })
     const replay = transport.replayOnResize({ localRows: () => [], reset: () => resetting })
     events.push({
+      id: "evt_text_started",
+      created: 0,
+      type: "session.text.started",
+      durable: durable("ses_1"),
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_assistant",
+        ordinal: 0,
+      },
+    })
+    events.push({
       id: "evt_text",
       created: 0,
       type: "session.text.delta",
       data: {
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
-        textID: "txt_1",
+        ordinal: 0,
         delta: "answer",
       },
     })
@@ -725,7 +751,7 @@ describe("V2 mini transport", () => {
     await transport.close()
   })
 
-  test("scopes repeated text and reasoning ids by assistant message", async () => {
+  test("scopes text and reasoning ordinals by assistant message", async () => {
     const events = feed()
     events.push(connected())
     const client = sdk({ streams: [events] })
@@ -738,8 +764,8 @@ describe("V2 mini transport", () => {
             agent: "build",
             model: { providerID: "test", id: "model" },
             content: [
-              { type: "reasoning", id: "reasoning-0", text: "second thought" },
-              { type: "text", id: "text-0", text: "second answer" },
+              { type: "reasoning", text: "second thought" },
+              { type: "text", text: "second answer" },
             ],
             time: { created: 4, completed: 5 },
           },
@@ -749,8 +775,8 @@ describe("V2 mini transport", () => {
             agent: "build",
             model: { providerID: "test", id: "model" },
             content: [
-              { type: "reasoning", id: "reasoning-0", text: "first thought" },
-              { type: "text", id: "text-0", text: "first answer" },
+              { type: "reasoning", text: "first thought" },
+              { type: "text", text: "first answer" },
             ],
             time: { created: 2, completed: 3 },
           },
@@ -798,13 +824,59 @@ describe("V2 mini transport", () => {
       data: {
         sessionID: "ses_1",
         assistantMessageID: "msg_assistant",
-        reasoningID: "reasoning_1",
+        ordinal: 0,
         text: "considering",
       },
     })
     await Bun.sleep(0)
 
     expect(ui.commits.at(-1)?.text).toBe("Thinking: considering")
+    await transport.close()
+  })
+
+  test("renders a live tool start when the call begins", async () => {
+    const events = feed()
+    events.push(connected())
+    const client = sdk({ streams: [events] })
+    const ui = footer()
+    const transport = await createSessionTransport({
+      sdk: client,
+      sessionID: "ses_1",
+      thinking: false,
+      limits: () => ({}),
+      footer: ui.api,
+    })
+
+    events.push({
+      id: "evt_tool_input",
+      created: 1,
+      type: "session.tool.input.started",
+      durable: durable("ses_1"),
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_assistant",
+        callID: "call_read",
+        name: "read",
+      },
+    })
+    events.push({
+      id: "evt_tool_called",
+      created: 2,
+      type: "session.tool.called",
+      durable: durable("ses_1", 1),
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_assistant",
+        callID: "call_read",
+        input: { path: "README.md" },
+        executed: false,
+      },
+    })
+    await Bun.sleep(0)
+
+    expect(ui.commits).toContainEqual(
+      expect.objectContaining({ kind: "tool", phase: "start", partID: "prt_call_read", tool: "read" }),
+    )
     await transport.close()
   })
 
@@ -849,8 +921,9 @@ describe("V2 mini transport", () => {
     events.push({
       id: "evt_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_1", outcome: "success" },
+      type: "session.execution.interrupted",
+      durable: durable("ses_1"),
+      data: { sessionID: "ses_1", reason: "user" },
     })
     await turn
 
@@ -913,8 +986,9 @@ describe("V2 mini transport", () => {
     events.push({
       id: "evt_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_1", outcome: "success" },
+      type: "session.execution.succeeded",
+      durable: durable("ses_1"),
+      data: { sessionID: "ses_1" },
     })
     await turn
 
@@ -975,8 +1049,9 @@ describe("V2 mini transport", () => {
     events.push({
       id: "evt_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_1", outcome: "success" },
+      type: "session.execution.interrupted",
+      durable: durable("ses_1"),
+      data: { sessionID: "ses_1", reason: "user" },
     })
     await turn
 
@@ -1242,17 +1317,10 @@ describe("V2 mini transport", () => {
           {
             id: "msg_shell",
             type: "shell" as const,
-            shell: {
-              id: "sh_1",
-              status: "exited",
-              command: "ls",
-              cwd: "/tmp",
-              shell: "/bin/sh",
-              file: "/tmp/opencode-shell",
-              exit: 0,
-              metadata: {},
-              time: { started: 0, completed: 1 },
-            },
+            shellID: "sh_1",
+            status: "exited",
+            command: "ls",
+            exit: 0,
             output: { output: "file.txt", cursor: 8, size: 8, truncated: false },
             time: { created: 1, completed: 2 },
           },
@@ -1309,17 +1377,10 @@ describe("V2 mini transport", () => {
           {
             id: "msg_failed_shell",
             type: "shell" as const,
-            shell: {
-              id: "sh_failed",
-              status: "exited",
-              command: "false",
-              cwd: "/tmp",
-              shell: "/bin/sh",
-              file: "/tmp/failed",
-              exit: 7,
-              metadata: {},
-              time: { started: 0, completed: 1 },
-            },
+            shellID: "sh_failed",
+            status: "exited",
+            command: "false",
+            exit: 7,
             output: { output: "failure output", cursor: 14, size: 14, truncated: false },
             time: { created: 1, completed: 2 },
           },
@@ -1413,8 +1474,9 @@ describe("V2 mini transport", () => {
         events.push({
           id: "evt_settled",
           created: 0,
-          type: "session.execution.settled",
-          data: { sessionID: "ses_1", outcome: "success" },
+          type: "session.execution.succeeded",
+          durable: durable("ses_1"),
+          data: { sessionID: "ses_1" },
         })
       })
       return ok({
@@ -1481,6 +1543,7 @@ describe("V2 mini transport", () => {
           durable: durable("ses_1"),
           data: {
             sessionID: "ses_1",
+            id: input.skill ?? "tigerstyle",
             name: input.skill ?? "tigerstyle",
             text: "skill instructions",
           },
@@ -1488,8 +1551,9 @@ describe("V2 mini transport", () => {
         events.push({
           id: "evt_settled",
           created: 0,
-          type: "session.execution.settled",
-          data: { sessionID: "ses_1", outcome: "success" },
+          type: "session.execution.succeeded",
+          durable: durable("ses_1"),
+          data: { sessionID: "ses_1" },
         })
       })
       return ok(undefined) as never
@@ -1562,6 +1626,7 @@ describe("V2 mini transport", () => {
       durable: durable("ses_1"),
       data: {
         sessionID: "ses_1",
+        id: "other",
         name: "other",
         text: "other instructions",
       },
@@ -1569,8 +1634,9 @@ describe("V2 mini transport", () => {
     events.push({
       id: "evt_unrelated_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_1", outcome: "success" },
+      type: "session.execution.succeeded",
+      durable: durable("ses_1"),
+      data: { sessionID: "ses_1" },
     })
     await Bun.sleep(0)
     await Bun.sleep(0)
@@ -1583,6 +1649,7 @@ describe("V2 mini transport", () => {
       durable: durable("ses_1"),
       data: {
         sessionID: "ses_1",
+        id: "tigerstyle",
         name: "tigerstyle",
         text: "skill instructions",
       },
@@ -1590,8 +1657,9 @@ describe("V2 mini transport", () => {
     events.push({
       id: "evt_skill_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_1", outcome: "success" },
+      type: "session.execution.succeeded",
+      durable: durable("ses_1"),
+      data: { sessionID: "ses_1" },
     })
     await turn
 
@@ -1649,6 +1717,7 @@ describe("V2 mini transport", () => {
           {
             id: "msg_skill",
             type: "skill" as const,
+            skill: "tigerstyle",
             name: "tigerstyle",
             text: "skill instructions",
             time: { created: 2 },
@@ -1672,6 +1741,7 @@ describe("V2 mini transport", () => {
       durable: durable("ses_1"),
       data: {
         sessionID: "ses_1",
+        id: "tigerstyle",
         name: "tigerstyle",
         text: "skill instructions",
       },
@@ -1701,18 +1771,19 @@ describe("V2 mini transport", () => {
         ],
       },
     })
-    spyOn(client.session, "get").mockImplementation(() =>
-      ok({
-        id: "ses_child",
-        parentID: "ses_1",
-        projectID: "proj_1",
-        agent: "explore",
-        cost: 0,
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        time: { created: 1, updated: 1 },
-        title: "Find files",
-        location: { directory: "/tmp" },
-      }) as never,
+    spyOn(client.session, "get").mockImplementation(
+      () =>
+        ok({
+          id: "ses_child",
+          parentID: "ses_1",
+          projectID: "proj_1",
+          agent: "explore",
+          cost: 0,
+          tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+          time: { created: 1, updated: 1 },
+          title: "Find files",
+          location: { directory: "/tmp" },
+        }) as never,
     )
     const ui = footer()
     const transport = await createSessionTransport({
@@ -1750,7 +1821,7 @@ describe("V2 mini transport", () => {
       data: {
         sessionID: "ses_child",
         assistantMessageID: "msg_child_a",
-        textID: "txt_child",
+        ordinal: 0,
         delta: "child answer",
       },
     })
@@ -1760,8 +1831,9 @@ describe("V2 mini transport", () => {
     events.push({
       id: "evt_child_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_child", outcome: "success" },
+      type: "session.execution.succeeded",
+      durable: durable("ses_child"),
+      data: { sessionID: "ses_child" },
     })
     while (!states().some((state) => state.tabs.some((tab) => tab.status === "completed"))) await Bun.sleep(0)
     await transport.close()
@@ -1801,7 +1873,9 @@ describe("V2 mini transport", () => {
     })
     await Bun.sleep(0)
     expect(
-      states().at(-1)?.details.ses_child?.commits.some((item) => item.messageID === "msg_child_prompt"),
+      states()
+        .at(-1)
+        ?.details.ses_child?.commits.some((item) => item.messageID === "msg_child_prompt"),
     ).toBe(false)
 
     events.push({
@@ -1955,19 +2029,36 @@ describe("V2 mini transport", () => {
         data: {
           sessionID: "ses_child",
           assistantMessageID: "msg_overflow_assistant",
-          textID: `txt_overflow_${index}`,
+          ordinal: index,
           delta: `live ${index}`,
         },
       })
-    while (!states().at(-1)?.details.ses_child?.commits.some((item) => item.text === "live 64")) await Bun.sleep(0)
+    while (
+      !states()
+        .at(-1)
+        ?.details.ses_child?.commits.some((item) => item.text === "live 64")
+    )
+      await Bun.sleep(0)
     releaseStale()
     while (childRequests < 2) await Bun.sleep(0)
-    expect(states().at(-1)?.details.ses_child?.commits.some((item) => item.text === "live 64")).toBe(true)
+    expect(
+      states()
+        .at(-1)
+        ?.details.ses_child?.commits.some((item) => item.text === "live 64"),
+    ).toBe(true)
 
     releaseRetry()
-    while (!states().at(-1)?.details.ses_child?.commits.some((item) => item.text === "baseline history"))
+    while (
+      !states()
+        .at(-1)
+        ?.details.ses_child?.commits.some((item) => item.text === "baseline history")
+    )
       await Bun.sleep(0)
-    expect(states().at(-1)?.details.ses_child?.commits.some((item) => item.text === "live 64")).toBe(true)
+    expect(
+      states()
+        .at(-1)
+        ?.details.ses_child?.commits.some((item) => item.text === "live 64"),
+    ).toBe(true)
     expect(childRequests).toBe(2)
     await transport.close()
   })
@@ -2032,7 +2123,7 @@ describe("V2 mini transport", () => {
         durable: durable("ses_child", seq),
         data: { sessionID: "ses_child", assistantMessageID: "msg_tool_projected", callID, name },
       })
-    const called = (callID: string, tool: string, input: Record<string, unknown>, seq: number) =>
+    const called = (callID: string, input: Record<string, unknown>, seq: number) =>
       events.push({
         id: `evt_called_${callID}`,
         created: seq,
@@ -2042,14 +2133,13 @@ describe("V2 mini transport", () => {
           sessionID: "ses_child",
           assistantMessageID: "msg_tool_projected",
           callID,
-          tool,
           input,
-          provider: { executed: true },
+          executed: true,
         },
       })
 
     inputStarted("call_terminal", "grep", 0)
-    called("call_terminal", "grep", { pattern: "needle" }, 1)
+    called("call_terminal", { pattern: "needle" }, 1)
     await Bun.sleep(0)
     transport.selectSubagent("ses_child")
     while (!childHydrating) await Bun.sleep(0)
@@ -2064,11 +2154,11 @@ describe("V2 mini transport", () => {
         callID: "call_terminal",
         structured: {},
         content: [{ type: "text", text: "found" }],
-        provider: { executed: true },
+        executed: true,
       },
     })
     inputStarted("call_overlap", "bash", 3)
-    called("call_overlap", "bash", { command: "stale" }, 4)
+    called("call_overlap", { command: "stale" }, 4)
     await Bun.sleep(0)
     const beforeHydration = states().length
     releaseHydration()
@@ -2137,8 +2227,9 @@ describe("V2 mini transport", () => {
     events.push({
       id: "evt_child_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_child", outcome: "interrupted" },
+      type: "session.execution.interrupted",
+      durable: durable("ses_child"),
+      data: { sessionID: "ses_child", reason: "user" },
     })
     await Bun.sleep(0)
     resolveGet?.()
@@ -2193,6 +2284,18 @@ describe("V2 mini transport", () => {
     })
     // Parent's background subagent tool.success adopts the child mid-discovery.
     events.push({
+      id: "evt_parent_input",
+      created: 0,
+      type: "session.tool.input.started",
+      durable: durable("ses_1"),
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_parent_a",
+        callID: "call_sub",
+        name: "subagent",
+      },
+    })
+    events.push({
       id: "evt_parent_call",
       created: 0,
       type: "session.tool.called",
@@ -2201,9 +2304,8 @@ describe("V2 mini transport", () => {
         sessionID: "ses_1",
         assistantMessageID: "msg_parent_a",
         callID: "call_sub",
-        tool: "subagent",
         input: { agent: "explore", description: "Find things", prompt: "go", background: true },
-        provider: { executed: true },
+        executed: true,
       },
     })
     events.push({
@@ -2217,15 +2319,16 @@ describe("V2 mini transport", () => {
         callID: "call_sub",
         structured: { sessionID: "ses_child", status: "running", output: "" },
         content: [],
-        provider: { executed: true },
+        executed: true,
       },
     })
     // The settled event arrives after adoption, so it applies directly.
     events.push({
       id: "evt_child_settled",
       created: 0,
-      type: "session.execution.settled",
-      data: { sessionID: "ses_child", outcome: "interrupted" },
+      type: "session.execution.interrupted",
+      durable: durable("ses_child"),
+      data: { sessionID: "ses_child", reason: "shutdown" },
     })
     while (!states().some((state) => state.tabs.some((tab) => tab.status === "cancelled"))) await Bun.sleep(0)
 

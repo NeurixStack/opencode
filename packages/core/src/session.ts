@@ -1,7 +1,7 @@
 export * as SessionV2 from "./session"
 export * from "./session/schema"
 
-import { DateTime, Effect, Layer, Schema, Context, Stream, Scope } from "effect"
+import { Effect, Layer, Schema, Context, Stream, Scope } from "effect"
 import { ListAnchor } from "@opencode-ai/schema/session"
 import { and, asc, desc, eq, gt, isNull, like, lt, or, type SQL } from "drizzle-orm"
 import { ProjectV2 } from "./project"
@@ -19,6 +19,7 @@ import { SessionSchema } from "./session/schema"
 import { AbsolutePath, PositiveInt, RelativePath } from "./schema"
 import { AgentV2 } from "./agent"
 import { SessionV1 } from "./v1/session"
+import { Money } from "@opencode-ai/schema/money"
 import { InstallationVersion } from "./installation/version"
 import { Slug } from "./util/slug"
 import { ProjectTable } from "./project/sql"
@@ -33,9 +34,8 @@ import { MessageDecodeError } from "./session/error"
 import { SessionEvent } from "./session/event"
 import { SessionInput } from "./session/input"
 import { Snapshot } from "./snapshot"
-import { SessionCompaction } from "./session/compaction"
 import { SessionRevert } from "./session/revert"
-import { Revert } from "@opencode-ai/schema/revert"
+import { Session } from "@opencode-ai/schema/session"
 import { FSUtil } from "./fs-util"
 import { Mime } from "./mime"
 import type { EventLog } from "@opencode-ai/schema/event-log"
@@ -47,8 +47,8 @@ import { Shell as ShellSchema } from "@opencode-ai/schema/shell"
 import { KeyedMutex } from "./effect/keyed-mutex"
 import { fileURLToPath } from "url"
 
-export const RevertState = Revert.State
-export type RevertState = Revert.State
+export const RevertState = Session.Revert
+export type RevertState = Session.Revert
 
 // get project -> project.locations
 //
@@ -96,6 +96,7 @@ type CreateInput = CreateBaseInput &
   ({ location: Location.Ref; parentID?: never } | { parentID: SessionSchema.ID; location?: never })
 
 type CompactInput = {
+  id?: SessionMessage.ID
   sessionID: SessionSchema.ID
 }
 
@@ -125,11 +126,18 @@ export class AttachmentError extends Schema.TaggedErrorClass<AttachmentError>()(
   uri: Schema.String,
   message: Schema.String,
 }) {}
+export class CompactionConflictError extends Schema.TaggedErrorClass<CompactionConflictError>()(
+  "Session.CompactionConflictError",
+  {
+    sessionID: SessionSchema.ID,
+    inputID: SessionMessage.ID,
+  },
+) {}
 export class BusyError extends Schema.TaggedErrorClass<BusyError>()("Session.BusyError", {
   sessionID: SessionSchema.ID,
 }) {}
 export class SkillNotFoundError extends Schema.TaggedErrorClass<SkillNotFoundError>()("Session.SkillNotFoundError", {
-  skill: Schema.String,
+  skill: SkillV2.ID,
 }) {}
 export const MessageNotFoundError = SessionRevert.MessageNotFoundError
 export type MessageNotFoundError = SessionRevert.MessageNotFoundError
@@ -140,6 +148,7 @@ export type Error =
   | OperationUnavailableError
   | PromptConflictError
   | AttachmentError
+  | CompactionConflictError
   | BusyError
   | SkillNotFoundError
   | CommandV2.NotFoundError
@@ -153,6 +162,7 @@ export interface Interface {
   readonly create: (input: CreateInput) => Effect.Effect<SessionSchema.Info, NotFoundError>
   readonly fork: (input: ForkInput) => Effect.Effect<SessionSchema.Info, NotFoundError | MessageNotFoundError>
   readonly get: (sessionID: SessionSchema.ID) => Effect.Effect<SessionSchema.Info, NotFoundError>
+  readonly remove: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
   readonly messages: (input: {
     sessionID: SessionSchema.ID
     limit?: number
@@ -161,14 +171,14 @@ export interface Interface {
       id: SessionMessage.ID
       direction: "previous" | "next"
     }
-  }) => Effect.Effect<SessionMessage.Message[], NotFoundError | MessageDecodeError>
+  }) => Effect.Effect<SessionMessage.Info[], NotFoundError | MessageDecodeError>
   readonly message: (input: {
     sessionID: SessionSchema.ID
     messageID: SessionMessage.ID
-  }) => Effect.Effect<SessionMessage.Message | undefined>
+  }) => Effect.Effect<SessionMessage.Info | undefined>
   readonly context: (
     sessionID: SessionSchema.ID,
-  ) => Effect.Effect<SessionMessage.Message[], NotFoundError | MessageDecodeError>
+  ) => Effect.Effect<SessionMessage.Info[], NotFoundError | MessageDecodeError>
   /**
    * Durable, ordered, gap-free session log read. Replays public durable
    * session events after the exclusive `after` cursor, emits a `Synced`
@@ -182,7 +192,10 @@ export interface Interface {
     after?: number
     follow?: boolean
   }) => Stream.Stream<SessionEvent.DurableEvent | EventLog.Synced, NotFoundError>
-  readonly switchAgent: (input: { sessionID: SessionSchema.ID; agent: string }) => Effect.Effect<void, NotFoundError>
+  readonly switchAgent: (input: {
+    sessionID: SessionSchema.ID
+    agent: AgentV2.ID
+  }) => Effect.Effect<void, NotFoundError>
   readonly switchModel: (input: {
     sessionID: SessionSchema.ID
     model: ModelV2.Ref
@@ -200,7 +213,7 @@ export interface Interface {
     sessionID: SessionSchema.ID
     command: string
     arguments?: string
-    agent?: string
+    agent?: AgentV2.ID
     model?: ModelV2.Ref
     files?: PromptInput.Prompt["files"]
     agents?: PromptInput.Prompt["agents"]
@@ -218,12 +231,12 @@ export interface Interface {
   readonly skill: (input: {
     id?: SessionMessage.ID
     sessionID: SessionSchema.ID
-    skill: string
+    skill: SkillV2.ID
     resume?: boolean
   }) => Effect.Effect<void, NotFoundError | SkillNotFoundError>
   readonly compact: (
     input: CompactInput,
-  ) => Effect.Effect<void, NotFoundError | BusyError | MessageDecodeError | OperationUnavailableError>
+  ) => Effect.Effect<SessionInput.Compaction, NotFoundError | CompactionConflictError>
   readonly wait: (id: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   readonly background: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError>
@@ -234,13 +247,14 @@ export interface Interface {
     text: string
     description?: string
     metadata?: Record<string, unknown>
+    resume?: boolean
   }) => Effect.Effect<void, NotFoundError>
   readonly revert: {
     readonly stage: (input: {
       sessionID: SessionSchema.ID
       messageID: SessionMessage.ID
       files?: boolean
-    }) => Effect.Effect<Revert.State, NotFoundError | MessageNotFoundError | BusyError | Snapshot.Error>
+    }) => Effect.Effect<Session.Revert, NotFoundError | MessageNotFoundError | BusyError | Snapshot.Error>
     readonly clear: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | BusyError | Snapshot.Error>
     readonly commit: (sessionID: SessionSchema.ID) => Effect.Effect<void, NotFoundError | BusyError>
   }
@@ -263,7 +277,7 @@ const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const activeShells = new Set<SessionSchema.ID>()
     const shellLocks = KeyedMutex.makeUnsafe<SessionSchema.ID>()
-    const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Message)
+    const decodeMessage = Schema.decodeUnknownEffect(SessionMessage.Info)
     const isDurableSessionEvent = Schema.is(SessionEvent.Durable)
     const decode = (row: typeof SessionMessageTable.$inferSelect) =>
       decodeMessage({ ...row.data, id: row.id, type: row.type }).pipe(
@@ -312,7 +326,7 @@ const layer = Layer.effect(
                 variant: input.model.variant,
               }
             : undefined,
-          cost: 0,
+          cost: Money.USD.zero,
           tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
           time: { created: now, updated: now },
         })
@@ -362,6 +376,15 @@ const layer = Layer.effect(
         const session = yield* store.get(sessionID)
         if (!session) return yield* new NotFoundError({ sessionID })
         return session
+      }),
+      remove: Effect.fn("V2Session.remove")(function* (sessionID) {
+        yield* result.get(sessionID)
+        yield* execution.interrupt(sessionID)
+        yield* execution.awaitIdle(sessionID)
+        const children = yield* result.list({ parentID: sessionID })
+        yield* Effect.forEach(children.data, (child) => result.remove(child.id), { concurrency: 1, discard: true })
+        yield* events.publish(SessionEvent.Deleted, { sessionID })
+        yield* events.remove(sessionID)
       }),
       list: Effect.fn("V2Session.list")(function* (input = {}) {
         const direction = input.anchor?.direction ?? "next"
@@ -510,7 +533,7 @@ const layer = Layer.effect(
         })
         const model = command.model ?? commandAgent?.model ?? input.model
         if (agent !== undefined && session.agent !== AgentV2.ID.make(agent))
-          yield* result.switchAgent({ sessionID: input.sessionID, agent })
+          yield* result.switchAgent({ sessionID: input.sessionID, agent: AgentV2.ID.make(agent) })
         if (model !== undefined) yield* result.switchModel({ sessionID: input.sessionID, model })
 
         return yield* result.prompt({
@@ -529,7 +552,7 @@ const layer = Layer.effect(
             if ((yield* execution.active).has(input.sessionID)) yield* execution.awaitIdle(input.sessionID)
             const started = yield* Effect.gen(function* () {
               const shell = yield* Shell.Service
-              return yield* shell.create({ command: input.command, cwd: session.location.directory })
+              return yield* shell.create({ command: input.command, cwd: session.location.directory, timeout: 0 })
             }).pipe(Effect.provide(locations.get(session.location)))
             yield* events.publish(
               SessionEvent.Shell.Started,
@@ -572,12 +595,13 @@ const layer = Layer.effect(
       skill: Effect.fn("V2Session.skill")(function* (input) {
         const session = yield* result.get(input.sessionID)
         const skills = yield* SkillV2.Service.pipe(Effect.provide(locations.get(session.location)))
-        const skill = (yield* skills.list()).find((item) => item.name === input.skill)
+        const skill = (yield* skills.list()).find((item) => item.id === input.skill)
         if (!skill) return yield* new SkillNotFoundError({ skill: input.skill })
         yield* events.publish(
           SessionEvent.Skill.Activated,
           {
             sessionID: input.sessionID,
+            id: skill.id,
             name: skill.name,
             text: skill.content,
           },
@@ -616,19 +640,20 @@ const layer = Layer.effect(
         })
       }),
       compact: Effect.fn("V2Session.compact")(function* (input) {
-        const session = yield* result.get(input.sessionID)
-        // TODO: admit manual compaction as durable pending work, like prompt input, instead of rejecting active sessions.
-        if ((yield* execution.active).has(input.sessionID)) return yield* new BusyError({ sessionID: input.sessionID })
-        const context = yield* store.context(input.sessionID)
-        const compacted = yield* Effect.gen(function* () {
-          const compaction = yield* SessionCompaction.Service
-          return yield* compaction.compactManual({ session, messages: context })
+        yield* result.get(input.sessionID)
+        const inputID = input.id ?? SessionMessage.ID.create()
+        const admitted = yield* SessionInput.admitCompaction(db, events, {
+          id: inputID,
+          sessionID: input.sessionID,
         }).pipe(
-          Effect.provide(locations.get(session.location)),
-          Effect.catch(() => Effect.succeed(false)),
+          Effect.catchDefect((defect) =>
+            defect instanceof SessionInput.LifecycleConflict
+              ? new CompactionConflictError({ sessionID: input.sessionID, inputID })
+              : Effect.die(defect),
+          ),
         )
-        if (!compacted) return yield* new OperationUnavailableError({ operation: "compact" })
-        return undefined
+        yield* execution.wake(input.sessionID)
+        return admitted
       }),
       wait: Effect.fn("V2Session.wait")(function* (sessionID) {
         yield* result.get(sessionID)
@@ -663,6 +688,7 @@ const layer = Layer.effect(
           description: input.description,
           metadata: input.metadata,
         })
+        if (input.resume === false) return
         yield* execution
           .resume(input.sessionID)
           .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
@@ -724,11 +750,7 @@ function synthesizeTerminalShellInfo(started: ShellSchema.Info): ShellSchema.Inf
 const resolvePrompt = Effect.fn("V2Session.resolvePrompt")(function* (input: PromptInput.Prompt) {
   const fs = yield* FSUtil.Service
   const files = input.files
-    ? yield* Effect.forEach(
-        input.files,
-        (file) => materializeAttachment(fs, file),
-        { concurrency: 8 },
-      )
+    ? yield* Effect.forEach(input.files, (file) => materializeAttachment(fs, file), { concurrency: 8 })
     : undefined
   return Prompt.make({ text: input.text, agents: input.agents, files })
 })
@@ -746,6 +768,7 @@ const materializeAttachment = Effect.fn("V2Session.materializeAttachment")(funct
         start: undefined,
         end: undefined,
         name: undefined,
+        mime: undefined,
       }
     : yield* readFileAttachment(fs, input.uri)
   if (resolved.bytes.byteLength > MAX_ATTACHMENT_BYTES)
@@ -754,11 +777,15 @@ const materializeAttachment = Effect.fn("V2Session.materializeAttachment")(funct
       message: `Attachment exceeds the ${MAX_ATTACHMENT_BYTES} byte limit: ${input.uri}`,
     })
 
-  const mime = Mime.detect(resolved.bytes)
+  const mime = resolved.mime ?? Mime.detect(resolved.bytes)
   const content =
     mime === "text/plain" && resolved.start !== undefined
       ? Buffer.from(
-          Buffer.from(resolved.bytes).toString("utf8").split("\n").slice(resolved.start - 1, resolved.end).join("\n"),
+          Buffer.from(resolved.bytes)
+            .toString("utf8")
+            .split("\n")
+            .slice(resolved.start - 1, resolved.end)
+            .join("\n"),
         )
       : resolved.bytes
   return FileAttachment.create({
@@ -788,19 +815,38 @@ const readFileAttachment = Effect.fn("V2Session.readFileAttachment")(function* (
     },
     catch: () => new AttachmentError({ uri, message: `Invalid file URI: ${uri}` }),
   })
-  const info = yield* fs.stat(target).pipe(
-    Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })),
-  )
+  const info = yield* fs
+    .stat(target)
+    .pipe(Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })))
+  if (info.type === "Directory") {
+    const entries = yield* fs
+      .readDirectoryEntries(target)
+      .pipe(Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })))
+    return {
+      bytes: Buffer.from(
+        entries
+          .filter((entry) => entry.type === "file" || entry.type === "directory")
+          .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === "directory" ? -1 : 1))
+          .map((entry) => entry.name + (entry.type === "directory" ? path.sep : ""))
+          .join("\n"),
+      ),
+      source: { type: "uri" as const, uri },
+      start: undefined,
+      end: undefined,
+      name: path.basename(target),
+      mime: "application/x-directory",
+    }
+  }
   if (info.type !== "File") return yield* new AttachmentError({ uri, message: `Attachment is not a file: ${uri}` })
   if (Number(info.size) > MAX_ATTACHMENT_BYTES)
     return yield* new AttachmentError({
       uri,
       message: `Attachment exceeds the ${MAX_ATTACHMENT_BYTES} byte limit: ${uri}`,
     })
-  const bytes = yield* fs.readFile(target).pipe(
-    Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })),
-  )
-  return { bytes, source: { type: "uri" as const, uri }, start, end, name: path.basename(target) }
+  const bytes = yield* fs
+    .readFile(target)
+    .pipe(Effect.mapError(() => new AttachmentError({ uri, message: `Unable to read attachment: ${uri}` })))
+  return { bytes, source: { type: "uri" as const, uri }, start, end, name: path.basename(target), mime: undefined }
 })
 
 function decodeDataURL(uri: string) {

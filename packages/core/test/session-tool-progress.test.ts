@@ -4,6 +4,7 @@ import { DateTime, Effect, Schema } from "effect"
 import { Database } from "@opencode-ai/core/database/database"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
+import { AgentV2 } from "@opencode-ai/core/agent"
 import { EventTable } from "@opencode-ai/core/event/sql"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Project } from "@opencode-ai/core/project"
@@ -51,7 +52,7 @@ describe("Tool.Progress", () => {
       yield* service.publish(SessionEvent.Step.Started, {
         sessionID,
         assistantMessageID,
-        agent: "build",
+        agent: AgentV2.ID.make("build"),
         model,
       })
       const readAssistant = Effect.gen(function* () {
@@ -76,9 +77,8 @@ describe("Tool.Progress", () => {
             sessionID,
             assistantMessageID,
             callID,
-            tool: "bash",
             input: { command: "pwd" },
-            provider: { executed: false },
+            executed: false,
           })
         })
 
@@ -104,7 +104,7 @@ describe("Tool.Progress", () => {
         callID: "call-success",
         structured: { phase: "done" },
         content: content("complete"),
-        provider: { executed: false },
+        executed: false,
       })
       expect((yield* readAssistant).content[0]).toMatchObject({
         state: { status: "completed", structured: { phase: "done" }, content: content("complete") },
@@ -123,7 +123,7 @@ describe("Tool.Progress", () => {
         assistantMessageID,
         callID: "call-failed",
         error: { type: "unknown", message: "boom" },
-        provider: { executed: false },
+        executed: false,
       })
       expect((yield* readAssistant).content[1]).toMatchObject({
         state: {

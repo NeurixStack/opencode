@@ -1,5 +1,6 @@
 import { SessionV2 } from "@opencode-ai/core/session"
 import { InstructionEntry } from "@opencode-ai/core/session/instruction-entry"
+import { MoveSession } from "@opencode-ai/core/control-plane/move-session"
 import { DateTime, Effect, Stream } from "effect"
 import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { Api } from "../api"
@@ -8,8 +9,8 @@ import {
   ConflictError,
   CommandEvaluationError,
   CommandNotFoundError,
-  InvalidCursorError,
   InvalidRequestError,
+  InvalidCursorError,
   MessageNotFoundError,
   ServiceUnavailableError,
   SessionBusyError,
@@ -24,6 +25,7 @@ const DefaultSessionsLimit = 50
 export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handlers) =>
   Effect.gen(function* () {
     const session = yield* SessionV2.Service
+    const moveSession = yield* MoveSession.Service
 
     return handlers
       .handle(
@@ -112,6 +114,22 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
         }),
       )
       .handle(
+        "session.remove",
+        Effect.fn(function* (ctx) {
+          yield* session.remove(ctx.params.sessionID).pipe(
+            Effect.catchTag(
+              "Session.NotFoundError",
+              (error) =>
+                new SessionNotFoundError({
+                  sessionID: error.sessionID,
+                  message: `Session not found: ${error.sessionID}`,
+                }),
+            ),
+          )
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
         "session.fork",
         Effect.fn(function* (ctx) {
           return {
@@ -180,6 +198,43 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
                   message: `Session not found: ${error.sessionID}`,
                 }),
               ),
+            ),
+          )
+          return HttpApiSchema.NoContent.make()
+        }),
+      )
+      .handle(
+        "session.move",
+        Effect.fn(function* (ctx) {
+          yield* moveSession.moveSession({
+            sessionID: ctx.params.sessionID,
+            destination: ctx.payload.destination,
+            moveChanges: ctx.payload.moveChanges,
+          }).pipe(
+            Effect.catchTag("Session.NotFoundError", (error) =>
+              Effect.fail(
+                new SessionNotFoundError({
+                  sessionID: error.sessionID,
+                  message: `Session not found: ${error.sessionID}`,
+                }),
+              ),
+            ),
+            Effect.catchTag("MoveSession.DestinationProjectMismatchError", () =>
+              Effect.fail(new InvalidRequestError({ message: "Destination directory belongs to another project" })),
+            ),
+            Effect.catchTag("MoveSession.ApplyChangesError", () =>
+              Effect.fail(
+                new InvalidRequestError({
+                  message:
+                    "Unable to apply your changes in the destination directory. The files may conflict with existing changes.",
+                }),
+              ),
+            ),
+            Effect.catchTag("MoveSession.CaptureChangesError", (error) =>
+              Effect.fail(new InvalidRequestError({ message: error.message })),
+            ),
+            Effect.catchTag("MoveSession.ResetSourceChangesError", (error) =>
+              Effect.fail(new InvalidRequestError({ message: error.message })),
             ),
           )
           return HttpApiSchema.NoContent.make()
@@ -313,6 +368,7 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
               text: ctx.payload.text,
               description: ctx.payload.description,
               metadata: ctx.payload.metadata,
+              resume: ctx.payload.resume,
             })
             .pipe(
               Effect.catchTag("Session.NotFoundError", (error) =>
@@ -348,44 +404,26 @@ export const SessionHandler = HttpApiBuilder.group(Api, "server.session", (handl
       .handle(
         "session.compact",
         Effect.fn(function* (ctx) {
-          yield* session.compact({ sessionID: ctx.params.sessionID }).pipe(
-            Effect.catchTag("Session.NotFoundError", (error) =>
-              Effect.fail(
-                new SessionNotFoundError({
-                  sessionID: error.sessionID,
-                  message: `Session not found: ${error.sessionID}`,
-                }),
-              ),
-            ),
-            Effect.catchTag("Session.OperationUnavailableError", (error) =>
-              Effect.fail(
-                new ServiceUnavailableError({
-                  message: `Session ${error.operation} is not available yet`,
-                  service: `session.${error.operation}`,
-                }),
-              ),
-            ),
-            Effect.catchTag(
-              "Session.BusyError",
-              (error) =>
-                new SessionBusyError({
-                  sessionID: error.sessionID,
-                  message: `Session is busy: ${error.sessionID}`,
-                }),
-            ),
-            Effect.catchTag("Session.MessageDecodeError", (error) => {
-              const ref = `err_${crypto.randomUUID().slice(0, 8)}`
-              return Effect.logError("failed to decode session message during compaction").pipe(
-                Effect.annotateLogs({ ref, sessionID: error.sessionID, messageID: error.messageID }),
-                Effect.andThen(
-                  Effect.fail(
-                    new UnknownError({ message: "Unexpected server error. Check server logs for details.", ref }),
-                  ),
+          return {
+            data: yield* session.compact({ sessionID: ctx.params.sessionID, id: ctx.payload.id }).pipe(
+              Effect.catchTag("Session.NotFoundError", (error) =>
+                Effect.fail(
+                  new SessionNotFoundError({
+                    sessionID: error.sessionID,
+                    message: `Session not found: ${error.sessionID}`,
+                  }),
                 ),
-              )
-            }),
-          )
-          return HttpApiSchema.NoContent.make()
+              ),
+              Effect.catchTag("Session.CompactionConflictError", (error) =>
+                Effect.fail(
+                  new ConflictError({
+                    message: `Compaction input ID conflicts with an existing durable record: ${error.inputID}`,
+                    resource: error.inputID,
+                  }),
+                ),
+              ),
+            ),
+          }
         }),
       )
       .handle(

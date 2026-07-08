@@ -1,10 +1,11 @@
 import { sqliteTable, text, integer, index, primaryKey, real, uniqueIndex } from "drizzle-orm/sqlite-core"
+import { sql } from "drizzle-orm"
 import { directoryColumn, pathColumn } from "../database/path"
 import { ProjectTable } from "../project/sql"
 import type { SessionMessage } from "./message"
 import type { Prompt } from "@opencode-ai/schema/prompt"
 import type { SessionInput } from "./input"
-import type { Snapshot } from "../snapshot"
+import type { FileDiff } from "@opencode-ai/schema/file-diff"
 import { PermissionV1 } from "../v1/permission"
 import { ProjectV2 } from "../project"
 import type { SessionSchema } from "./schema"
@@ -12,10 +13,11 @@ import type { MessageID, PartID, SessionV1 } from "../v1/session"
 import { WorkspaceV2 } from "../workspace"
 import { Timestamps } from "../database/schema.sql"
 import type { Instructions } from "../instructions/index"
-import type { Revert } from "@opencode-ai/schema/revert"
+import type { Session } from "@opencode-ai/schema/session"
+import type { RevertV1 } from "@opencode-ai/schema/session-revert"
 import type { Schema } from "effect"
 
-type SessionMessageData = Omit<(typeof SessionMessage.Message)["Encoded"], "type" | "id">
+type SessionMessageData = Omit<(typeof SessionMessage.Info)["Encoded"], "type" | "id">
 type V1MessageData = Omit<SessionV1.Info, "id" | "sessionID">
 type V1PartData = Omit<SessionV1.Part, "id" | "sessionID" | "messageID">
 
@@ -29,6 +31,8 @@ export const SessionTable = sqliteTable(
       .references(() => ProjectTable.id, { onDelete: "cascade" }),
     workspace_id: text().$type<WorkspaceV2.ID>(),
     parent_id: text().$type<SessionSchema.ID>(),
+    fork_session_id: text().$type<SessionSchema.ID>(),
+    fork_message_id: text().$type<SessionMessage.ID>(),
     slug: text().notNull(),
     directory: directoryColumn().notNull(),
     path: pathColumn(),
@@ -38,7 +42,7 @@ export const SessionTable = sqliteTable(
     summary_additions: integer(),
     summary_deletions: integer(),
     summary_files: integer(),
-    summary_diffs: text({ mode: "json" }).$type<Snapshot.LegacyFileDiff[]>(),
+    summary_diffs: text({ mode: "json" }).$type<FileDiff.LegacyInfo[]>(),
     metadata: text({ mode: "json" }).$type<Record<string, unknown>>(),
     cost: real().notNull().default(0),
     tokens_input: integer().notNull().default(0),
@@ -46,7 +50,7 @@ export const SessionTable = sqliteTable(
     tokens_reasoning: integer().notNull().default(0),
     tokens_cache_read: integer().notNull().default(0),
     tokens_cache_write: integer().notNull().default(0),
-    revert: text({ mode: "json" }).$type<Revert.State>(),
+    revert: text({ mode: "json" }).$type<Session.Revert | RevertV1>(),
     permission: text({ mode: "json" }).$type<PermissionV1.Ruleset>(),
     agent: text(),
     model: text({ mode: "json" }).$type<{
@@ -145,8 +149,9 @@ export const SessionInputTable = sqliteTable(
       .$type<SessionSchema.ID>()
       .notNull()
       .references(() => SessionTable.id, { onDelete: "cascade" }),
-    prompt: text({ mode: "json" }).notNull().$type<Prompt>(),
-    delivery: text().$type<SessionInput.Delivery>().notNull(),
+    type: text().$type<SessionInput.Info["type"]>().notNull(),
+    prompt: text({ mode: "json" }).$type<Prompt>(),
+    delivery: text().$type<SessionInput.Delivery>(),
     admitted_seq: integer().notNull(),
     promoted_seq: integer(),
     time_created: integer()
@@ -154,12 +159,16 @@ export const SessionInputTable = sqliteTable(
       .$default(() => Date.now()),
   },
   (table) => [
-    index("session_input_session_pending_delivery_seq_idx").on(
+    index("session_input_session_pending_type_delivery_seq_idx").on(
       table.session_id,
       table.promoted_seq,
+      table.type,
       table.delivery,
       table.admitted_seq,
     ),
+    uniqueIndex("session_input_session_pending_compaction_idx")
+      .on(table.session_id)
+      .where(sql`${table.type} = 'compaction' and ${table.promoted_seq} is null`),
     uniqueIndex("session_input_session_admitted_seq_idx").on(table.session_id, table.admitted_seq),
     uniqueIndex("session_input_session_promoted_seq_idx").on(table.session_id, table.promoted_seq),
   ],

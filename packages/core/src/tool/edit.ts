@@ -6,7 +6,7 @@
  */
 export * as EditTool from "./edit"
 
-import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
+import type { Context as PluginContext } from "@opencode-ai/plugin/v2/effect/plugin"
 import { ToolFailure } from "@opencode-ai/llm"
 import { FileDiff } from "@opencode-ai/schema/file-diff"
 import { createTwoFilesPatch, diffLines } from "diff"
@@ -113,8 +113,9 @@ export const Plugin = {
                       error instanceof FileMutation.StaleContentError
                         ? new ToolFailure({
                             message: "File changed after permission approval. Read it again before editing.",
+                            error,
                           })
-                        : new ToolFailure({ message: `Unable to edit ${input.path}` }),
+                        : new ToolFailure({ message: `Unable to edit ${input.path}`, error }),
                     ),
                   )
 

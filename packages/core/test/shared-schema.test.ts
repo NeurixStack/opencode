@@ -76,6 +76,7 @@ test("Core reuses the canonical shared schemas", async () => {
 
   const schemas = [
     [AgentV2.ID, Agent.ID],
+    [AgentV2.Name, Agent.Name],
     [AgentV2.Color, Agent.Color],
     [AgentV2.Info, Agent.Info],
     [coreCommand.Info, Command.Info],
@@ -103,6 +104,7 @@ test("Core reuses the canonical shared schemas", async () => {
     [coreIntegration.Ref, Integration.Ref],
     [coreLocation.Ref, Location.Ref],
     [coreLLM.ProviderMetadata, LLM.ProviderMetadata],
+    [coreLLM.FinishReason, LLM.FinishReason],
     [coreLLM.ToolTextContent, LLM.ToolTextContent],
     [coreLLM.ToolFileContent, LLM.ToolFileContent],
     [coreLLM.ToolContent, LLM.ToolContent],
@@ -137,14 +139,14 @@ test("Core reuses the canonical shared schemas", async () => {
     [coreSessionInput.Delivery, SessionInput.Delivery],
     [coreSessionInput.Admitted, SessionInput.Admitted],
     [coreSessionMessage.ID, SessionMessage.ID],
-    [coreSessionMessage.UnknownError, SessionMessage.UnknownError],
+    [coreSessionMessage.AssistantRetry, SessionMessage.AssistantRetry],
     [coreSessionMessage.AgentSelected, SessionMessage.AgentSelected],
     [coreSessionMessage.ModelSelected, SessionMessage.ModelSelected],
     [coreSessionMessage.User, SessionMessage.User],
     [coreSessionMessage.Synthetic, SessionMessage.Synthetic],
     [coreSessionMessage.System, SessionMessage.System],
     [coreSessionMessage.Shell, SessionMessage.Shell],
-    [coreSessionMessage.ToolStatePending, SessionMessage.ToolStatePending],
+    [coreSessionMessage.ToolStateStreaming, SessionMessage.ToolStateStreaming],
     [coreSessionMessage.ToolStateRunning, SessionMessage.ToolStateRunning],
     [coreSessionMessage.ToolStateCompleted, SessionMessage.ToolStateCompleted],
     [coreSessionMessage.ToolStateError, SessionMessage.ToolStateError],
@@ -155,7 +157,7 @@ test("Core reuses the canonical shared schemas", async () => {
     [coreSessionMessage.AssistantContent, SessionMessage.AssistantContent],
     [coreSessionMessage.Assistant, SessionMessage.Assistant],
     [coreSessionMessage.Compaction, SessionMessage.Compaction],
-    [coreSessionMessage.Message, SessionMessage.Message],
+    [coreSessionMessage.Info, SessionMessage.Info],
     [coreSessionTodo.Info, SessionTodo.Info],
     [coreSessionTodo.Event, SessionTodo.Event],
     [coreSkill.DirectorySource, Skill.DirectorySource],
@@ -183,7 +185,7 @@ test("Core reuses the canonical shared schemas", async () => {
 test("shared record schemas construct and decode plain objects", () => {
   const made = Prompt.make({ text: "hello" })
   const decoded = Schema.decodeUnknownSync(Prompt)({ text: "hello" })
-  const content = Schema.decodeUnknownSync(SessionMessage.AssistantText)({ type: "text", id: "part_1", text: "hi" })
+  const content = Schema.decodeUnknownSync(SessionMessage.AssistantText)({ type: "text", text: "hi" })
 
   expect(Object.getPrototypeOf(made)).toBe(Object.prototype)
   expect(Object.getPrototypeOf(decoded)).toBe(Object.prototype)

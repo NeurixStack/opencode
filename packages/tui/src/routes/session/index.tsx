@@ -21,19 +21,19 @@ import { useProject } from "../../context/project"
 import { useData } from "../../context/data"
 import { SplitBorder } from "../../ui/border"
 import { useTuiPaths, useTuiTerminalEnvironment } from "../../context/runtime"
-import { Spinner } from "../../component/spinner"
-import { createSyntaxStyleMemo, generateSubtleSyntax, selectedForeground, useTheme } from "../../context/theme"
+import { Spinner, SPINNER_FRAMES } from "../../component/spinner"
+import { createSyntaxStyleMemo, generateSubtleSyntax, useTheme } from "../../context/theme"
 import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
 import { Prompt, type PromptRef } from "../../component/prompt"
 import type {
-  ModelV2Info,
-  SessionMessage,
+  ModelInfo,
+  SessionMessageInfo,
   SessionMessageAssistant,
   SessionMessageAssistantReasoning,
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionMessageUser,
-  SessionV2Info,
+  SessionInfo,
 } from "@opencode-ai/sdk/v2"
 import { useLocal } from "../../context/local"
 import { Locale } from "../../util/locale"
@@ -46,6 +46,7 @@ import { useDialog } from "../../ui/dialog"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
 import { TodoItem } from "../../component/todo-item"
 import { DialogMessage } from "./dialog-message"
+import { DialogFork } from "./dialog-fork"
 import { Sidebar } from "./sidebar"
 import { Composer } from "./composer"
 import { filetype } from "../../util/filetype"
@@ -70,7 +71,7 @@ import { usePluginRuntime } from "../../plugin/runtime"
 import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut } from "../../keymap"
 import { usePathFormatter } from "../../context/path-format"
 import { LocationProvider } from "../../context/location"
-import { createSessionRows, type PartRef, type SessionRow } from "./rows"
+import { createSessionRows, resolvePart, type PartRef, type SessionRow } from "./rows"
 import { switchLabel } from "../../util/model"
 
 addDefaultParsers(parsers.parsers)
@@ -129,7 +130,7 @@ const context = createContext<{
   showGenericToolOutput: () => boolean
   groupExploration: () => boolean
   diffWrapMode: () => "word" | "none"
-  models: () => ModelV2Info[]
+  models: () => ModelInfo[]
   tui: ReturnType<typeof useTuiConfig>
 }>()
 
@@ -370,7 +371,18 @@ export function Session() {
       value: "session.fork",
       category: "Session",
       slash: { name: "fork" },
-      run: () => unavailable("Forking"),
+      run: () => {
+        dialog.replace(() => (
+          <DialogFork
+            sessionID={route.sessionID}
+            onMove={(messageID) => {
+              if (!messageID) return
+              const child = scroll.getChildren().find((child) => child.id === messageID)
+              if (child) scroll.scrollBy(child.y - scroll.y - 1)
+            }}
+          />
+        ))
+      },
     },
     {
       title: "Compact session",
@@ -415,7 +427,7 @@ export function Session() {
             dialog.clear()
             return
           }
-          const error = await sdk.api.session.revertStage({ sessionID: route.sessionID, messageID: target }).then(
+          const error = await sdk.api.session.revert.stage({ sessionID: route.sessionID, messageID: target }).then(
             () => undefined,
             (error) => error,
           )
@@ -432,7 +444,7 @@ export function Session() {
       slash: { name: "redo" },
       run: () => {
         void (async () => {
-          const error = await sdk.api.session.revertClear({ sessionID: route.sessionID }).then(
+          const error = await sdk.api.session.revert.clear({ sessionID: route.sessionID }).then(
             () => undefined,
             (error) => error,
           )
@@ -999,7 +1011,7 @@ export function Session() {
   )
 }
 
-function SessionRowView(props: { row: SessionRow; message: (messageID: string) => SessionMessage | undefined }) {
+function SessionRowView(props: { row: SessionRow; message: (messageID: string) => SessionMessageInfo | undefined }) {
   return (
     <box marginTop={1} flexShrink={0}>
       <Switch>
@@ -1037,7 +1049,7 @@ function SessionRowView(props: { row: SessionRow; message: (messageID: string) =
   )
 }
 
-function BackgroundToolHint(props: { messages: SessionMessage[] }) {
+function BackgroundToolHint(props: { messages: SessionMessageInfo[] }) {
   const { theme } = useTheme()
   const shortcut = useCommandShortcut("session.background")
   const visible = createMemo(() => {
@@ -1065,14 +1077,14 @@ function BackgroundToolHint(props: { messages: SessionMessage[] }) {
   )
 }
 
-function SessionMessageView(props: { message: SessionMessage }) {
+function SessionMessageView(props: { message: SessionMessageInfo }) {
   return (
     <Switch>
       <Match when={props.message.type === "user"}>
         <UserMessage message={props.message as SessionMessageUser} />
       </Match>
       <Match when={props.message.type === "shell"}>
-        <ShellMessage message={props.message as Extract<SessionMessage, { type: "shell" }>} />
+        <ShellMessage message={props.message as Extract<SessionMessageInfo, { type: "shell" }>} />
       </Match>
       <Match when={props.message.type === "agent-switched" || props.message.type === "model-switched"}>
         <SessionSwitchMessageV2 message={props.message} />
@@ -1081,22 +1093,22 @@ function SessionMessageView(props: { message: SessionMessage }) {
         when={props.message.type === "system" || props.message.type === "synthetic" || props.message.type === "skill"}
       >
         <Show when={props.message.type === "skill"} fallback={<SessionNoticeMessageV2 message={props.message} />}>
-          <SessionSkillMessage message={props.message as Extract<SessionMessage, { type: "skill" }>} />
+          <SessionSkillMessage message={props.message as Extract<SessionMessageInfo, { type: "skill" }>} />
         </Show>
       </Match>
       <Match when={props.message.type === "compaction"}>
-        <CompactionMessage />
+        <CompactionMessage message={props.message as Extract<SessionMessageInfo, { type: "compaction" }>} />
       </Match>
     </Switch>
   )
 }
 
-function SessionPartView(props: { partRef: PartRef; message: (messageID: string) => SessionMessage | undefined }) {
+function SessionPartView(props: { partRef: PartRef; message: (messageID: string) => SessionMessageInfo | undefined }) {
   const message = createMemo(() => props.message(props.partRef.messageID))
   const part = createMemo(() => {
     const item = message()
     if (item?.type !== "assistant") return
-    return item.content.find((part) => part.id === props.partRef.partID)
+    return resolvePart(item, props.partRef.partID)
   })
   return (
     <Show when={part()}>
@@ -1125,7 +1137,7 @@ function SessionGroupView(props: {
   refs: PartRef[]
   pending: PartRef[]
   completed: boolean
-  message: (messageID: string) => SessionMessage | undefined
+  message: (messageID: string) => SessionMessageInfo | undefined
 }) {
   const { theme } = useTheme()
   const ctx = use()
@@ -1136,7 +1148,7 @@ function SessionGroupView(props: {
     refs.flatMap((ref) => {
       const message = props.message(ref.messageID)
       if (message?.type !== "assistant") return []
-      const part = message.content.find((part) => part.id === ref.partID)
+      const part = resolvePart(message, ref.partID)
       if (part?.type !== "tool") return []
       return [part]
     })
@@ -1216,6 +1228,7 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
           <text fg={theme.textMuted}>{errorMessage(props.message.error)}</text>
         </box>
       </Show>
+      <AssistantRetry retry={props.message.retry} />
       <box paddingLeft={3} marginTop={props.message.error && !interrupted() ? 1 : 0}>
         <text>
           <span style={{ fg: props.message.error ? theme.textMuted : local.agent.color(props.message.agent) }}>
@@ -1234,7 +1247,7 @@ function AssistantFooter(props: { message: SessionMessageAssistant }) {
   )
 }
 
-function SessionSwitchMessageV2(props: { message: SessionMessage }) {
+function SessionSwitchMessageV2(props: { message: SessionMessageInfo }) {
   const ctx = use()
   const { theme } = useTheme()
   const text = () => {
@@ -1243,10 +1256,14 @@ function SessionSwitchMessageV2(props: { message: SessionMessage }) {
       return switchLabel(props.message.model, ctx.models(), props.message.previous)
     return ""
   }
-  return <text fg={theme.textMuted}>{text()}</text>
+  return (
+    <box paddingLeft={3}>
+      <text fg={theme.textMuted}>{text()}</text>
+    </box>
+  )
 }
 
-function SessionNoticeMessageV2(props: { message: SessionMessage }) {
+function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
   const { theme } = useTheme()
   const text = () => {
     if (props.message.type === "system") return "Instructions updated"
@@ -1260,7 +1277,7 @@ function SessionNoticeMessageV2(props: { message: SessionMessage }) {
   )
 }
 
-function SessionSkillMessage(props: { message: Extract<SessionMessage, { type: "skill" }> }) {
+function SessionSkillMessage(props: { message: Extract<SessionMessageInfo, { type: "skill" }> }) {
   const { theme } = useTheme()
   return (
     <InlineToolRow icon="→" color={theme.textMuted} pending="Skill" complete={true}>
@@ -1269,9 +1286,57 @@ function SessionSkillMessage(props: { message: Extract<SessionMessage, { type: "
   )
 }
 
-function CompactionMessage() {
-  const { theme } = useTheme()
-  return <box border={["top"]} title=" Compaction " titleAlignment="center" borderColor={theme.borderActive} />
+function CompactionMessage(props: {
+  message?: Extract<SessionMessageInfo, { type: "compaction" }>
+  status?: "running"
+  text?: string
+}) {
+  const ctx = use()
+  const kv = useKV()
+  const { theme, syntax } = useTheme()
+  const status = () => props.message?.status ?? props.status
+  const text = () =>
+    props.message?.status === "failed" ? props.message.error.message : (props.message?.summary ?? props.text ?? "")
+  const color = () => (status() === "failed" ? theme.error : status() === "completed" ? theme.success : theme.textMuted)
+  const border = color
+  return (
+    <box>
+      <box flexDirection="row" alignItems="center">
+        <box border={["top"]} borderColor={border()} flexGrow={1} />
+        <box flexDirection="row" gap={1} paddingLeft={1} paddingRight={1}>
+          <Switch>
+            <Match when={status() === "running"}>
+              <Show when={kv.get("animations_enabled", true)} fallback={<text fg={color()}>⋯</text>}>
+                <spinner frames={SPINNER_FRAMES} interval={80} color={color()} />
+              </Show>
+            </Match>
+            <Match when={status() === "completed"}>
+              <text fg={color()}>✓</text>
+            </Match>
+            <Match when={status() === "failed"}>
+              <text fg={color()}>✗</text>
+            </Match>
+          </Switch>
+          <text fg={color()}>Compaction</text>
+        </box>
+        <box border={["top"]} borderColor={border()} flexGrow={1} />
+      </box>
+      <Show when={text().trim()}>
+        <box paddingTop={1} paddingLeft={3}>
+          <markdown
+            syntaxStyle={syntax()}
+            streaming={status() === "running"}
+            internalBlockMode="top-level"
+            content={text().trim()}
+            tableOptions={{ style: "grid" }}
+            conceal={ctx.conceal()}
+            fg={theme.markdownText}
+            bg={theme.background}
+          />
+        </box>
+      </Show>
+    </box>
+  )
 }
 
 function statusLabel(status: "added" | "modified" | "deleted") {
@@ -1283,7 +1348,7 @@ function statusLabel(status: "added" | "modified" | "deleted") {
 function RevertMessage(props: {
   count: number
   files: ReadonlyArray<{
-    readonly path: string
+    readonly file: string
     readonly status: "added" | "modified" | "deleted"
     readonly additions: number
     readonly deletions: number
@@ -1303,7 +1368,7 @@ function RevertMessage(props: {
       onMouseUp={() => {
         if (renderer.getSelection()?.getSelectedText()) return
         void (async () => {
-          const error = await sdk.api.session.revertClear({ sessionID: route.sessionID }).then(
+          const error = await sdk.api.session.revert.clear({ sessionID: route.sessionID }).then(
             () => undefined,
             (error) => error,
           )
@@ -1332,7 +1397,7 @@ function RevertMessage(props: {
                 <box flexDirection="row" gap={1} flexShrink={0}>
                   <text fg={theme.textMuted}>{statusLabel(file.status)}</text>
                   <text fg={theme.text} wrapMode="none">
-                    {Locale.truncateLeft(file.path, 60)}
+                    {Locale.truncateLeft(file.file, 60)}
                   </text>
                   <Show when={file.additions > 0}>
                     <text fg={theme.diffAdded}>+{file.additions}</text>
@@ -1353,7 +1418,7 @@ function RevertMessage(props: {
   )
 }
 
-function ShellMessage(props: { message: Extract<SessionMessage, { type: "shell" }> }) {
+function ShellMessage(props: { message: Extract<SessionMessageInfo, { type: "shell" }> }) {
   const { theme } = useTheme()
   const output = createMemo(() => stripAnsi(props.message.output?.output.trim() ?? ""))
 
@@ -1368,7 +1433,7 @@ function ShellMessage(props: { message: Extract<SessionMessage, { type: "shell" 
       customBorderChars={SplitBorder.customBorderChars}
       borderColor={theme.background}
     >
-      <text fg={theme.text}>$ {props.message.shell.command}</text>
+      <text fg={theme.text}>$ {props.message.command}</text>
       <Show when={output()}>
         <text fg={theme.textMuted}>{output()}</text>
       </Show>
@@ -1384,9 +1449,9 @@ function UserMessage(props: { message: SessionMessageUser }) {
   const { theme } = useTheme()
   const [hover, setHover] = createSignal(false)
   const color = createMemo(() => local.agent.color(data.session.get(ctx.sessionID)?.agent ?? "build"))
-  const queued = createMemo(() => props.message.metadata?.queued === true)
-  const queuedFg = createMemo(() => selectedForeground(theme, color()))
-  const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
+  const queued = createMemo(
+    () => data.session.status(ctx.sessionID) === "running" && data.session.input.has(ctx.sessionID, props.message.id),
+  )
   const dialog = useDialog()
   const renderer = useRenderer()
 
@@ -1395,7 +1460,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
       <box
         id={props.message.id}
         border={["left"]}
-        borderColor={color()}
+        borderColor={queued() ? theme.border : color()}
         customBorderChars={SplitBorder.customBorderChars}
       >
         <box
@@ -1417,15 +1482,19 @@ function UserMessage(props: { message: SessionMessageUser }) {
         >
           <text fg={theme.text}>{props.message.text}</text>
           <Show when={files().length}>
-            <box flexDirection="row" paddingBottom={metadataVisible() ? 1 : 0} paddingTop={1} gap={1} flexWrap="wrap">
+            <box
+              flexDirection="row"
+              paddingBottom={ctx.showTimestamps() ? 1 : 0}
+              paddingTop={1}
+              gap={1}
+              flexWrap="wrap"
+            >
               <For each={files()}>
                 {(file) => {
-                  const label = file.mime === "application/x-directory" ? "Directory" : file.mime
+                  const label = file.mime === "application/x-directory" ? "dir" : "file"
                   return (
                     <text fg={theme.text}>
-                      <span style={{ bg: theme.secondary, fg: theme.background }}>
-                        {` ${label} `}
-                      </span>
+                      <span style={{ bg: theme.secondary, fg: theme.background, bold: true }}>{` ${label} `}</span>
                       <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}>
                         {" "}
                         {file.name ?? (file.source.type === "uri" ? file.source.uri : "attachment")}{" "}
@@ -1436,18 +1505,9 @@ function UserMessage(props: { message: SessionMessageUser }) {
               </For>
             </box>
           </Show>
-          <Show
-            when={queued()}
-            fallback={
-              <Show when={ctx.showTimestamps()}>
-                <text fg={theme.textMuted}>
-                  <span style={{ fg: theme.textMuted }}>{Locale.todayTimeOrDateTime(props.message.time.created)}</span>
-                </text>
-              </Show>
-            }
-          >
+          <Show when={ctx.showTimestamps()}>
             <text fg={theme.textMuted}>
-              <span style={{ bg: color(), fg: queuedFg(), bold: true }}> QUEUED </span>
+              <span style={{ fg: theme.textMuted }}>{Locale.todayTimeOrDateTime(props.message.time.created)}</span>
             </text>
           </Show>
         </box>
@@ -1485,7 +1545,7 @@ function AssistantMessage(props: { message: SessionMessageAssistant; last: boole
       .map((part) =>
         part.type === "tool" &&
         ["read", "glob", "grep"].includes(toolDisplay(part.name)) &&
-        part.state.status !== "pending"
+        part.state.status !== "streaming"
           ? part
           : undefined,
       )
@@ -1552,6 +1612,7 @@ function AssistantMessage(props: { message: SessionMessageAssistant; last: boole
           <text fg={theme.textMuted}>{errorMessage(props.message.error)}</text>
         </box>
       </Show>
+      <AssistantRetry retry={props.message.retry} />
       <Switch>
         <Match when={props.last || final() || props.message.error}>
           <box paddingLeft={3}>
@@ -1568,6 +1629,21 @@ function AssistantMessage(props: { message: SessionMessageAssistant; last: boole
         </Match>
       </Switch>
     </>
+  )
+}
+
+function AssistantRetry(props: { retry: SessionMessageAssistant["retry"] }) {
+  const { theme } = useTheme()
+  return (
+    <Show when={props.retry}>
+      {(retry) => (
+        <box paddingLeft={3} marginTop={1}>
+          <text fg={theme.textMuted}>
+            Retry attempt {retry().attempt} scheduled: {retry().error.message} [{retry().error.type}]
+          </text>
+        </box>
+      )}
+    </Show>
   )
 }
 
@@ -1741,7 +1817,7 @@ function ToolPart(props: { part: SessionMessageAssistantTool }) {
   const data = useData()
   const display = createMemo(() => toolDisplay(props.part.name))
   const activeBackgroundWork = createMemo(() => {
-    if (props.part.state.status === "pending") return false
+    if (props.part.state.status === "streaming") return false
     if (display() === "shell") {
       const shellID = stringValue(props.part.state.structured.shellID)
       return Boolean(shellID && data.shell.get(shellID))
@@ -1765,13 +1841,13 @@ function ToolPart(props: { part: SessionMessageAssistantTool }) {
 
   const toolprops = {
     get metadata() {
-      return props.part.state.status === "pending" ? {} : props.part.state.structured
+      return props.part.state.status === "streaming" ? {} : props.part.state.structured
     },
     get input() {
       return typeof props.part.state.input === "string" ? {} : props.part.state.input
     },
     get output() {
-      if (props.part.state.status === "pending") return undefined
+      if (props.part.state.status === "streaming") return undefined
       return props.part.state.content
         .flatMap((content) => (content.type === "text" ? [content.text] : [content.name ?? content.uri]))
         .join("\n")
@@ -1817,7 +1893,7 @@ function ToolPart(props: { part: SessionMessageAssistantTool }) {
         <Match when={display() === "execute"}>
           <Execute {...toolprops} />
         </Match>
-        <Match when={display() === "apply_patch"}>
+        <Match when={display() === "patch"}>
           <ApplyPatch {...toolprops} />
         </Match>
         <Match when={display() === "todowrite"}>
@@ -2096,7 +2172,7 @@ function Shell(props: ToolProps) {
   const isRunning = createMemo(() => props.part.state.status === "running" || backgroundRunning())
   const command = createMemo(() => stringValue(props.input.command))
   const output = createMemo(() => {
-    if (props.part.state.status === "pending") return ""
+    if (props.part.state.status === "streaming") return ""
     if (shellID()) return ""
     const content = props.part.state.content[0]
     return stripAnsi(content?.type === "text" ? content.text.trim() : "")
@@ -2118,7 +2194,7 @@ function Shell(props: ToolProps) {
         <Show
           when={command()}
           fallback={
-            isRunning() || props.part.state.status === "pending" ? (
+            isRunning() || props.part.state.status === "streaming" ? (
               <Spinner color={color()}>Writing command...</Spinner>
             ) : (
               <text fg={theme.textMuted}>Writing command...</text>
@@ -2142,7 +2218,7 @@ function Shell(props: ToolProps) {
         </Show>
         <Show when={shellID()}>
           <text>
-            <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}> Backgrounded </span>
+            <span style={{ bg: theme.backgroundElement, fg: theme.textMuted }}> Background </span>
           </text>
         </Show>
         <Show when={collapsed().overflow}>
@@ -2287,7 +2363,7 @@ function Subagent(props: ToolProps) {
       {formatSubagentTitle(
         Locale.titlecase(stringValue(props.input.agent) ?? stringValue(props.input.subagent_type) ?? "General"),
         description() ?? "Subagent",
-        props.metadata.background === true,
+        props.input.background === true || props.metadata.status === "running",
       )}
     </InlineTool>
   )
@@ -2327,7 +2403,7 @@ function executeCalls(value: unknown): ExecuteCall[] {
 function Execute(props: ToolProps) {
   const ctx = use()
   const { theme } = useTheme()
-  const isLoading = createMemo(() => props.part.state.status === "pending" || props.part.state.status === "running")
+  const isLoading = createMemo(() => props.part.state.status === "streaming" || props.part.state.status === "running")
   const calls = createMemo(() => executeCalls(props.metadata.toolCalls))
   const output = createMemo(() => stripAnsi(props.output?.trim() ?? ""))
   const hasRuntimeError = createMemo(() => props.metadata.error === true)
@@ -2423,7 +2499,7 @@ function Edit(props: ToolProps) {
               : "# Preparing edit..."
           }
           part={props.part}
-          spinner={props.part.state.status === "pending"}
+          spinner={props.part.state.status === "streaming"}
         />
       </Match>
     </Switch>
@@ -2515,7 +2591,7 @@ function ApplyPatch(props: ToolProps) {
                 : "# Preparing patch..."
           }
           part={props.part}
-          spinner={props.part.state.status === "pending"}
+          spinner={props.part.state.status === "streaming"}
         />
       </Match>
     </Switch>
@@ -2585,9 +2661,10 @@ function Question(props: ToolProps) {
 }
 
 function Skill(props: ToolProps) {
+  const name = createMemo(() => stringValue(props.metadata.name) ?? stringValue(props.input.id))
   return (
-    <InlineTool icon="→" pending="Loading skill..." complete={stringValue(props.input.name)} part={props.part}>
-      Skill "{stringValue(props.input.name)}"
+    <InlineTool icon="→" pending="Loading skill..." complete={name()} part={props.part}>
+      Skill "{name()}"
     </InlineTool>
   )
 }
@@ -2646,7 +2723,7 @@ const toolDisplays = new Set([
   "edit",
   "subagent",
   "execute",
-  "apply_patch",
+  "patch",
   "todowrite",
   "question",
   "skill",
@@ -2655,7 +2732,7 @@ const toolDisplays = new Set([
 export function toolDisplay(tool: string) {
   // Legacy transcripts recorded the shell tool as "bash" and the subagent tool as "task"; render
   // them with the renamed views.
-  const normalized = tool === "bash" ? "shell" : tool === "task" ? "subagent" : tool
+  const normalized = tool === "bash" ? "shell" : tool === "task" ? "subagent" : tool === "apply_patch" ? "patch" : tool
   return toolDisplays.has(normalized) ? normalized : "generic"
 }
 
@@ -2665,15 +2742,15 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 }
 
 function formatSessionTranscript(
-  session: SessionV2Info,
-  messages: SessionMessage[],
+  session: SessionInfo,
+  messages: SessionMessageInfo[],
   thinking: boolean,
   toolDetails: boolean,
 ) {
   const body = messages.flatMap((message) => {
     if (message.type === "user") return [`## User\n\n${message.text}`]
     if (message.type === "shell")
-      return [`## Shell\n\n\`\`\`\n$ ${message.shell.command}\n${message.output?.output ?? ""}\n\`\`\``]
+      return [`## Shell\n\n\`\`\`\n$ ${message.command}\n${message.output?.output ?? ""}\n\`\`\``]
     if (message.type !== "assistant") return []
     const content = message.content.flatMap((item) => {
       if (item.type === "text") return [item.text]
@@ -2683,7 +2760,7 @@ function formatSessionTranscript(
       const output =
         item.state.status === "error"
           ? item.state.error.message
-          : item.state.status === "pending"
+          : item.state.status === "streaming"
             ? ""
             : item.state.content
                 .flatMap((entry) => (entry.type === "text" ? [entry.text] : [entry.name ?? entry.uri]))

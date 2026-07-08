@@ -274,6 +274,16 @@ const copyBounded = (
 
   if (Array.isArray(value)) {
     const copied = value.map((item) => copyBounded(item, label, depth + 1, seen, preserveSandboxValues))
+    if (preserveSandboxValues) {
+      // Array metadata is not serialized, but intra-sandbox copies must retain it.
+      for (const [key, item] of Object.entries(value)) {
+        if (Object.hasOwn(copied, key)) continue
+        if (isBlockedMember(key)) {
+          throw new ToolRuntimeError("InvalidDataValue", `${label} contains blocked property '${key}'.`)
+        }
+        Reflect.set(copied, key, copyBounded(item, label, depth + 1, seen, true))
+      }
+    }
     seen.delete(value)
     return copied
   }
@@ -607,6 +617,7 @@ export const prepare = <R>(tools: HostTools<R>, catalogBudget = defaultCatalogBu
     "",
     "Use common JavaScript data operations, functions, control flow, selected standard-library methods, and awaited tool calls. Built-ins include Date, RegExp, Map, Set, URL, URLSearchParams, and URI encoding helpers.",
     "Modules/imports, classes, generators, timers, fetch, eval, prototype access, unlisted methods, and promise chaining are unavailable. Use Code Mode tools for external operations. Use await with try/catch.",
+    "Prefer explicit `return`; otherwise only the final top-level expression becomes the result.",
     "Dates and URLs serialize to strings at data boundaries; Map/Set/RegExp/URLSearchParams serialize to `{}`.",
   ]
 

@@ -1,6 +1,6 @@
 export * as TodoWriteTool from "./todowrite"
 
-import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
+import type { Context as PluginContext } from "@opencode-ai/plugin/v2/effect/plugin"
 import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Schema } from "effect"
 import { PermissionV2 } from "../permission"
@@ -48,7 +48,7 @@ export const Plugin = {
                 })
                 yield* todos.update({ sessionID: context.sessionID, todos: input.todos })
                 return { todos: input.todos }
-              }).pipe(Effect.mapError(() => new ToolFailure({ message: "Unable to update todos" }))),
+              }).pipe(Effect.mapError((error) => new ToolFailure({ message: "Unable to update todos", error }))),
           }),
         ),
       )

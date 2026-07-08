@@ -6,7 +6,7 @@ import { ephemeral, inventory } from "./event.js"
 import { ascending } from "./identifier.js"
 import { NonNegativeInt, statics } from "./schema.js"
 
-const IDSchema = Schema.String.check(Schema.isStartsWith("sh_")).pipe(Schema.brand("ShellID"))
+const IDSchema = Schema.String.check(Schema.isStartsWith("sh_")).pipe(Schema.brand("Shell.ID"))
 
 export const ID = IDSchema.pipe(
   statics((schema: typeof IDSchema) => {
@@ -57,7 +57,7 @@ export const Event = { Created, Exited, Deleted, Definitions: inventory(Created,
 export const CreateInput = Schema.Struct({
   command: Schema.String,
   cwd: optional(Schema.String),
-  timeout: optional(NonNegativeInt),
+  timeout: NonNegativeInt,
   metadata: optional(Metadata),
 })
 export interface CreateInput extends Schema.Schema.Type<typeof CreateInput> {}
