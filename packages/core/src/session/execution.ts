@@ -4,6 +4,7 @@ import { Context, Effect, Layer } from "effect"
 import { LayerNode } from "../effect/layer-node"
 import { Node } from "../effect/app-node"
 import { SessionRunner } from "./runner/index"
+import type { SessionRunCoordinator } from "./run-coordinator"
 import { SessionSchema } from "./schema"
 
 export interface Interface {
@@ -11,8 +12,8 @@ export interface Interface {
   readonly active: Effect.Effect<ReadonlySet<SessionSchema.ID>>
   /** Starts execution while idle or joins the active execution. */
   readonly resume: (sessionID: SessionSchema.ID) => Effect.Effect<void, SessionRunner.RunError>
-  /** Registers newly recorded work. Repeated wakeups may coalesce. */
-  readonly wake: (sessionID: SessionSchema.ID) => Effect.Effect<void>
+  /** Registers newly recorded work. Repeated wakeups may coalesce. Force runs even without pending input. */
+  readonly wake: (sessionID: SessionSchema.ID, options?: SessionRunCoordinator.WakeOptions) => Effect.Effect<void>
   /** Interrupt active work owned by this process. Idle interruption is a no-op. */
   readonly interrupt: (sessionID: SessionSchema.ID) => Effect.Effect<void>
   /** Resolves once this process owns no active execution for the Session. Returns immediately when idle and never starts work. */

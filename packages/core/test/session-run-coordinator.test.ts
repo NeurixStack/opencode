@@ -191,6 +191,36 @@ describe("SessionRunCoordinator", () => {
     ),
   )
 
+  it.effect("preserves a forced wake received during active execution", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const firstStarted = yield* Deferred.make<void>()
+        const firstGate = yield* Deferred.make<void>()
+        const secondStarted = yield* Deferred.make<void>()
+        const forces: boolean[] = []
+        const coordinator = yield* SessionRunCoordinator.make({
+          drain: (_key, force) =>
+            Effect.sync(() => forces.push(force)).pipe(
+              Effect.flatMap(() =>
+                forces.length === 1
+                  ? Deferred.succeed(firstStarted, undefined).pipe(Effect.andThen(Deferred.await(firstGate)))
+                  : Deferred.succeed(secondStarted, undefined),
+              ),
+            ),
+        })
+
+        yield* coordinator.wake("session")
+        yield* Deferred.await(firstStarted)
+        yield* coordinator.wake("session", { force: true })
+        yield* Deferred.succeed(firstGate, undefined)
+        yield* Deferred.await(secondStarted)
+        yield* coordinator.awaitIdle("session")
+
+        expect(forces).toEqual([false, true])
+      }),
+    ),
+  )
+
   it.effect("runs again when woken during the follow-up", () =>
     Effect.scoped(
       Effect.gen(function* () {

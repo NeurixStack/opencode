@@ -71,6 +71,7 @@ const requests: LLMRequest[] = []
 let response: LLMEvent[] = []
 let responses: LLMEvent[][] | undefined
 let responseStream: Stream.Stream<LLMEvent, LLMError> | undefined
+let responseStreams: Stream.Stream<LLMEvent, LLMError>[] | undefined
 let streamGate: Deferred.Deferred<void> | undefined
 let streamStarted: Deferred.Deferred<void> | undefined
 let streamFailure: LLMError | undefined
@@ -85,6 +86,7 @@ const client = Layer.succeed(
     prepare: () => Effect.die("unused"),
     stream: ((request: LLMRequest) => {
       requests.push(request)
+      if (responseStreams) return responseStreams.shift() ?? Stream.empty
       if (responseStream) {
         const stream = responseStream
         responseStream = undefined
@@ -416,6 +418,7 @@ const setup = Effect.gen(function* () {
   responses = undefined
   streamFailure = undefined
   responseStream = undefined
+  responseStreams = undefined
   streamGate = undefined
   streamStarted = undefined
   toolExecutionGate = undefined
@@ -765,6 +768,34 @@ describe("SessionRunnerLLM", () => {
       expect(yield* session.messages({ sessionID })).toMatchObject([
         { id: message.id, type: "user", text: "Run automatically" },
       ])
+    }),
+  )
+
+  it.effect("runs a follow-up when synthetic context arrives during an active continuation", () =>
+    Effect.gen(function* () {
+      const session = yield* setup
+      const secondStarted = yield* Deferred.make<void>()
+      const releaseSecond = yield* Deferred.make<void>()
+      responseStreams = [
+        Stream.fromIterable(reply.tool("call-echo", "echo", { text: "background started" })),
+        Stream.unwrap(
+          Deferred.succeed(secondStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(releaseSecond)),
+            Effect.as(Stream.fromIterable(reply.stop())),
+          ),
+        ),
+        Stream.fromIterable(reply.text("Handled completion", "text-completion")),
+      ]
+      yield* admit(session, "Start background work")
+      const running = yield* session.resume(sessionID).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* Deferred.await(secondStarted)
+
+      yield* session.synthetic({ sessionID, text: "Background work completed" })
+      yield* Deferred.succeed(releaseSecond, undefined)
+      yield* Fiber.join(running)
+
+      expect(requests).toHaveLength(3)
+      expect(userTexts(requests[2])).toContain("Background work completed")
     }),
   )
 

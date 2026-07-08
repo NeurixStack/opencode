@@ -9,12 +9,14 @@ export interface Coordinator<Key, E, Reason = never> {
   /** Starts an execution while idle, or joins the active execution and returns its exit. */
   readonly run: (key: Key) => Effect.Effect<void, E>
   /** Rings the doorbell: an idle key starts an execution; an active one drains again before settling. */
-  readonly wake: (key: Key) => Effect.Effect<void>
+  readonly wake: (key: Key, options?: WakeOptions) => Effect.Effect<void>
   /** Stops the active execution, clears its doorbell, and waits for cleanup. No-op when idle. */
   readonly interrupt: (key: Key, reason?: Reason) => Effect.Effect<void>
   /** Resolves once no execution is active for the key. Returns immediately when already idle and never starts work. */
   readonly awaitIdle: (key: Key) => Effect.Effect<void>
 }
+
+export type WakeOptions = { readonly force?: boolean }
 
 /**
  * One execution is a busy period for one key: one fiber that drains from the first wake
@@ -27,6 +29,7 @@ type Execution<E, Reason> = {
   readonly done: Deferred.Deferred<void, E>
   owner?: Fiber.Fiber<void>
   pendingWake: boolean
+  pendingForce: boolean
   stopping: boolean
   settling: boolean
   interruptionReason?: Reason
@@ -63,8 +66,10 @@ export const make = <Key, E, Reason = never>(options: {
           Effect.suspend(() => {
             if (execution.stopping || !execution.pendingWake) return Effect.void
             execution.pendingWake = false
+            const force = execution.pendingForce
+            execution.pendingForce = false
             // Trampoline so drains that complete synchronously cannot grow the stack.
-            return Effect.yieldNow.pipe(Effect.andThen(loop(key, execution, false)))
+            return Effect.yieldNow.pipe(Effect.andThen(loop(key, execution, force)))
           }),
         ),
       )
@@ -73,6 +78,7 @@ export const make = <Key, E, Reason = never>(options: {
       const execution: Execution<E, Reason> = {
         done: Deferred.makeUnsafe<void, E>(),
         pendingWake: false,
+        pendingForce: false,
         stopping: false,
         settling: false,
       }
@@ -100,7 +106,7 @@ export const make = <Key, E, Reason = never>(options: {
     // A doorbell that survives the execution loop (rung after the loop decided to end, or
     // during failure or interruption cleanup) starts a fresh execution for the remaining work.
     const settle = (key: Key, execution: Execution<E, Reason>, exit: Exit.Exit<void, E>) => {
-      if (execution.pendingWake) start(key, false)
+      if (execution.pendingWake) start(key, execution.pendingForce)
       else executions.delete(key)
       Deferred.doneUnsafe(execution.done, exit)
     }
@@ -116,14 +122,16 @@ export const make = <Key, E, Reason = never>(options: {
         return restore(Deferred.await(start(key, true).done))
       })
 
-    const wake = (key: Key) =>
+    const wake = (key: Key, options?: { readonly force?: boolean }) =>
       Effect.sync(() => {
+        const force = options?.force === true
         const execution = executions.get(key)
         if (execution !== undefined) {
           execution.pendingWake = true
+          execution.pendingForce ||= force
           return
         }
-        start(key, false)
+        start(key, force)
       })
 
     const interrupt = (key: Key, reason?: Reason): Effect.Effect<void> =>
@@ -132,6 +140,7 @@ export const make = <Key, E, Reason = never>(options: {
         if (execution?.owner === undefined || execution.stopping || execution.settling) return Effect.void
         execution.stopping = true
         execution.pendingWake = false
+        execution.pendingForce = false
         execution.interruptionReason = reason
         return Fiber.interrupt(execution.owner)
       })

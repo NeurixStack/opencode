@@ -689,9 +689,7 @@ const layer = Layer.effect(
           metadata: input.metadata,
         })
         if (input.resume === false) return
-        yield* execution
-          .resume(input.sessionID)
-          .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
+        yield* execution.wake(input.sessionID, { force: true })
       }),
       interrupt: Effect.fn("V2Session.interrupt")((sessionID) =>
         Effect.uninterruptible(execution.interrupt(sessionID)),
