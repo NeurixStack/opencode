@@ -11,12 +11,14 @@ import {
   type ProviderErrorEvent,
 } from "@opencode-ai/llm"
 import { SessionError } from "@opencode-ai/schema/session-error"
+import { Money } from "@opencode-ai/schema/money"
 import { Cause, Effect, Exit, Fiber, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
 import { Config } from "../../config"
 import { Database } from "../../database/database"
 import { EventV2 } from "../../event"
 import { Location } from "../../location"
+import { ModelV2 } from "../../model"
 import { PermissionV2 } from "../../permission"
 import { Instructions } from "../../instructions/index"
 import { InstructionBuiltIns } from "../../instructions/builtins"
@@ -50,6 +52,32 @@ import { StepFailedError, UserInterruptedError } from "../error"
 import { toSessionError } from "../to-session-error"
 import { SessionRunnerRetry } from "./retry"
 import { AgentTelemetry } from "../../observability/agent"
+import type { SessionHooks } from "@opencode-ai/plugin/v2/effect/session"
+import { PluginHooks } from "../../plugin/hooks"
+
+type StepTokens = {
+  readonly input: number
+  readonly output: number
+  readonly reasoning: number
+  readonly cache: { readonly read: number; readonly write: number }
+}
+
+// TODO(#35765): Use Copilot's reported billed amount once billing has a dedicated typed runtime contract.
+export function calculateCost(costs: ModelV2.Info["cost"], tokens: StepTokens) {
+  const context = tokens.input + tokens.cache.read + tokens.cache.write
+  const tier = costs
+    .filter((cost) => cost.tier?.type === "context" && context > cost.tier.size)
+    .toSorted((a, b) => (b.tier?.size ?? 0) - (a.tier?.size ?? 0))[0]
+  const cost = tier ?? costs.find((cost) => cost.tier === undefined)
+  if (!cost) return Money.USD.zero
+  return Money.USD.make(
+    (tokens.input * cost.input +
+      (tokens.output + tokens.reasoning) * cost.output +
+      tokens.cache.read * cost.cache.read +
+      tokens.cache.write * cost.cache.write) /
+      1_000_000,
+  )
+}
 
 /**
  * Runs one durable coding-agent Session until it settles.
@@ -108,6 +136,7 @@ const layer = Layer.effect(
     const llm = yield* LLMClient.Service
     const agents = yield* AgentV2.Service
     const tools = yield* ToolRegistry.Service
+    const hooks = yield* PluginHooks.Service
     const models = yield* SessionRunnerModel.Service
     const store = yield* SessionStore.Service
     const location = yield* Location.Service
@@ -138,7 +167,7 @@ const layer = Layer.effect(
       for (const message of yield* store.context(sessionID)) {
         if (message.type !== "assistant") continue
         for (const tool of message.content) {
-          if (tool.type !== "tool" || (tool.state.status !== "pending" && tool.state.status !== "running")) continue
+          if (tool.type !== "tool" || (tool.state.status !== "streaming" && tool.state.status !== "running")) continue
           yield* events.publish(SessionEvent.Tool.Failed, {
             sessionID,
             assistantMessageID: message.id,
@@ -213,6 +242,7 @@ const layer = Layer.effect(
       }
       const resolved = yield* AgentTelemetry.stage("model_resolution", models.resolve(session))
       const model = resolved.model
+      const providerMetadataKey = model.route.providerMetadataKey ?? model.provider
       const entries = yield* AgentTelemetry.stage(
         "history",
         SessionHistory.entriesForRunner(db, session.id, checkpoint.baselineSeq),
@@ -236,17 +266,41 @@ const layer = Layer.effect(
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
         messages: [
-          ...toLLMMessages(context, resolved.ref),
+          ...toLLMMessages(context, resolved.ref, providerMetadataKey),
           ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : []),
         ],
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,
       })
+      const availableTools = new Map(request.tools.map((tool) => [tool.name, tool]))
+      const requestEvent: SessionHooks["request"] = {
+        sessionID: session.id,
+        agent: agent.id,
+        model: resolved.ref,
+        system: [...request.system],
+        messages: [...request.messages],
+        tools: Object.fromEntries(
+          request.tools.map((tool) => [tool.name, { description: tool.description, input: { ...tool.inputSchema } }]),
+        ),
+      }
+      // Plugins may reshape the draft, but cannot advertise tools excluded earlier
+      // by permissions or registration state.
+      yield* hooks.trigger("session", "request", requestEvent)
+      const hookedRequest = LLM.updateRequest(request, {
+        system: requestEvent.system,
+        messages: requestEvent.messages,
+        tools: Object.entries(requestEvent.tools).flatMap(([name, tool]) => {
+          const registered = availableTools.get(name)
+          if (!registered) return []
+          return [{ ...registered, description: tool.description, inputSchema: tool.input }]
+        }),
+      })
+      const advertisedTools = new Set(hookedRequest.tools.map((tool) => tool.name))
       // Automatic compaction completed; rebuild the request from compacted history.
       if (!(yield* SessionInput.pendingCompaction(db, session.id))) {
         const compacted = yield* AgentTelemetry.stage(
           "compaction",
-          compaction.compactIfNeeded({ sessionID: session.id, messages: context, request }),
+          compaction.compactIfNeeded({ sessionID: session.id, messages: context, request: hookedRequest }),
         )
         if (compacted) {
           yield* AgentTelemetry.compactionCompleted("automatic")
@@ -260,7 +314,7 @@ const layer = Layer.effect(
         // The selected catalog identity, not model.id: route-level ids are provider API
         // model ids (for example gpt-5.5-fast resolves to api id gpt-5.5).
         model: resolved.ref,
-        provider: model.provider,
+        providerMetadataKey,
         snapshot: startSnapshot,
         assistantMessageID,
       })
@@ -268,8 +322,7 @@ const layer = Layer.effect(
       // Durable publishes are serialized so tool fibers and step settlement never interleave
       // mid-event.
       const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) => publication.withPermit(effect)
-      const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = [], error?: SessionError.Error) =>
-        serialized(publisher.publish(event, outputPaths, error))
+      const publish = (event: LLMEvent, error?: SessionError.Error) => serialized(publisher.publish(event, error))
       let overflowFailure: ProviderErrorEvent | undefined
       const telemetry = AgentTelemetry.modelCall({
         sessionID: session.id,
@@ -283,7 +336,7 @@ const layer = Layer.effect(
       const providerStream = AgentTelemetry.stage(
         "model",
         telemetry.run(
-          llm.stream(request).pipe(
+          llm.stream(hookedRequest).pipe(
             Stream.runForEach((event) =>
               Effect.gen(function* () {
                 if (overflowFailure || publisher.hasProviderError()) return
@@ -301,6 +354,21 @@ const layer = Layer.effect(
                     publisher.failUnsettledTools({
                       type: "tool.execution",
                       message: "Tools are disabled after the maximum agent steps",
+                    }),
+                  )
+                  return
+                }
+                // A request hook hid this registered tool from the current request. Fail only
+                // this call durably and continue so the model can react, instead of executing
+                // a tool that was not advertised. Unregistered tools flow through settle, which
+                // durably fails them as unknown.
+                if (!advertisedTools.has(event.name) && availableTools.has(event.name)) {
+                  needsContinuation = true
+                  yield* publish(
+                    LLMEvent.toolError({
+                      id: event.id,
+                      name: event.name,
+                      message: `Tool is not available for this request: ${event.name}`,
                     }),
                   )
                   return
@@ -327,7 +395,6 @@ const layer = Layer.effect(
                               result: settlement.result,
                               output: settlement.output,
                             }),
-                            settlement.outputPaths ?? [],
                             settlement.error,
                           ),
                         ).pipe(
@@ -350,6 +417,11 @@ const layer = Layer.effect(
         ),
       )
 
+      const stepUsage = (settlement: NonNullable<ReturnType<typeof publisher.stepSettlement>>) => ({
+        cost: calculateCost(resolved.cost, settlement.tokens),
+        tokens: settlement.tokens,
+      })
+
       // Captures the end snapshot, diffs it against the step's start, and durably ends the
       // assistant step.
       const publishStepEnd = (settlement: NonNullable<ReturnType<typeof publisher.stepSettlement>>) =>
@@ -368,8 +440,7 @@ const layer = Layer.effect(
                 sessionID: session.id,
                 assistantMessageID: yield* publisher.startAssistant(),
                 finish: settlement.finish,
-                cost: 0,
-                tokens: settlement.tokens,
+                ...stepUsage(settlement),
                 snapshot: endSnapshot,
                 files,
               }),
@@ -499,7 +570,8 @@ const layer = Layer.effect(
             !providerFailed &&
             !stepFailure
           if (stepSettlement && stepEndedCleanly) yield* publishStepEnd(stepSettlement)
-          if (stepFailure) yield* serialized(publisher.publishStepFailure())
+          if (stepFailure)
+            yield* serialized(publisher.publishStepFailure(stepSettlement ? stepUsage(stepSettlement) : undefined))
 
           if (stream._tag === "Failure") return yield* Effect.failCause(stream.cause)
           if (userDeclined) return yield* Effect.interrupt
@@ -601,6 +673,7 @@ const layer = Layer.effect(
               return yield* compaction.compactManual({
                 session,
                 messages: yield* store.context(sessionID),
+                inputID: pending.id,
               })
             }),
           ).pipe(Effect.exit)
@@ -608,9 +681,27 @@ const layer = Layer.effect(
             yield* AgentTelemetry.compactionCompleted("manual")
             return true
           }
-          yield* events.publish(SessionEvent.Compaction.Failed, { sessionID })
+          if (Exit.isFailure(compacted)) {
+            const unsettled = yield* SessionInput.pendingCompaction(db, sessionID)
+            if (unsettled)
+              yield* events.publish(SessionEvent.Compaction.Failed, {
+                sessionID,
+                reason: "manual",
+                error: { type: "compaction.failed", message: Cause.pretty(compacted.cause) },
+                inputID: unsettled.id,
+              })
+            yield* AgentTelemetry.compactionFailed("manual")
+            return yield* Effect.failCause(compacted.cause)
+          }
+          const unsettled = yield* SessionInput.pendingCompaction(db, sessionID)
+          if (unsettled)
+            yield* events.publish(SessionEvent.Compaction.Failed, {
+              sessionID,
+              reason: "manual",
+              error: { type: "compaction.failed", message: "Compaction could not start" },
+              inputID: unsettled.id,
+            })
           yield* AgentTelemetry.compactionFailed("manual")
-          if (Exit.isFailure(compacted)) return yield* Effect.failCause(compacted.cause)
           return true
         }),
       )
@@ -685,6 +776,7 @@ export const node = makeLocationNode({
     llmClient,
     AgentV2.node,
     ToolRegistry.node,
+    PluginHooks.node,
     SessionRunnerModel.node,
     SessionStore.node,
     Location.node,

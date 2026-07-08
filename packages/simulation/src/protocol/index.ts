@@ -59,12 +59,12 @@ export namespace Frontend {
   export interface KeyModifiers extends Schema.Schema.Type<typeof KeyModifiers> {}
 
   export const Action = Schema.Union([
-    Schema.Struct({ type: Schema.Literal("typeText"), text: Schema.String }),
-    Schema.Struct({ type: Schema.Literal("pressKey"), key: Schema.String, modifiers: Schema.optional(KeyModifiers) }),
-    Schema.Struct({ type: Schema.Literal("pressEnter") }),
-    Schema.Struct({ type: Schema.Literal("pressArrow"), direction: Schema.Literals(["up", "down", "left", "right"]) }),
-    Schema.Struct({ type: Schema.Literal("focus"), target: Schema.Number }),
-    Schema.Struct({ type: Schema.Literal("click"), target: Schema.Number, x: Schema.Number, y: Schema.Number }),
+    Schema.Struct({ type: Schema.Literal("ui.type"), text: Schema.String }),
+    Schema.Struct({ type: Schema.Literal("ui.press"), key: Schema.String, modifiers: Schema.optional(KeyModifiers) }),
+    Schema.Struct({ type: Schema.Literal("ui.enter") }),
+    Schema.Struct({ type: Schema.Literal("ui.arrow"), direction: Schema.Literals(["up", "down", "left", "right"]) }),
+    Schema.Struct({ type: Schema.Literal("ui.focus"), target: Schema.Number }),
+    Schema.Struct({ type: Schema.Literal("ui.click"), target: Schema.Number, x: Schema.Number, y: Schema.Number }),
   ])
   export type Action = Schema.Schema.Type<typeof Action>
 
@@ -83,46 +83,69 @@ export namespace Frontend {
   export interface Element extends Schema.Schema.Type<typeof Element> {}
 
   export const State = Schema.Struct({
-    screen: Schema.String,
     focused: Schema.Struct({
       renderable: Schema.optional(Schema.Number),
       editor: Schema.Boolean,
     }),
     elements: Schema.Array(Element),
-    actions: Schema.Array(Action),
   })
   export interface State extends Schema.Schema.Type<typeof State> {}
 
-  export const ActionParams = Schema.Struct({ action: Action })
-  export interface ActionParams extends Schema.Schema.Type<typeof ActionParams> {}
+  export const Screenshot = Schema.String
+  export type Screenshot = Schema.Schema.Type<typeof Screenshot>
+
+  export const RecordingFinish = Schema.String
+  export type RecordingFinish = Schema.Schema.Type<typeof RecordingFinish>
+
+  export const ScreenshotParams = Schema.Struct({ name: Schema.optional(Schema.String) })
+  export interface ScreenshotParams extends Schema.Schema.Type<typeof ScreenshotParams> {}
+
+  export const TypeParams = Schema.Struct({ text: Schema.String })
+  export interface TypeParams extends Schema.Schema.Type<typeof TypeParams> {}
+
+  export const PressParams = Schema.Struct({ key: Schema.String, modifiers: Schema.optional(KeyModifiers) })
+  export interface PressParams extends Schema.Schema.Type<typeof PressParams> {}
+
+  export const ArrowParams = Schema.Struct({ direction: Schema.Literals(["up", "down", "left", "right"]) })
+  export interface ArrowParams extends Schema.Schema.Type<typeof ArrowParams> {}
+
+  export const FocusParams = Schema.Struct({ target: Schema.Number })
+  export interface FocusParams extends Schema.Schema.Type<typeof FocusParams> {}
+
+  export const ClickParams = Schema.Struct({ target: Schema.Number, x: Schema.Number, y: Schema.Number })
+  export interface ClickParams extends Schema.Schema.Type<typeof ClickParams> {}
 
   export const Request = Schema.Union([
-    Schema.Struct({ ...JsonRpc.RequestFields, method: Schema.Literal("ui.action"), params: ActionParams }),
+    Schema.Struct({ ...JsonRpc.RequestFields, method: Schema.Literal("ui.type"), params: TypeParams }),
+    Schema.Struct({ ...JsonRpc.RequestFields, method: Schema.Literal("ui.press"), params: PressParams }),
+    Schema.Struct({ ...JsonRpc.RequestFields, method: Schema.Literal("ui.arrow"), params: ArrowParams }),
+    Schema.Struct({ ...JsonRpc.RequestFields, method: Schema.Literal("ui.focus"), params: FocusParams }),
+    Schema.Struct({ ...JsonRpc.RequestFields, method: Schema.Literal("ui.click"), params: ClickParams }),
     Schema.Struct({
       ...JsonRpc.RequestFields,
-      method: Schema.Literals(["ui.state", "trace.list", "trace.clear", "trace.export"]),
+      method: Schema.Literal("ui.screenshot"),
+      params: Schema.optional(ScreenshotParams),
+    }),
+    Schema.Struct({
+      ...JsonRpc.RequestFields,
+      method: Schema.Literals(["ui.enter", "ui.state", "ui.recording.finish"]),
     }),
   ])
   export type Request = Schema.Schema.Type<typeof Request>
   export const decodeRequest = Schema.decodeUnknownSync(Request)
-
-  export const TraceRecord = Schema.Struct({
-    id: Schema.Number,
-    time: Schema.String,
-    type: Schema.String,
-    data: Schema.optional(Schema.Json),
-  })
-  export interface TraceRecord extends Schema.Schema.Type<typeof TraceRecord> {}
-
-  export const TraceList = Schema.Struct({ records: Schema.Array(TraceRecord) })
-  export interface TraceList extends Schema.Schema.Type<typeof TraceList> {}
 }
 
 export namespace Backend {
   export const Item = Schema.Union([
     Schema.Struct({ type: Schema.Literal("textDelta"), text: Schema.String }),
     Schema.Struct({ type: Schema.Literal("reasoningDelta"), text: Schema.String }),
-    Schema.Struct({ type: Schema.Literal("toolCall"), id: Schema.String, name: Schema.String, input: Schema.Json }),
+    Schema.Struct({
+      type: Schema.Literal("toolCall"),
+      index: Schema.Number,
+      id: Schema.String,
+      name: Schema.String,
+      input: Schema.Json,
+    }),
     Schema.Struct({ type: Schema.Literal("raw"), chunk: Schema.Json }),
   ])
   export type Item = Schema.Schema.Type<typeof Item>
@@ -148,7 +171,7 @@ export namespace Backend {
     Schema.Struct({ ...JsonRpc.RequestFields, method: Schema.Literal("llm.disconnect"), params: DisconnectParams }),
     Schema.Struct({
       ...JsonRpc.RequestFields,
-      method: Schema.Literals(["llm.attach", "llm.pending", "network.log"]),
+      method: Schema.Literals(["llm.attach", "llm.pending"]),
     }),
   ])
   export type Request = Schema.Schema.Type<typeof Request>
@@ -164,7 +187,6 @@ export namespace Backend {
     matched: Schema.Boolean,
   })
   export interface NetworkLogEntry extends Schema.Schema.Type<typeof NetworkLogEntry> {}
-
 }
 
 export * as SimulationProtocol from "./index"
