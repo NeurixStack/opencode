@@ -1751,6 +1751,14 @@ test("settles pending tools when a live failure arrives", async () => {
         name: "bash",
       },
     })
+    await wait(() => {
+      const assistant = sync.session.message.get("session-1", "msg_explicit_assistant_9")
+      return (
+        assistant?.type === "assistant" &&
+        assistant.content[0]?.type === "tool" &&
+        assistant.content[0].state.status === "streaming"
+      )
+    })
     emitEvent(events, {
       id: "evt_called_1",
       created: 0,

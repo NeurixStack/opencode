@@ -497,7 +497,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               id: event.data.callID,
               name: event.data.name,
               time: { created: event.created },
-              state: { status: "pending", input: "" },
+              state: { status: "streaming", input: "" },
             })
           })
           break
@@ -507,7 +507,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               message.assistant(draft, index, event.data.assistantMessageID),
               event.data.callID,
             )
-            if (match?.state.status === "pending") match.state.input += event.data.delta
+            if (match?.state.status === "streaming") match.state.input += event.data.delta
           })
           break
         case "session.tool.input.ended":
@@ -516,7 +516,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               message.assistant(draft, index, event.data.assistantMessageID),
               event.data.callID,
             )
-            if (match?.state.status === "pending") match.state.input = event.data.text
+            if (match?.state.status === "streaming") match.state.input = event.data.text
           })
           break
         case "session.tool.called":
@@ -568,7 +568,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               message.assistant(draft, index, event.data.assistantMessageID),
               event.data.callID,
             )
-            if (!match || (match.state.status !== "pending" && match.state.status !== "running")) return
+            if (!match || (match.state.status !== "streaming" && match.state.status !== "running")) return
             match.state = {
               status: "error",
               error: event.data.error,
