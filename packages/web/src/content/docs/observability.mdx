@@ -1,0 +1,118 @@
+---
+title: OpenTelemetry
+description: Export OpenCode logs and traces to an OpenTelemetry backend such as Dash0.
+---
+
+OpenCode can export application logs and traces through OTLP over HTTP. Export is enabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is present in the environment at process startup.
+
+---
+
+## Signal support
+
+| Signal | Support | Details                                                                                             |
+| ------ | ------- | --------------------------------------------------------------------------------------------------- |
+| Logs   | Yes     | OpenCode application logs are exported automatically. The default minimum level is `INFO`.          |
+| Traces | Yes     | OpenCode exports application spans and OpenTelemetry GenAI spans for V2 agent and model operations. |
+
+OpenCode appends `/v1/logs` and `/v1/traces` to the configured endpoint. Set a base OTLP/HTTP endpoint without a signal path and without a trailing slash.
+
+:::note
+OpenCode supports the shared `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and `OTEL_RESOURCE_ATTRIBUTES` variables. Signal-specific endpoint variables and OTLP/gRPC are not currently supported.
+:::
+
+---
+
+## Dash0
+
+Create an authorization token with ingest permissions in Dash0, then set the following variables in the environment that starts OpenCode:
+
+```bash
+export DASH0_AUTH_TOKEN="api_key"
+export OTEL_EXPORTER_OTLP_ENDPOINT="https://ingress.us-west-2.aws.dash0.com"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer ${DASH0_AUTH_TOKEN}"
+export OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=development"
+
+opencode
+```
+
+Use the endpoint for your Dash0 region if it differs from the example. OpenCode sends telemetry directly to:
+
+```text
+https://ingress.us-west-2.aws.dash0.com/v1/logs
+https://ingress.us-west-2.aws.dash0.com/v1/traces
+```
+
+To route telemetry to a specific [Dash0 dataset](https://www.dash0.com/docs/dash0/miscellaneous/glossary/datasets), add its header to the comma-separated header value:
+
+```bash
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer ${DASH0_AUTH_TOKEN},Dash0-Dataset=production"
+```
+
+---
+
+### AI model spans
+
+The V2 Session runner emits an `invoke_agent` span around each Session drain, a `chat <model>` client span around every model call, and an `execute_tool <name>` span around local tool execution. Provider HTTP response streams and WebSocket connections are client spans beneath their model calls. Spans include safe OpenTelemetry GenAI attributes for the agent, configured provider identity, requested model, generation settings, response timing, finish reason, token usage, cache usage, reasoning usage, conversation ID, tool identity, and transport endpoint. First-chunk latency is measured from request issuance to the first normalized model response event.
+
+Agent spans record input promotion, provider retry decisions, hosted-tool activity, and compaction lifecycle as span events. Subagent tool spans identify the child Session and target agent; foreground child agents remain nested while background child traces include `opencode.session.parent.id` for correlation.
+
+Failed spans use existing typed error categories, error source and stage, HTTP status, transport kind, retry decision, and provider request ID attributes when available. Built-in provider stream errors preserve structured provider codes without inferring retry policy from message text. Raw provider bodies, exception messages, prompt content, and tool output are excluded from spans.
+
+Model and tool spans include `opencode.agent.step.index` and `opencode.agent.step.trigger`. Trigger values distinguish calls caused by new `input`, a `tool_result`, a provider `retry`, `compaction`, or explicit `resume`; promoted inputs also include their `steer` or `queue` delivery mode.
+
+OpenCode disables Effect tracing by default and enables it only at explicit GenAI operation boundaries. Unrelated spans such as startup, configuration, request lowering, and database operations are not recorded.
+
+Prompt admission and control-plane HTTP requests are not traced. Admission, Session placement, and execution lifecycle failures emit sanitized structured logs with their Session, operation or phase, and stable error type. Provider HTTP and WebSocket requests do not receive trace propagation headers.
+
+Prompt content, model output, system instructions, tool definitions, tool arguments, headers, and credentials are not recorded on these spans.
+
+The `experimental.openTelemetry` configuration option only controls AI SDK telemetry on the legacy Session implementation. V2 GenAI spans are exported whenever OTLP tracing is configured.
+
+---
+
+### Resource attributes
+
+Every exported signal has these resource attributes:
+
+| Attribute                     | Value                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `service.name`                | `opencode`                                                                   |
+| `service.version`             | The OpenCode version                                                         |
+| `deployment.environment.name` | `OTEL_RESOURCE_ATTRIBUTES` value, or the OpenCode release channel by default |
+| `opencode.client`             | The client type, such as `cli`                                               |
+| `opencode.run`                | A unique ID for the current process                                          |
+| `service.instance.id`         | The same process ID as `opencode.run`                                        |
+
+Add more comma-separated attributes with `OTEL_RESOURCE_ATTRIBUTES`. Percent-encode commas and equals signs inside names or values.
+
+```bash
+export OTEL_RESOURCE_ATTRIBUTES="deployment.environment.name=development,service.namespace=developer-tools,team.name=platform"
+```
+
+`service.name`, `service.version`, `opencode.client`, `opencode.run`, and `service.instance.id` are set by OpenCode and cannot be overridden.
+
+---
+
+### Verify
+
+1. Start OpenCode with the environment variables set.
+2. Run a prompt and keep the process open for a few seconds so batched telemetry can be exported.
+3. In Dash0, select a time range that includes the test.
+4. Search logs and traces for `service.name = opencode`.
+5. Use `opencode.run` to correlate records from one OpenCode process.
+
+Logs emitted inside an active span include the trace and span IDs, allowing Dash0 to correlate those log records with the trace.
+
+---
+
+### Troubleshoot
+
+- Confirm the endpoint is the base regional URL and does not end in `/v1/logs`, `/v1/traces`, or `/`.
+- Confirm the token has ingest permissions and the `Authorization` value starts with `Bearer `.
+- Set the environment variables before OpenCode starts. Restart a running OpenCode process after changing them.
+- Set `OPENCODE_LOG_LEVEL=DEBUG` to export debug logs while investigating. This can substantially increase volume and may expose more sensitive details.
+- `experimental.openTelemetry` only affects the legacy Session implementation; V2 GenAI spans do not require it.
+- Check the local OpenCode log for exporter errors. See [Troubleshooting](/docs/troubleshooting#logs).
+- Configure proxy and certificate settings as described in [Network](/docs/network) when direct HTTPS access to Dash0 is unavailable.
+
+Short-lived commands can exit before all batched spans are sent. Prefer verifying with the TUI or a long-running `opencode serve` process.

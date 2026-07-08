@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { Duration, Effect, Fiber, Layer, Schema } from "effect"
+import { Duration, Effect, Fiber, Layer, Schema, Tracer } from "effect"
+import {
+  ATTR_ERROR_TYPE,
+  ATTR_HTTP_REQUEST_METHOD,
+  ATTR_HTTP_RESPONSE_STATUS_CODE,
+  ATTR_SERVER_PORT,
+  ATTR_URL_FULL,
+} from "@opencode-ai/core/observability/semconv"
 import * as TestClock from "effect/testing/TestClock"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -88,9 +95,21 @@ describe("WebFetchTool registration", () => {
       reset()
       const registry = yield* ToolRegistry.Service
       const url = "http://example.com/public"
+      const spans: Tracer.NativeSpan[] = []
+      const tracer = Tracer.make({
+        span(options) {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        },
+      })
 
       expect((yield* toolDefinitions(registry)).map((tool) => tool.name)).toEqual(["webfetch"])
-      expect(yield* settleTool(registry, call({ url, format: "text", timeout: 4 }))).toEqual({
+      expect(
+        yield* settleTool(registry, call({ url, format: "text", timeout: 4 })).pipe(
+          Effect.provideService(Tracer.Tracer, tracer),
+        ),
+      ).toEqual({
         result: { type: "text", value: "hello" },
         output: {
           structured: { url, contentType: "text/plain", format: "text", output: "hello" },
@@ -101,6 +120,38 @@ describe("WebFetchTool registration", () => {
         { sessionID, action: "webfetch", resources: [url], save: ["*"], metadata: { url, format: "text", timeout: 4 } },
       ])
       expect(requests).toMatchObject([{ url, headers: { accept: expect.stringContaining("text/plain;q=1.0") } }])
+      const tool = spans.find((span) => span.name === "execute_tool webfetch")
+      const http = spans.find((span) => span.attributes.get(ATTR_HTTP_REQUEST_METHOD) === "GET")
+      expect(http?.name).toBe("GET")
+      expect(http?.attributes.get(ATTR_SERVER_PORT)).toBe(80)
+      expect(http?.attributes.get(ATTR_URL_FULL)).toBe(url)
+      expect(http?.parent._tag === "Some" ? http.parent.value.spanId : undefined).toBe(tool?.spanId)
+      expect(requests[0]?.headers.traceparent).toBeUndefined()
+    }),
+  )
+
+  it.effect("marks rejected HTTP statuses on the HTTP span", () =>
+    Effect.gen(function* () {
+      reset()
+      respond = () => Effect.succeed(new Response("missing", { status: 404 }))
+      const registry = yield* ToolRegistry.Service
+      const spans: Tracer.NativeSpan[] = []
+      const tracer = Tracer.make({
+        span(options) {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        },
+      })
+
+      yield* settleTool(registry, call({ url: "https://example.com/missing", format: "text" })).pipe(
+        Effect.provideService(Tracer.Tracer, tracer),
+      )
+
+      const http = spans.find((span) => span.attributes.get(ATTR_HTTP_REQUEST_METHOD) === "GET")
+      expect(http?.attributes.get(ATTR_HTTP_RESPONSE_STATUS_CODE)).toBe(404)
+      expect(http?.attributes.get(ATTR_ERROR_TYPE)).toBe("StatusCodeError")
+      expect(http?.status._tag === "Ended" && http.status.exit._tag).toBe("Failure")
     }),
   )
 

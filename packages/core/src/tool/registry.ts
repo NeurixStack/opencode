@@ -16,6 +16,7 @@ import { ToolHooks } from "./hooks"
 import { makeLocationNode } from "../effect/app-node"
 import { SessionError } from "@opencode-ai/schema/session-error"
 import { toSessionError } from "../session/to-session-error"
+import { ToolTelemetry } from "../observability/tool"
 
 export type ExecuteInput = {
   readonly sessionID: SessionSchema.ID
@@ -216,15 +217,27 @@ const registryLayer = Layer.effect(
             ...Array.from(direct, ([name, registration]) => definition(name, registration.tool)),
             ...(execute ? [definition("execute", execute)] : []),
           ],
-          settle: (input) => {
-            if (input.call.name === "execute" && execute) return settleTool(input, execute)
-            const registration = direct.get(input.call.name)
-            if (registration) return settleWith(input, registration.identity)
-            return Effect.succeed({
-              result: { type: "error", value: `Unknown tool: ${input.call.name}` },
-              error: { type: "tool.unknown", message: `Unknown tool: ${input.call.name}` },
-            })
-          },
+          settle: (input) =>
+            ToolTelemetry.execute(
+              input,
+              Effect.suspend(() => {
+                if (input.call.name === "execute" && execute) return settleTool(input, execute)
+                const registration = direct.get(input.call.name)
+                if (registration) return settleWith(input, registration.identity)
+                return Effect.succeed({
+                  result: { type: "error" as const, value: `Unknown tool: ${input.call.name}` },
+                  error: { type: "tool.unknown" as const, message: `Unknown tool: ${input.call.name}` },
+                })
+              }),
+              (cause) => toSessionError(cause).type,
+              (settlement) => {
+                if (settlement.error) return settlement.error.type
+                if (input.call.name !== "execute") return
+                const structured = settlement.output?.structured
+                if (typeof structured !== "object" || structured === null || !("error" in structured)) return
+                return structured.error === true ? "tool.execution" : undefined
+              },
+            ),
         }
       }),
     })

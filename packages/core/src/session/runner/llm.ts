@@ -49,6 +49,7 @@ import { llmClient } from "../../effect/app-node-platform"
 import { StepFailedError, UserInterruptedError } from "../error"
 import { toSessionError } from "../to-session-error"
 import { SessionRunnerRetry } from "./retry"
+import { AgentTelemetry } from "../../observability/agent"
 
 /**
  * Runs one durable coding-agent Session until it settles.
@@ -174,25 +175,28 @@ const layer = Layer.effect(
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      trigger: AgentTelemetry.ModelCallTrigger,
+      retryAttempt: number,
       recoverOverflow?: typeof compaction.compactAfterOverflow,
       assistantMessageID?: SessionMessage.ID,
     ) {
-      const session = yield* getSession(sessionID)
+      const session = yield* AgentTelemetry.stage("session", getSession(sessionID))
       if (session.location.directory !== location.directory || session.location.workspaceID !== location.workspaceID)
         return yield* Effect.interrupt
-      const agent = yield* agents.select(session.agent)
+      const agent = yield* AgentTelemetry.stage("agent", agents.select(session.agent))
+      yield* AgentTelemetry.identify({ agent: agent.id, parentSessionID: session.parentID })
       // Establish what the model knows before admitting what the user said, so
       // a blocked first step leaves pending inputs untouched.
-      const checkpoint = yield* InstructionCheckpoint.prepare(
-        db,
-        events,
-        loadInstructions(agent, session.id),
-        session.id,
+      const checkpoint = yield* AgentTelemetry.stage(
+        "instructions",
+        InstructionCheckpoint.prepare(db, events, loadInstructions(agent, session.id), session.id),
       )
       const toolFibers = yield* FiberSet.make<void, ToolOutputStore.Error | UserInterruptedError>()
       const ownedToolFibers: Array<Fiber.Fiber<void, ToolOutputStore.Error | UserInterruptedError>> = []
       let needsContinuation = false
       let currentStep = step
+      let currentTrigger = trigger
+      let inputDelivery: SessionInput.Delivery | undefined
       if (promotion) {
         let promoted = 0
         if (promotion === "steer") promoted = yield* SessionInput.promoteSteers(db, events, session.id)
@@ -200,16 +204,27 @@ const layer = Layer.effect(
           promoted += Number(yield* SessionInput.promoteNextQueued(db, events, session.id))
           promoted += yield* SessionInput.promoteSteers(db, events, session.id)
         }
-        if (promoted > 0) currentStep = 1
+        if (promoted > 0) {
+          currentStep = 1
+          currentTrigger = "input"
+          inputDelivery = promotion
+          yield* AgentTelemetry.inputPromoted({ delivery: promotion, count: promoted })
+        }
       }
-      const resolved = yield* models.resolve(session)
+      const resolved = yield* AgentTelemetry.stage("model_resolution", models.resolve(session))
       const model = resolved.model
-      const entries = yield* SessionHistory.entriesForRunner(db, session.id, checkpoint.baselineSeq)
+      const entries = yield* AgentTelemetry.stage(
+        "history",
+        SessionHistory.entriesForRunner(db, session.id, checkpoint.baselineSeq),
+      )
       const context = entries.map((entry) => entry.message)
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
       const toolMaterialization = isLastStep
         ? undefined
-        : yield* tools.materialize({ permissions: agent.info?.permissions, model })
+        : yield* AgentTelemetry.stage(
+            "tool_materialization",
+            tools.materialize({ permissions: agent.info?.permissions, model }),
+          )
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
       const request = LLM.request({
         model,
@@ -228,12 +243,17 @@ const layer = Layer.effect(
         toolChoice: isLastStep ? "none" : undefined,
       })
       // Automatic compaction completed; rebuild the request from compacted history.
-      if (
-        !(yield* SessionInput.pendingCompaction(db, session.id)) &&
-        (yield* compaction.compactIfNeeded({ sessionID: session.id, messages: context, request }))
-      )
-        return { _tag: "RestartAfterCompaction", step: currentStep } as const
-      const startSnapshot = yield* snapshots.capture()
+      if (!(yield* SessionInput.pendingCompaction(db, session.id))) {
+        const compacted = yield* AgentTelemetry.stage(
+          "compaction",
+          compaction.compactIfNeeded({ sessionID: session.id, messages: context, request }),
+        )
+        if (compacted) {
+          yield* AgentTelemetry.compactionCompleted("automatic")
+          return { _tag: "RestartAfterCompaction", step: currentStep } as const
+        }
+      }
+      const startSnapshot = yield* AgentTelemetry.stage("snapshot", snapshots.capture())
       const publisher = createLLMEventPublisher(events, {
         sessionID: session.id,
         agent: agent.id,
@@ -251,65 +271,83 @@ const layer = Layer.effect(
       const publish = (event: LLMEvent, outputPaths: ReadonlyArray<string> = [], error?: SessionError.Error) =>
         serialized(publisher.publish(event, outputPaths, error))
       let overflowFailure: ProviderErrorEvent | undefined
-      const providerStream = llm.stream(request).pipe(
-        Stream.runForEach((event) =>
-          Effect.gen(function* () {
-            if (overflowFailure || publisher.hasProviderError()) return
-            if (LLMEvent.is.providerError(event)) {
-              if (isContextOverflowFailure(event) && !publisher.hasRetryEvidence()) {
-                overflowFailure = event
-                return
-              }
-            }
-            yield* publish(event)
-            if (event.type !== "tool-call" || event.providerExecuted) return
-            if (!toolMaterialization) {
-              yield* serialized(
-                publisher.failUnsettledTools({
-                  type: "tool.execution",
-                  message: "Tools are disabled after the maximum agent steps",
-                }),
-              )
-              return
-            }
-            needsContinuation = true
-            const assistantMessageID = yield* publisher.assistantMessageID(event.id)
-            ownedToolFibers.push(
-              yield* Effect.uninterruptibleMask((restore) =>
-                restore(
-                  toolMaterialization.settle({
-                    sessionID: session.id,
-                    agent: agent.id,
-                    assistantMessageID,
-                    call: event,
-                  }),
-                ).pipe(
-                  Effect.flatMap((settlement) =>
-                    publish(
-                      LLMEvent.toolResult({
-                        id: event.id,
-                        name: event.name,
-                        result: settlement.result,
-                        output: settlement.output,
+      const telemetry = AgentTelemetry.modelCall({
+        sessionID: session.id,
+        agent: agent.id,
+        step: currentStep,
+        trigger: currentTrigger,
+        retryAttempt: retryAttempt > 0 ? retryAttempt + 1 : undefined,
+        delivery: inputDelivery,
+        compacted: context.some((message) => message.type === "compaction"),
+      })
+      const providerStream = AgentTelemetry.stage(
+        "model",
+        telemetry.run(
+          llm.stream(request).pipe(
+            Stream.runForEach((event) =>
+              Effect.gen(function* () {
+                if (overflowFailure || publisher.hasProviderError()) return
+                if (LLMEvent.is.providerError(event)) {
+                  if (isContextOverflowFailure(event) && !publisher.hasRetryEvidence()) {
+                    overflowFailure = event
+                    return
+                  }
+                }
+                yield* publish(event)
+                yield* telemetry.observe(event)
+                if (event.type !== "tool-call" || event.providerExecuted) return
+                if (!toolMaterialization) {
+                  yield* serialized(
+                    publisher.failUnsettledTools({
+                      type: "tool.execution",
+                      message: "Tools are disabled after the maximum agent steps",
+                    }),
+                  )
+                  return
+                }
+                needsContinuation = true
+                const assistantMessageID = yield* publisher.assistantMessageID(event.id)
+                ownedToolFibers.push(
+                  yield* Effect.uninterruptibleMask((restore) =>
+                    restore(
+                      toolMaterialization.settle({
+                        sessionID: session.id,
+                        agent: agent.id,
+                        assistantMessageID,
+                        call: event,
                       }),
-                      settlement.outputPaths ?? [],
-                      settlement.error,
                     ).pipe(
-                      Effect.andThen(
-                        settlement.error?.type === "permission.rejected"
-                          ? serialized(publisher.failAssistant(settlement.error)).pipe(
-                              Effect.andThen(Effect.fail(new UserInterruptedError())),
-                            )
-                          : Effect.void,
+                      Effect.flatMap((settlement) =>
+                        AgentTelemetry.stage(
+                          "tool_publication",
+                          publish(
+                            LLMEvent.toolResult({
+                              id: event.id,
+                              name: event.name,
+                              result: settlement.result,
+                              output: settlement.output,
+                            }),
+                            settlement.outputPaths ?? [],
+                            settlement.error,
+                          ),
+                        ).pipe(
+                          Effect.andThen(
+                            settlement.error?.type === "permission.rejected"
+                              ? serialized(publisher.failAssistant(settlement.error)).pipe(
+                                  Effect.andThen(Effect.fail(new UserInterruptedError())),
+                                )
+                              : Effect.void,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-              ).pipe(FiberSet.run(toolFibers)),
-            )
-          }),
+                  ).pipe(FiberSet.run(toolFibers)),
+                )
+              }),
+            ),
+            Effect.ensuring(serialized(publisher.flush())),
+          ),
         ),
-        Effect.ensuring(serialized(publisher.flush())),
       )
 
       // Captures the end snapshot, diffs it against the step's start, and durably ends the
@@ -323,16 +361,19 @@ const layer = Layer.effect(
                   .files({ from: startSnapshot, to: endSnapshot })
                   .pipe(Effect.catch(() => Effect.succeed(undefined)))
               : undefined
-          yield* serialized(
-            events.publish(SessionEvent.Step.Ended, {
-              sessionID: session.id,
-              assistantMessageID: yield* publisher.startAssistant(),
-              finish: settlement.finish,
-              cost: 0,
-              tokens: settlement.tokens,
-              snapshot: endSnapshot,
-              files,
-            }),
+          yield* AgentTelemetry.stage(
+            "step_publication",
+            serialized(
+              events.publish(SessionEvent.Step.Ended, {
+                sessionID: session.id,
+                assistantMessageID: yield* publisher.startAssistant(),
+                finish: settlement.finish,
+                cost: 0,
+                tokens: settlement.tokens,
+                snapshot: endSnapshot,
+                files,
+              }),
+            ),
           )
         })
 
@@ -362,11 +403,10 @@ const layer = Layer.effect(
           const llmFailure = streamFailure instanceof LLMError ? streamFailure : undefined
           if (llmFailure && !publisher.hasProviderError()) {
             const error = toSessionError(llmFailure)
-            if (
-              SessionRunnerRetry.isRetryable(llmFailure) &&
-              !publisher.hasRetryEvidence() &&
-              (agent.info?.steps === undefined || currentStep < agent.info.steps)
-            ) {
+            const retryable = SessionRunnerRetry.isRetryable(llmFailure)
+            const hasOutput = publisher.hasRetryEvidence()
+            const stepLimited = agent.info?.steps !== undefined && currentStep >= agent.info.steps
+            if (retryable && !hasOutput && !stepLimited) {
               return yield* new SessionRunnerRetry.RetryableFailure({
                 cause: llmFailure,
                 assistantMessageID: yield* publisher.startAssistant(),
@@ -374,6 +414,12 @@ const layer = Layer.effect(
                 step: currentStep,
               })
             }
+            yield* AgentTelemetry.retryStopped({
+              decision: retryable ? (hasOutput ? "output_started" : "step_limit") : "non_retryable",
+              attempt: retryAttempt + 1,
+              maxAttempts: SessionRunnerRetry.maxAttempts,
+              errorType: error.type,
+            })
             yield* serialized(publisher.failAssistant(error))
           }
           // Provider error events only arrive from the stream, so the flag is final here.
@@ -441,16 +487,17 @@ const layer = Layer.effect(
               : false
           if (hostedResultMissing && !publisher.stepSettlement())
             yield* serialized(
-              publisher.failAssistant({
-                type: "tool.result-missing",
-                message: "Provider did not return a tool result",
-              }),
+              publisher.failAssistant({ type: "tool.result-missing", message: "Provider did not return a tool result" }),
             )
 
           const stepFailure = publisher.stepFailure()
           const stepSettlement = publisher.stepSettlement()
           const stepEndedCleanly =
-            !streamInterrupted && !toolsInterrupted && infraError === undefined && !providerFailed && !stepFailure
+            !streamInterrupted &&
+            !toolsInterrupted &&
+            infraError === undefined &&
+            !providerFailed &&
+            !stepFailure
           if (stepSettlement && stepEndedCleanly) yield* publishStepEnd(stepSettlement)
           if (stepFailure) yield* serialized(publisher.publishStepFailure())
 
@@ -474,6 +521,7 @@ const layer = Layer.effect(
       sessionID: SessionSchema.ID,
       promotion: SessionInput.Delivery | undefined,
       step: number,
+      trigger: AgentTelemetry.ModelCallTrigger,
     ) {
       // Compaction restarts rebuild the request from compacted history without re-promoting.
       // Overflow recovery is one-shot: a post-compaction attempt must not recover another
@@ -481,10 +529,24 @@ const layer = Layer.effect(
       let recoverOverflow: typeof compaction.compactAfterOverflow | undefined = compaction.compactAfterOverflow
       let currentPromotion = promotion
       let currentStep = step
+      let currentTrigger = trigger
+      let retryAttempt = 0
       let assistantMessageID: SessionMessage.ID | undefined
       while (true) {
         const attempt = yield* Effect.suspend(() =>
-          attemptStep(sessionID, currentPromotion, currentStep, recoverOverflow, assistantMessageID),
+          AgentTelemetry.resetStage.pipe(
+            Effect.andThen(
+              attemptStep(
+                sessionID,
+                currentPromotion,
+                currentStep,
+                currentTrigger,
+                retryAttempt,
+                recoverOverflow,
+                assistantMessageID,
+              ),
+            ),
+          ),
         ).pipe(
           Effect.tapError((error) =>
             error instanceof SessionRunnerRetry.RetryableFailure
@@ -492,22 +554,33 @@ const layer = Layer.effect(
                   currentStep = error.step + 1
                   assistantMessageID = error.assistantMessageID
                   currentPromotion = undefined
+                  currentTrigger = "retry"
+                  retryAttempt += 1
                 })
               : Effect.void,
           ),
           Effect.retryOrElse(SessionRunnerRetry.schedule(events, sessionID), (error) => {
             if (!(error instanceof SessionRunnerRetry.RetryableFailure)) return Effect.fail(error)
-            return events
-              .publish(SessionEvent.Step.Failed, {
-                sessionID,
-                assistantMessageID: error.assistantMessageID,
-                error: error.error,
-              })
-              .pipe(Effect.andThen(Effect.fail(error.cause)))
+            return AgentTelemetry.retryStopped({
+              decision: "exhausted",
+              attempt: retryAttempt,
+              maxAttempts: SessionRunnerRetry.maxAttempts,
+              errorType: error.error.type,
+            }).pipe(
+              Effect.andThen(
+                events.publish(SessionEvent.Step.Failed, {
+                  sessionID,
+                  assistantMessageID: error.assistantMessageID,
+                  error: error.error,
+                }),
+              ),
+              Effect.andThen(Effect.fail(error.cause)),
+            )
           }),
         )
         if (attempt._tag === "Completed") return { needsContinuation: attempt.needsContinuation, step: attempt.step }
         if (attempt._tag === "RestartAfterOverflowCompaction") recoverOverflow = undefined
+        currentTrigger = "compaction"
         yield* Effect.yieldNow
         currentPromotion = undefined
         currentStep = attempt.step
@@ -519,6 +592,7 @@ const layer = Layer.effect(
     ) {
       const pending = yield* SessionInput.pendingCompaction(db, sessionID)
       if (!pending) return false
+      yield* AgentTelemetry.compactionStarted("manual")
       const session = yield* getSession(sessionID)
       return yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
@@ -530,8 +604,12 @@ const layer = Layer.effect(
               })
             }),
           ).pipe(Effect.exit)
-          if (Exit.isSuccess(compacted) && compacted.value) return true
+          if (Exit.isSuccess(compacted) && compacted.value) {
+            yield* AgentTelemetry.compactionCompleted("manual")
+            return true
+          }
           yield* events.publish(SessionEvent.Compaction.Failed, { sessionID })
+          yield* AgentTelemetry.compactionFailed("manual")
           if (Exit.isFailure(compacted)) return yield* Effect.failCause(compacted.cause)
           return true
         }),
@@ -543,44 +621,56 @@ const layer = Layer.effect(
       readonly sessionID: SessionSchema.ID
       readonly force: boolean
     }) {
-      yield* runPendingCompaction(input.sessionID)
-      const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
-      const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
-      if (!input.force && !hasSteer && !hasQueue) return
-      yield* failInterruptedTools(input.sessionID)
-      let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
-      let shouldRun = input.force || hasSteer || hasQueue
-      while (shouldRun) {
-        let needsContinuation = true
-        let step = 1
-        // Repeat steps while continuation is needed. A step needs continuation only
-        // when it recorded local tool calls whose results the model has not yet seen;
-        // a provider error suppresses it. Pending steers also continue the loop so
-        // interjections are answered before the session goes idle.
-        while (needsContinuation) {
-          const result = yield* runStep(input.sessionID, promotion, step)
-          // Steer/queue promotion inside runStep has already made the pending input a visible
-          // user message by this point, so the first-user-message check below is reliable.
-          if (!titleAttempted.has(input.sessionID)) {
-            titleAttempted.add(input.sessionID)
-            forkTitle(title.generateForFirstPrompt(yield* getSession(input.sessionID)).pipe(Effect.ignore))
-          }
-          needsContinuation = result.needsContinuation
-          step = result.step + 1
-          if (needsContinuation) {
-            promotion = (yield* SessionInput.pendingCompaction(db, input.sessionID)) ? undefined : "steer"
-            continue
+      const run = Effect.gen(function* () {
+        yield* AgentTelemetry.stage("compaction", runPendingCompaction(input.sessionID))
+        const hasSteer = yield* AgentTelemetry.stage("input", SessionInput.hasPending(db, input.sessionID, "steer"))
+        const hasQueue = hasSteer
+          ? false
+          : yield* AgentTelemetry.stage("input", SessionInput.hasPending(db, input.sessionID, "queue"))
+        if (!input.force && !hasSteer && !hasQueue) return
+        yield* AgentTelemetry.stage("tool_recovery", failInterruptedTools(input.sessionID))
+        let promotion: SessionInput.Delivery | undefined = hasSteer ? "steer" : hasQueue ? "queue" : undefined
+        let trigger: AgentTelemetry.ModelCallTrigger = hasSteer || hasQueue ? "input" : "resume"
+        let shouldRun = input.force || hasSteer || hasQueue
+        while (shouldRun) {
+          let needsContinuation = true
+          let step = 1
+          // Repeat steps while continuation is needed. A step needs continuation only
+          // when it recorded local tool calls whose results the model has not yet seen;
+          // a provider error suppresses it. Pending steers also continue the loop so
+          // interjections are answered before the session goes idle.
+          while (needsContinuation) {
+            const result = yield* runStep(input.sessionID, promotion, step, trigger)
+            // Steer/queue promotion inside runStep has already made the pending input a visible
+            // user message by this point, so the first-user-message check below is reliable.
+            if (!titleAttempted.has(input.sessionID)) {
+              titleAttempted.add(input.sessionID)
+              forkTitle(title.generateForFirstPrompt(yield* getSession(input.sessionID)).pipe(Effect.ignore))
+            }
+            needsContinuation = result.needsContinuation
+            step = result.step + 1
+            if (needsContinuation) {
+              promotion = (yield* SessionInput.pendingCompaction(db, input.sessionID)) ? undefined : "steer"
+              trigger = "tool_result"
+              continue
+            }
+            yield* runPendingCompaction(input.sessionID)
+            promotion = "steer"
+            trigger = "tool_result"
+            needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
           }
           yield* runPendingCompaction(input.sessionID)
-          promotion = "steer"
-          needsContinuation = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+          const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
+          const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
+          shouldRun = hasSteer || hasQueue
+          promotion = hasSteer ? "steer" : hasQueue ? "queue" : undefined
+          trigger = hasSteer || hasQueue ? "input" : "resume"
         }
-        yield* runPendingCompaction(input.sessionID)
-        const hasSteer = yield* SessionInput.hasPending(db, input.sessionID, "steer")
-        const hasQueue = hasSteer ? false : yield* SessionInput.hasPending(db, input.sessionID, "queue")
-        shouldRun = hasSteer || hasQueue
-        promotion = hasSteer ? "steer" : hasQueue ? "queue" : undefined
-      }
+      })
+      return yield* AgentTelemetry.invoke(
+        { sessionID: input.sessionID, errorType: (cause) => toSessionError(cause).type },
+        run,
+      )
     })
 
     return Service.of({ drain })

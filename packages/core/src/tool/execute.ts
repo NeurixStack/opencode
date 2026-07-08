@@ -3,6 +3,8 @@ export * as ExecuteTool from "./execute"
 import { CodeMode, Tool, toolError } from "@opencode-ai/codemode"
 import { ToolOutput } from "@opencode-ai/llm"
 import { Effect, Ref, Schema } from "effect"
+import { ToolTelemetry } from "../observability/tool"
+import { toSessionError } from "../session/to-session-error"
 import { definition, make, settle, type AnyTool } from "./tool"
 
 const ExecuteFile = Schema.Struct({
@@ -115,18 +117,31 @@ export const create = (options: {
           (name, registration, input) =>
             Effect.gen(function* () {
               const index = yield* Ref.getAndUpdate(callIndex, (index) => index + 1)
-              const current = options.current(name)
-              if (!current || current.identity !== registration.identity)
-                return yield* Effect.fail(toolError(`Stale tool call: ${name}`))
-              const output = yield* settle(
-                current.tool,
-                { type: "tool-call", id: context.toolCallID, name, input },
+              const state = { stale: false }
+              const output = yield* ToolTelemetry.execute(
                 {
                   sessionID: context.sessionID,
                   agent: context.agent,
-                  assistantMessageID: context.assistantMessageID,
-                  toolCallID: context.toolCallID,
+                  call: { id: `${context.toolCallID}/${index + 1}`, name },
                 },
+                Effect.gen(function* () {
+                  const current = options.current(name)
+                  if (!current || current.identity !== registration.identity) {
+                    state.stale = true
+                    return yield* Effect.fail(toolError(`Stale tool call: ${name}`))
+                  }
+                  return yield* settle(
+                    current.tool,
+                    { type: "tool-call", id: context.toolCallID, name, input },
+                    {
+                      sessionID: context.sessionID,
+                      agent: context.agent,
+                      assistantMessageID: context.assistantMessageID,
+                      toolCallID: context.toolCallID,
+                    },
+                  )
+                }),
+                (cause) => (state.stale ? "tool.stale" : toSessionError(cause).type),
               ).pipe(Effect.mapError((failure) => toolError(failure.message, failure)))
               const outputFileParts = outputFiles(output)
               if (outputFileParts.length > 0)

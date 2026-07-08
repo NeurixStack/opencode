@@ -176,6 +176,7 @@ export default defineConfig({
         "config",
         "providers",
         "network",
+        "observability",
         "enterprise",
         "troubleshooting",
         {

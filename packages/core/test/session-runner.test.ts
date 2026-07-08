@@ -8,9 +8,42 @@ import {
   TransportReason,
   InvalidRequestReason,
   RateLimitReason,
+  Usage,
   type LLMClientShape,
   type LLMRequest,
 } from "@opencode-ai/llm"
+import {
+  ATTR_ERROR_TYPE,
+  ATTR_GEN_AI_AGENT_NAME,
+  ATTR_GEN_AI_CONVERSATION_ID,
+  ATTR_GEN_AI_OPERATION_NAME,
+  ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS,
+  ATTR_GEN_AI_TOOL_CALL_ID,
+  ATTR_GEN_AI_TOOL_NAME,
+  GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL,
+  GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT,
+  ATTR_OPENCODE_AGENT_STEP_INDEX,
+  ATTR_OPENCODE_AGENT_STEP_TRIGGER,
+  ATTR_OPENCODE_COMPACTION_REASON,
+  ATTR_OPENCODE_ERROR_STAGE,
+  ATTR_OPENCODE_ERROR_SOURCE,
+  ATTR_OPENCODE_RETRY_DECISION,
+  ATTR_OPENCODE_RETRY_DELAY_SOURCE,
+  ATTR_OPENCODE_RETRY_MAX_ATTEMPTS,
+  ATTR_OPENCODE_RETRY_ATTEMPT,
+  ATTR_OPENCODE_RETRY_DELAY_MS,
+  ATTR_OPENCODE_SESSION_INPUT_COUNT,
+  ATTR_OPENCODE_SESSION_INPUT_DELIVERY,
+  ATTR_OPENCODE_SESSION_PARENT_ID,
+  EVENT_OPENCODE_COMPACTION_COMPLETED,
+  EVENT_OPENCODE_RETRY_SCHEDULED,
+  EVENT_OPENCODE_RETRY_STOPPED,
+  EVENT_OPENCODE_SESSION_INPUT_PROMOTED,
+} from "@opencode-ai/core/observability/semconv"
 import * as OpenAIChat from "@opencode-ai/llm/protocols/openai-chat"
 import { Database } from "@opencode-ai/core/database/database"
 import { makeLocationNode } from "@opencode-ai/core/effect/app-node"
@@ -61,7 +94,7 @@ import { McpGuidance } from "@opencode-ai/core/mcp/guidance"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { Location } from "@opencode-ai/core/location"
 import { ProviderV2 } from "@opencode-ai/core/provider"
-import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Schema, Stream } from "effect"
+import { Cause, DateTime, Deferred, Effect, Exit, Fiber, Layer, Schema, Stream, Tracer } from "effect"
 import { TestClock } from "effect/testing"
 import { asc, eq } from "drizzle-orm"
 import { testEffect } from "./lib/effect"
@@ -259,6 +292,14 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [McpGuidance.node, mcpGuidance],
   [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
 ])
+const spans: Tracer.NativeSpan[] = []
+const tracer = Tracer.make({
+  span(options) {
+    const span = new Tracer.NativeSpan(options)
+    spans.push(span)
+    return span
+  },
+})
 const execution = Layer.effect(
   SessionExecution.Service,
   Effect.gen(function* () {
@@ -274,7 +315,10 @@ const execution = Layer.effect(
       awaitIdle: coordinator.awaitIdle,
     })
   }),
-).pipe(Layer.provide(runnerLayer))
+).pipe(
+  Layer.provide(runnerLayer),
+  Layer.updateService(Tracer.Tracer, () => tracer),
+)
 const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
@@ -338,6 +382,7 @@ const insertSession = (id: SessionV2.ID) =>
 
 const setup = Effect.gen(function* () {
   const { db } = yield* Database.Service
+  requests.length = 0
   response = []
   systemBaseline = "Initial context"
   systemRemoved = false
@@ -356,6 +401,7 @@ const setup = Effect.gen(function* () {
   toolExecutionsReady = 5
   activeToolExecutions = 0
   maxActiveToolExecutions = 0
+  spans.length = 0
   yield* db
     .insert(ProjectTable)
     .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
@@ -643,6 +689,180 @@ const verifyPartialFlushOnInterruption = (kind: FragmentKind) =>
   })
 
 describe("SessionRunnerLLM", () => {
+  it.effect("parents forked tool spans under the V2 agent turn", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "Use echo" }), resume: false })
+      const usage = new Usage({
+        inputTokens: 8,
+        outputTokens: 3,
+        cacheReadInputTokens: 2,
+        cacheWriteInputTokens: 1,
+        reasoningTokens: 1,
+      })
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-telemetry", name: "echo", input: { text: "hello" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls", usage }),
+          LLMEvent.finish({ reason: "tool-calls", usage }),
+        ],
+        [],
+      ]
+
+      yield* session.resume(sessionID)
+
+      const agent = spans.find((span) => span.name === "invoke_agent")
+      const tool = spans.find((span) => span.name === "execute_tool echo")
+      expect(agent?.attributes).toMatchObject(
+        new Map([
+          [ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT],
+          [ATTR_GEN_AI_AGENT_NAME, "build"],
+          [ATTR_GEN_AI_CONVERSATION_ID, sessionID],
+        ]),
+      )
+      expect(agent?.events.find(([name]) => name === EVENT_OPENCODE_SESSION_INPUT_PROMOTED)?.[2]).toMatchObject({
+        [ATTR_OPENCODE_SESSION_INPUT_DELIVERY]: "steer",
+        [ATTR_OPENCODE_SESSION_INPUT_COUNT]: 1,
+      })
+      expect(ancestorNames(agent)).toContain("SessionRunner.drain")
+      expect(agent?.attributes.get(ATTR_GEN_AI_USAGE_INPUT_TOKENS)).toBe(8)
+      expect(agent?.attributes.get(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS)).toBe(3)
+      expect(agent?.attributes.get(ATTR_GEN_AI_USAGE_CACHE_READ_INPUT_TOKENS)).toBe(2)
+      expect(agent?.attributes.get(ATTR_GEN_AI_USAGE_CACHE_CREATION_INPUT_TOKENS)).toBe(1)
+      expect(agent?.attributes.get(ATTR_GEN_AI_USAGE_REASONING_OUTPUT_TOKENS)).toBe(1)
+      expect(tool?.attributes).toMatchObject(
+        new Map([
+          [ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_EXECUTE_TOOL],
+          [ATTR_GEN_AI_TOOL_NAME, "echo"],
+          [ATTR_GEN_AI_TOOL_CALL_ID, "call-telemetry"],
+          [ATTR_GEN_AI_CONVERSATION_ID, sessionID],
+        ]),
+      )
+      expect(ancestorNames(tool)).toContain("invoke_agent")
+      expect(ancestorNames(tool)).not.toContain("SessionRunner.attemptStep")
+      expect(ancestorNames(tool)).not.toContain("chat fake-model")
+      expect(tool?.status._tag === "Ended" && tool.status.exit._tag).toBe("Success")
+      requests.length = 0
+      spans.length = 0
+    }),
+  )
+
+  it.effect("tracks V2 subagent sessions with their parent session", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const agents = yield* AgentV2.Service
+      yield* agents.transform((editor) =>
+        editor.update(AgentV2.ID.make("explore"), (agent) => {
+          agent.mode = "subagent"
+        }),
+      )
+      const session = yield* SessionV2.Service
+      const child = yield* session.create({
+        id: otherSessionID,
+        parentID: sessionID,
+        agent: AgentV2.ID.make("explore"),
+      })
+      yield* session.prompt({
+        sessionID: child.id,
+        prompt: PromptInput.Prompt.make({ text: "Explore" }),
+        resume: false,
+      })
+
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-subagent-telemetry", name: "echo", input: { text: "found" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [],
+      ]
+      yield* session.resume(child.id)
+
+      const agent = spans.find((span) => span.name === "invoke_agent")
+      const tool = spans.find((span) => span.name === "execute_tool echo")
+      expect(agent?.attributes).toMatchObject(
+        new Map([
+          [ATTR_GEN_AI_OPERATION_NAME, GEN_AI_OPERATION_NAME_VALUE_INVOKE_AGENT],
+          [ATTR_GEN_AI_AGENT_NAME, "explore"],
+          [ATTR_GEN_AI_CONVERSATION_ID, child.id],
+          [ATTR_OPENCODE_SESSION_PARENT_ID, sessionID],
+        ]),
+      )
+      expect(tool?.attributes).toMatchObject(
+        new Map([
+          [ATTR_GEN_AI_AGENT_NAME, "explore"],
+          [ATTR_GEN_AI_CONVERSATION_ID, child.id],
+          [ATTR_OPENCODE_SESSION_PARENT_ID, sessionID],
+        ]),
+      )
+      expect(ancestorNames(tool)).toContain("invoke_agent")
+    }),
+  )
+
+  it.effect("distinguishes input and tool-result model calls", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({
+        sessionID,
+        prompt: PromptInput.Prompt.make({ text: "Use echo twice" }),
+        resume: false,
+      })
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-context-1", name: "echo", input: { text: "first" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-context-2", name: "echo", input: { text: "second" } }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [],
+      ]
+
+      yield* session.resume(sessionID)
+
+      const tools = spans.filter((span) => span.name === "execute_tool echo")
+      expect(tools).toHaveLength(2)
+      expect(tools[0]?.attributes.get(ATTR_OPENCODE_AGENT_STEP_INDEX)).toBe(1)
+      expect(tools[0]?.attributes.get(ATTR_OPENCODE_AGENT_STEP_TRIGGER)).toBe("input")
+      expect(tools[1]?.attributes.get(ATTR_OPENCODE_AGENT_STEP_INDEX)).toBe(2)
+      expect(tools[1]?.attributes.get(ATTR_OPENCODE_AGENT_STEP_TRIGGER)).toBe("tool_result")
+    }),
+  )
+
+  it.effect("marks failed tool spans before returning the error to the model", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "Fail tool" }), resume: false })
+      responses = [
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-telemetry-failure", name: "echo", input: {} }),
+          LLMEvent.stepFinish({ index: 0, reason: "tool-calls" }),
+          LLMEvent.finish({ reason: "tool-calls" }),
+        ],
+        [],
+      ]
+
+      yield* session.resume(sessionID)
+
+      const tool = spans.find((span) => span.name === "execute_tool echo")
+      expect(tool?.attributes.get(ATTR_ERROR_TYPE)).toBe("tool.execution")
+      expect(tool?.status._tag === "Ended" && tool.status.exit._tag).toBe("Failure")
+      requests.length = 0
+      spans.length = 0
+    }),
+  )
+
   it.effect("advertises and executes a location registered tool", () =>
     Effect.gen(function* () {
       yield* setup
@@ -1445,6 +1665,12 @@ describe("SessionRunnerLLM", () => {
       yield* session.resume(sessionID)
 
       expect(requests).toHaveLength(2)
+      expect(
+        spans
+          .filter((span) => span.name === "invoke_agent")
+          .at(-1)
+          ?.events.find(([name]) => name === EVENT_OPENCODE_COMPACTION_COMPLETED)?.[2],
+      ).toMatchObject({ [ATTR_OPENCODE_COMPACTION_REASON]: "automatic" })
       expect(userTexts(requests[0])[0]).toContain("## Objective")
       expect(userTexts(requests[1])).toHaveLength(1)
       expect(userTexts(requests[1])[0]).toContain("<summary>\n## Objective\n- Preserve the task\n</summary>")
@@ -3429,6 +3655,9 @@ describe("SessionRunnerLLM", () => {
         { type: "assistant", finish: "error", error: { type: "aborted", message: "Step interrupted" } },
       ])
       expect(yield* recordedEventTypes(sessionID)).toContain("session.step.failed.1")
+      const agent = spans.find((span) => span.name === "invoke_agent")
+      expect(agent?.attributes.get(ATTR_ERROR_TYPE)).toBe("canceled")
+      expect(agent?.status._tag === "Ended" && agent.status.exit._tag).toBe("Failure")
       yield* session.interrupt(sessionID)
     }),
   )
@@ -3766,7 +3995,20 @@ describe("SessionRunnerLLM", () => {
       expect(requests).toHaveLength(2)
       const eventTypes = yield* recordedEventTypes(sessionID)
       expect(eventTypes).toContain("session.retry.scheduled.1")
+      expect(
+        spans
+          .find((span) => span.name === "invoke_agent")
+          ?.events.find(([name]) => name === EVENT_OPENCODE_RETRY_SCHEDULED)?.[2],
+      ).toMatchObject({
+        [ATTR_OPENCODE_RETRY_ATTEMPT]: 2,
+        [ATTR_OPENCODE_RETRY_MAX_ATTEMPTS]: 5,
+        [ATTR_OPENCODE_RETRY_DELAY_MS]: 2_000,
+        [ATTR_OPENCODE_RETRY_DELAY_SOURCE]: "backoff",
+        [ATTR_OPENCODE_RETRY_DECISION]: "scheduled",
+        [ATTR_ERROR_TYPE]: "provider.transport",
+      })
       expect(eventTypes.filter((type) => type === "session.step.started.1")).toHaveLength(2)
+      expect(spans.find((span) => span.name === "invoke_agent")?.attributes.has(ATTR_OPENCODE_ERROR_STAGE)).toBeFalse()
       expect(yield* session.context(sessionID)).toMatchObject([
         { type: "user" },
         { type: "assistant", finish: "stop", content: [{ type: "text", text: "Recovered" }] },
@@ -3826,8 +4068,26 @@ describe("SessionRunnerLLM", () => {
         { attempt: 4, at: 14_000 },
         { attempt: 5, at: 30_000 },
       ])
+      expect(
+        spans
+          .find((span) => span.name === "invoke_agent")
+          ?.events.find(([name]) => name === EVENT_OPENCODE_RETRY_STOPPED)?.[2],
+      ).toMatchObject({
+        [ATTR_OPENCODE_RETRY_DECISION]: "exhausted",
+        [ATTR_OPENCODE_RETRY_ATTEMPT]: 5,
+        [ATTR_OPENCODE_RETRY_MAX_ATTEMPTS]: 5,
+      })
       expect((yield* recordedEventTypes(sessionID)).filter((type) => type === "session.step.started.1")).toHaveLength(5)
       expect((yield* session.context(sessionID)).filter((message) => message.type === "assistant")).toHaveLength(1)
+      const agent = spans.find((span) => span.name === "invoke_agent")
+      expect(agent?.attributes.get(ATTR_ERROR_TYPE)).toBe("provider.transport")
+      expect(agent?.attributes.get(ATTR_OPENCODE_ERROR_SOURCE)).toBe("provider")
+      expect(agent?.attributes.get(ATTR_OPENCODE_ERROR_STAGE)).toBe("model")
+      if (agent?.status._tag === "Ended" && agent.status.exit._tag === "Failure") {
+        const failure = Cause.squash(agent.status.exit.cause)
+        expect(failure).toMatchObject({ message: "provider.transport" })
+        expect(failure).not.toMatchObject({ message: "Provider unavailable" })
+      }
     }),
   )
 
@@ -4310,3 +4570,13 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 })
+
+function ancestorNames(span: Tracer.NativeSpan | undefined) {
+  const names: string[] = []
+  let current = span?.parent._tag === "Some" ? span.parent.value : undefined
+  while (current?._tag === "Span") {
+    names.push(current.name)
+    current = current.parent._tag === "Some" ? current.parent.value : undefined
+  }
+  return names
+}

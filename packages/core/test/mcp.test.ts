@@ -15,7 +15,8 @@ import { SessionV2 } from "@opencode-ai/core/session"
 import { McpTool } from "@opencode-ai/core/tool/mcp"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
-import { Deferred, Effect, Fiber, Layer, Stream } from "effect"
+import { ATTR_ERROR_TYPE } from "@opencode-ai/core/observability/semconv"
+import { Deferred, Effect, Fiber, Layer, Stream, Tracer } from "effect"
 import { testEffect } from "./lib/effect"
 import { settleTool, toolDefinitions, toolIdentity, waitForTool } from "./lib/tool"
 
@@ -293,6 +294,14 @@ it.effect("waits for permission before calling an MCP tool", () =>
 
 it.effect("does not call MCP when permission is blocked", () =>
   Effect.gen(function* () {
+    const spans: Tracer.NativeSpan[] = []
+    const tracer = Tracer.make({
+      span(options) {
+        const span = new Tracer.NativeSpan(options)
+        spans.push(span)
+        return span
+      },
+    })
     calls = 0
     assertion = yield* Deferred.make<PermissionV2.AssertInput>()
     decision = Effect.fail(new PermissionV2.BlockedError({ rules: [], permission: "demo_search", resources: ["*"] }))
@@ -308,12 +317,17 @@ it.effect("does not call MCP when permission is blocked", () =>
         name: "execute",
         input: { code: "return await tools.demo.search({})" },
       },
-    })
+    }).pipe(Effect.provideService(Tracer.Tracer, tracer))
     expect(settlement.result).toEqual({ type: "text", value: "Unable to execute demo_search" })
     expect(settlement.output?.structured).toEqual({
       toolCalls: [{ tool: "demo.search", status: "error" }],
       error: true,
     })
     expect(calls).toBe(0)
+    const outer = spans.find((span) => span.name === "execute_tool execute")
+    const nested = spans.find((span) => span.name === "execute_tool demo_search")
+    expect(outer?.attributes.get(ATTR_ERROR_TYPE)).toBe("tool.execution")
+    expect(nested?.attributes.get(ATTR_ERROR_TYPE)).toBe("tool.execution")
+    expect(nested?.parent._tag === "Some" && nested.parent.value === outer).toBeTrue()
   }),
 )

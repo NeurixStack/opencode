@@ -11,6 +11,7 @@ import { Effect, Layer, Schema } from "effect"
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import { requestRef, type LocationServices } from "../location"
+import { ServerObservability } from "../observability"
 
 export class FormLocationMiddleware extends HttpApiMiddleware.Service<
   FormLocationMiddleware,
@@ -47,28 +48,27 @@ export const formLocationLayer = Layer.effect(
               }),
           ),
         )
-        const row = yield* db
-          .select({ directory: SessionTable.directory, workspaceID: SessionTable.workspace_id })
-          .from(SessionTable)
-          .where(eq(SessionTable.id, sessionID))
-          .get()
-          .pipe(Effect.orDie)
-        if (!row) {
-          return yield* new SessionNotFoundError({
-            sessionID,
-            message: `Session not found: ${sessionID}`,
+        const location = yield* Effect.gen(function* () {
+          const row = yield* db
+            .select({ directory: SessionTable.directory, workspaceID: SessionTable.workspace_id })
+            .from(SessionTable)
+            .where(eq(SessionTable.id, sessionID))
+            .get()
+            .pipe(Effect.orDie)
+          if (!row) {
+            return yield* new SessionNotFoundError({
+              sessionID,
+              message: `Session not found: ${sessionID}`,
+            })
+          }
+          return Location.Ref.make({
+            directory: AbsolutePath.make(row.directory),
+            workspaceID: row.workspaceID ? WorkspaceV2.ID.make(row.workspaceID) : undefined,
           })
-        }
+        }).pipe(Effect.tapCause((cause) => ServerObservability.locationFailure(cause, sessionID, "resolve")))
 
         return yield* effect.pipe(
-          Effect.provide(
-            locations.get(
-              Location.Ref.make({
-                directory: AbsolutePath.make(row.directory),
-                workspaceID: row.workspaceID ? WorkspaceV2.ID.make(row.workspaceID) : undefined,
-              }),
-            ),
-          ),
+          Effect.provide(ServerObservability.locationLayer(locations.get(location), sessionID)),
         )
       }),
     )

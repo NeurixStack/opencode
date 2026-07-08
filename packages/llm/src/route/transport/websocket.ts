@@ -1,7 +1,8 @@
 import { Cause, Context, Effect, Layer, Queue, Stream } from "effect"
 import { Headers } from "effect/unstable/http"
 import { LLMError, TransportReason } from "../../schema"
-import * as HttpTransport from "./http"
+import { LLMWebSocketTelemetry } from "../../telemetry/websocket"
+import { jsonRequestParts } from "./http"
 import type { Transport } from "./index"
 
 export interface WebSocketRequest {
@@ -228,7 +229,7 @@ export const json = <Body, Message>(input: JsonInput<Body, Message>): JsonTransp
   with: (patch) => json({ ...input, ...patch }),
   prepare: (prepareInput) =>
     Effect.gen(function* () {
-      const parts = yield* HttpTransport.jsonRequestParts({
+      const parts = yield* jsonRequestParts({
         ...prepareInput,
       })
       return {
@@ -239,24 +240,30 @@ export const json = <Body, Message>(input: JsonInput<Body, Message>): JsonTransp
     }),
   frames: (prepared, _request, runtime) => {
     const webSocket = runtime.webSocket
-    if (!webSocket) {
+    if (!webSocket)
       return Stream.fail(
         transportError("json", "WebSocket JSON transport requires WebSocketExecutor.Service", {
           url: prepared.url,
           kind: "websocket",
         }),
       )
-    }
     const decoder = new TextDecoder()
-    return Stream.unwrap(
-      Effect.gen(function* () {
-        const connection = yield* Effect.acquireRelease(
-          webSocket.open({ url: prepared.url, headers: prepared.headers }),
-          (connection) => connection.close,
-        )
-        yield* connection.sendText(prepared.message)
-        return connection.messages.pipe(Stream.map((message) => messageText(message, decoder)))
-      }),
+    return LLMWebSocketTelemetry.stream(
+      prepared.url,
+      Stream.unwrap(
+        Effect.gen(function* () {
+          const connection = yield* Effect.acquireRelease(
+            webSocket.open({ url: prepared.url, headers: prepared.headers }),
+            (connection) => connection.close,
+          )
+          yield* connection.sendText(prepared.message)
+          const firstChunk = yield* LLMWebSocketTelemetry.ResponseChunkReceived
+          return connection.messages.pipe(
+            Stream.tap(() => firstChunk ?? Effect.void),
+            Stream.map((message) => messageText(message, decoder)),
+          )
+        }),
+      ),
     )
   },
 })

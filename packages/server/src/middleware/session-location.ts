@@ -10,6 +10,7 @@ import { Effect, Layer, Schema } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import { InvalidRequestError, SessionNotFoundError } from "@opencode-ai/protocol/errors"
+import { ServerObservability } from "../observability"
 import type { LocationServices } from "../location"
 
 export class SessionLocationMiddleware extends HttpApiMiddleware.Service<
@@ -39,28 +40,27 @@ export const sessionLocationLayer = Layer.effect(
               }),
           ),
         )
-        const row = yield* db
-          .select({ directory: SessionTable.directory, workspaceID: SessionTable.workspace_id })
-          .from(SessionTable)
-          .where(eq(SessionTable.id, sessionID))
-          .get()
-          .pipe(Effect.orDie)
-        if (!row)
-          return yield* new SessionNotFoundError({
-            sessionID,
-            message: `Session not found: ${sessionID}`,
+        const location = yield* Effect.gen(function* () {
+          const row = yield* db
+            .select({ directory: SessionTable.directory, workspaceID: SessionTable.workspace_id })
+            .from(SessionTable)
+            .where(eq(SessionTable.id, sessionID))
+            .get()
+            .pipe(Effect.orDie)
+          if (!row)
+            return yield* new SessionNotFoundError({
+              sessionID,
+              message: `Session not found: ${sessionID}`,
+            })
+          return Location.Ref.make({
+            directory: AbsolutePath.make(row.directory),
+            workspaceID: row.workspaceID ? WorkspaceV2.ID.make(row.workspaceID) : undefined,
           })
-
-        return yield* effect.pipe(
-          Effect.provide(
-            locations.get(
-              Location.Ref.make({
-                directory: AbsolutePath.make(row.directory),
-                workspaceID: row.workspaceID ? WorkspaceV2.ID.make(row.workspaceID) : undefined,
-              }),
-            ),
-          ),
+        }).pipe(
+          Effect.tapCause((cause) => ServerObservability.locationFailure(cause, sessionID, "resolve")),
         )
+
+        return yield* effect.pipe(Effect.provide(ServerObservability.locationLayer(locations.get(location), sessionID)))
       }),
     )
   }),

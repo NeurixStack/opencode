@@ -1,11 +1,12 @@
 import { Effect, Stream } from "effect"
 import { Headers, HttpClientRequest } from "effect/unstable/http"
 import { Auth } from "../auth"
-import { render as renderEndpoint } from "../endpoint"
-import { Framing, type Framing as FramingDef } from "../framing"
+import { Endpoint } from "../endpoint"
+import { Framing } from "../framing"
 import type { Transport, TransportPrepareInput } from "./index"
-import * as ProviderShared from "../../protocols/shared"
+import { ProviderShared } from "../../protocols/shared"
 import { mergeJsonRecords, type LLMRequest } from "../../schema"
+import { LLMHttpTelemetry } from "../../telemetry/http"
 
 export type JsonRequestInput<Body> = TransportPrepareInput<Body>
 
@@ -18,7 +19,7 @@ export interface JsonRequestParts<Body = unknown> {
 
 export interface HttpPrepared<Frame> {
   readonly request: HttpClientRequest.HttpClientRequest
-  readonly framing: FramingDef<Frame>
+  readonly framing: Framing<Frame>
 }
 
 const applyQuery = (url: string, query: Record<string, string> | undefined) => {
@@ -88,7 +89,7 @@ const bodyWithOverlay = <Body>(body: Body, request: LLMRequest, encodeBody: (bod
 export const jsonRequestParts = <Body>(input: JsonRequestInput<Body>) =>
   Effect.gen(function* () {
     const url = applyQuery(
-      renderEndpoint(input.endpoint, { request: input.request, body: input.body }).toString(),
+      Endpoint.render(input.endpoint, { request: input.request, body: input.body }).toString(),
       input.request.http?.query,
     )
     const body = yield* bodyWithOverlay(input.body, input.request, input.encodeBody)
@@ -106,7 +107,7 @@ export const jsonRequestParts = <Body>(input: JsonRequestInput<Body>) =>
   })
 
 export interface HttpJsonInput<_Body, Frame> {
-  readonly framing: FramingDef<Frame>
+  readonly framing: Framing<Frame>
 }
 
 export type HttpJsonPatch<Body, Frame> = Partial<HttpJsonInput<Body, Frame>>
@@ -128,24 +129,33 @@ export const httpJson = <Body, Frame>(input: HttpJsonInput<Body, Frame>): HttpJs
       })),
     ),
   frames: (prepared, request, runtime) =>
-    Stream.unwrap(
-      runtime.http
-        .execute(prepared.request)
-        .pipe(
+    LLMHttpTelemetry.stream(
+      prepared.request,
+      Stream.unwrap(
+        runtime.http.execute(prepared.request).pipe(
           Effect.map((response) =>
-            prepared.framing.frame(
-              response.stream.pipe(
-                Stream.mapError((error) =>
-                  ProviderShared.eventError(
-                    `${request.model.provider}/${request.model.route.id}`,
-                    `Failed to read ${request.model.provider}/${request.model.route.id} stream`,
-                    ProviderShared.errorText(error),
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const received = yield* LLMHttpTelemetry.ResponseReceived
+                if (received) yield* received(response.status)
+                const firstChunk = yield* LLMHttpTelemetry.ResponseChunkReceived
+                return prepared.framing.frame(
+                  response.stream.pipe(
+                    Stream.tap(() => firstChunk ?? Effect.void),
+                    Stream.mapError((error) =>
+                      ProviderShared.eventError(
+                        `${request.model.provider}/${request.model.route.id}`,
+                        `Failed to read ${request.model.provider}/${request.model.route.id} stream`,
+                        ProviderShared.errorText(error),
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                )
+              }),
             ),
           ),
         ),
+      ),
     ),
 })
 

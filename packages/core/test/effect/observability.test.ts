@@ -1,11 +1,23 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { NodeFileSystem } from "@effect/platform-node"
-import { Effect, Layer, Logger } from "effect"
+import {
+  ATTR_DEPLOYMENT_ENVIRONMENT_NAME,
+  ATTR_OPENCODE_CLIENT,
+  ATTR_OPENCODE_RUN,
+  ATTR_SERVICE_INSTANCE_ID,
+  ATTR_SERVICE_NAMESPACE,
+} from "@opencode-ai/core/observability/semconv"
+import { Deferred, Effect, Fiber, Layer, Logger, Option, Tracer } from "effect"
+import { ParentSpan, type Span } from "effect/Tracer"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import fs from "fs/promises"
 import os from "os"
 import path from "path"
 import { fileLogger } from "../../src/observability/logging"
 import { resource } from "../../src/observability/otlp"
+import { SessionTelemetry } from "../../src/observability/session"
+import { HttpTelemetry } from "../../src/observability/http"
+import { it } from "../lib/effect"
 
 const otelResourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES
 const opencodeClient = process.env.OPENCODE_CLIENT
@@ -20,8 +32,7 @@ afterEach(() => {
 
 describe("resource", () => {
   test("parses and decodes OTEL resource attributes", () => {
-    process.env.OTEL_RESOURCE_ATTRIBUTES =
-      "service.namespace=anomalyco,team=platform%2Cobservability,label=hello%3Dworld,key%2Fname=value%20here"
+    process.env.OTEL_RESOURCE_ATTRIBUTES = `${ATTR_SERVICE_NAMESPACE}=anomalyco,team=platform%2Cobservability,label=hello%3Dworld,key%2Fname=value%20here`
 
     expect(resource().attributes).toMatchObject({
       "service.namespace": "anomalyco",
@@ -32,25 +43,86 @@ describe("resource", () => {
   })
 
   test("drops OTEL resource attributes when any entry is invalid", () => {
-    process.env.OTEL_RESOURCE_ATTRIBUTES = "service.namespace=anomalyco,broken"
+    process.env.OTEL_RESOURCE_ATTRIBUTES = `${ATTR_SERVICE_NAMESPACE}=anomalyco,broken`
 
-    expect(resource().attributes["service.namespace"]).toBeUndefined()
-    expect(resource().attributes["opencode.client"]).toBeDefined()
+    expect(resource().attributes[ATTR_SERVICE_NAMESPACE]).toBeUndefined()
+    expect(resource().attributes[ATTR_OPENCODE_CLIENT]).toBeDefined()
   })
 
   test("keeps built-in attributes when env values conflict", () => {
     process.env.OPENCODE_CLIENT = "cli"
-    process.env.OTEL_RESOURCE_ATTRIBUTES =
-      "opencode.client=web,service.instance.id=override,service.namespace=anomalyco"
+    process.env.OTEL_RESOURCE_ATTRIBUTES = `${ATTR_OPENCODE_CLIENT}=web,${ATTR_SERVICE_INSTANCE_ID}=override,${ATTR_SERVICE_NAMESPACE}=anomalyco`
 
     expect(resource().attributes).toMatchObject({
-      "opencode.client": "cli",
-      "service.namespace": "anomalyco",
+      [ATTR_OPENCODE_CLIENT]: "cli",
+      [ATTR_SERVICE_NAMESPACE]: "anomalyco",
     })
-    expect(resource().attributes["service.instance.id"]).not.toBe("override")
-    expect(resource().attributes["opencode.run"]).toMatch(/^[0-9a-f]{8}$/)
+    expect(resource().attributes[ATTR_SERVICE_INSTANCE_ID]).not.toBe("override")
+    expect(resource().attributes[ATTR_OPENCODE_RUN]).toMatch(/^[0-9a-f]{8}$/)
+  })
+
+  test("uses deployment environment from OTEL resource attributes", () => {
+    process.env.OTEL_RESOURCE_ATTRIBUTES = `${ATTR_DEPLOYMENT_ENVIRONMENT_NAME}=development`
+
+    expect(resource().attributes[ATTR_DEPLOYMENT_ENVIRONMENT_NAME]).toBe("development")
   })
 })
+
+it.effect("retains an execution trace parent until the execution settles", () =>
+  Effect.gen(function* () {
+    const telemetry = SessionTelemetry.makeExecution<string>()
+    const started = yield* Deferred.make<void>()
+    let parent: Span | undefined
+
+    yield* Effect.useSpan("parent", (span) =>
+      Effect.gen(function* () {
+        parent = span
+        const joiner = yield* telemetry
+          .resume("session", Deferred.succeed(started, undefined).pipe(Effect.andThen(Effect.never)))
+          .pipe(Effect.provideService(SessionTelemetry.TraceParent, span), Effect.forkChild)
+        yield* Deferred.await(started)
+        yield* Fiber.interrupt(joiner)
+      }),
+    )
+
+    const retained = Option.getOrUndefined(yield* telemetry.drain("session", Effect.serviceOption(ParentSpan)))
+    expect(retained).toBe(parent)
+
+    yield* telemetry.settled("session")
+    const released = Option.getOrUndefined(yield* telemetry.drain("session", Effect.serviceOption(ParentSpan)))
+    expect(released).toBeUndefined()
+  }),
+)
+
+it.effect("retains an external ambient trace parent", () =>
+  Effect.gen(function* () {
+    const telemetry = SessionTelemetry.makeExecution<string>()
+    const parent = Tracer.externalSpan({ traceId: "1".repeat(32), spanId: "2".repeat(16) })
+
+    yield* telemetry.resume("session", Effect.void).pipe(Effect.withParentSpan(parent))
+    const retained = Option.getOrUndefined(yield* telemetry.drain("session", Effect.serviceOption(ParentSpan)))
+
+    expect(retained).toBe(parent)
+  }),
+)
+
+it.effect("applies HTTP response validation without a parent span", () =>
+  Effect.gen(function* () {
+    const request = HttpClientRequest.get("https://example.test/missing")
+    const http = HttpClient.make((request) =>
+      Effect.succeed(HttpClientResponse.fromWeb(request, new Response("missing", { status: 404 }))),
+    )
+
+    const exit = yield* HttpTelemetry.use(
+      http,
+      request,
+      Effect.succeed,
+      HttpClientResponse.filterStatusOk,
+    ).pipe(Effect.exit)
+
+    expect(exit._tag).toBe("Failure")
+  }),
+)
 
 test("falls back to local logging when OTLP initialization fails", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-observability-test-"))

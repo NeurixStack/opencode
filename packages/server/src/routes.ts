@@ -29,6 +29,7 @@ import { PtyEnvironment } from "./pty-environment"
 import { layer } from "./location"
 import { formLocationLayer } from "./middleware/form-location"
 import { sessionLocationLayer } from "./middleware/session-location"
+import { ServerObservability } from "./observability"
 
 const applicationServices = LayerNode.group([
   Database.node,
@@ -95,6 +96,7 @@ function makeRoutes<AuthError, AuthServices>(
     Layer.provide(auth),
     Layer.provide(serviceLayer),
     Layer.provide(Observability.layer),
+    Layer.merge(ServerObservability.httpTracingDisabled),
   )
 }
 

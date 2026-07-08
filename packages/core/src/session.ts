@@ -1,7 +1,7 @@
 export * as SessionV2 from "./session"
 export * from "./session/schema"
 
-import { DateTime, Effect, Layer, Schema, Context, Stream, Scope } from "effect"
+import { Cause, DateTime, Effect, Layer, Schema, Context, Option, Stream, Scope } from "effect"
 import { ListAnchor } from "@opencode-ai/schema/session"
 import { and, asc, desc, eq, gt, isNull, like, lt, or, type SQL } from "drizzle-orm"
 import { ProjectV2 } from "./project"
@@ -42,7 +42,7 @@ import { SkillV2 } from "./skill"
 import { Job } from "./job"
 import { CommandV2 } from "./command"
 import { Shell } from "./shell"
-import { Shell as ShellSchema } from "@opencode-ai/schema/shell"
+import type { Shell as ShellSchema } from "@opencode-ai/schema/shell"
 import { KeyedMutex } from "./effect/keyed-mutex"
 import { fileURLToPath } from "url"
 
@@ -506,6 +506,17 @@ const layer = Layer.effect(
             }
             return admitted
           }),
+        ).pipe(
+          Effect.tapCause((cause) =>
+            Effect.logError("Failed to admit Session prompt", cause).pipe(
+              Effect.annotateLogs({
+                operation: "session.prompt",
+                sessionID: input.sessionID,
+                ...(input.id === undefined ? {} : { messageID: input.id }),
+                errorType: promptErrorType(cause),
+              }),
+            ),
+          ),
         ),
       ),
       command: Effect.fn("V2Session.command")(function* (input) {
@@ -719,6 +730,14 @@ const layer = Layer.effect(
     return result
   }),
 )
+
+function promptErrorType(cause: Cause.Cause<unknown>) {
+  if (Cause.hasInterruptsOnly(cause)) return "canceled"
+  const error = Option.getOrUndefined(Cause.findErrorOption(cause))
+  if (error && typeof error === "object" && "_tag" in error && typeof error._tag === "string") return error._tag
+  const failure = Cause.squash(cause)
+  return failure instanceof Error ? failure.name : "unknown"
+}
 
 function missingShellOutput() {
   const output = "Shell command output is no longer available."

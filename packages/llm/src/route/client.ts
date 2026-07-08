@@ -1,6 +1,5 @@
-import { Cause, Context, Effect, Layer, Schema, Stream } from "effect"
-import * as Option from "effect/Option"
-import { Auth, type Auth as AuthDef } from "./auth"
+import { Cause, Context, Effect, Layer, Option, Schema, Stream } from "effect"
+import { Auth } from "./auth"
 import { Endpoint, type EndpointPatch } from "./endpoint"
 import { RequestExecutor } from "./executor"
 import type { Framing } from "./framing"
@@ -9,8 +8,9 @@ import type { Transport, TransportRuntime } from "./transport"
 import { WebSocketExecutor } from "./transport"
 import type { Protocol } from "./protocol"
 import { applyCachePolicy } from "../cache-policy"
-import * as ProviderShared from "../protocols/shared"
-import type { LLMError, LLMEvent, PreparedRequestOf, ProtocolID, ProviderOptions } from "../schema"
+import { LLMTelemetry } from "../telemetry"
+import { ProviderShared } from "../protocols/shared"
+import type { LLMEvent, PreparedRequestOf, ProtocolID, ProviderOptions } from "../schema"
 import {
   GenerationOptions,
   HttpOptions,
@@ -18,7 +18,7 @@ import {
   LLMResponse,
   Model,
   ModelLimits,
-  LLMError as LLMErrorClass,
+  LLMError,
   PreparedRequest,
   ProviderID,
   mergeGenerationOptions,
@@ -38,7 +38,7 @@ export interface Route<Body, Prepared = unknown> {
   readonly provider?: ProviderID
   readonly protocol: ProtocolID
   readonly endpoint: Endpoint<Body>
-  readonly auth: AuthDef
+  readonly auth: Auth
   readonly transport: Transport<Body, Prepared, unknown>
   readonly defaults: RouteDefaults
   readonly body: RouteBody<Body>
@@ -83,7 +83,7 @@ export interface RouteDefaultsInput {
 export interface RoutePatch<Body, Prepared> extends RouteDefaultsInput {
   readonly id?: string
   readonly provider?: string | ProviderID
-  readonly auth?: AuthDef
+  readonly auth?: Auth
   readonly transport?: Transport<Body, Prepared, unknown>
   readonly endpoint?: EndpointPatch<Body>
 }
@@ -189,7 +189,7 @@ export interface MakeInput<Body, Frame, Event, State> {
   /** Where the request is sent. */
   readonly endpoint: Endpoint<Body>
   /** Per-request transport auth. Provider facades override this via `route.with(...)`. */
-  readonly auth?: AuthDef
+  readonly auth?: Auth
   /** Stream framing — bytes -> frames before `protocol.stream.event` decoding. */
   readonly framing: Framing<Frame>
   /** Static / per-request headers added before `auth` runs. */
@@ -208,7 +208,7 @@ export interface MakeTransportInput<Body, Prepared, Frame, Event, State> {
   /** Where the request is sent. */
   readonly endpoint: Endpoint<Body>
   /** Per-request transport auth. Provider facades override this via `route.with(...)`. */
-  readonly auth?: AuthDef
+  readonly auth?: Auth
   /** Static / per-request headers added before `auth` runs. */
   readonly headers?: (input: { readonly request: LLMRequest }) => Record<string, string>
   /** Runnable transport route. */
@@ -219,7 +219,7 @@ export interface MakeTransportInput<Body, Prepared, Frame, Event, State> {
 
 const streamError = (route: string, message: string, cause: Cause.Cause<unknown>) => {
   const failed = cause.reasons.find(Cause.isFailReason)?.error
-  if (failed instanceof LLMErrorClass) return failed
+  if (failed instanceof LLMError) return failed
   return ProviderShared.eventError(route, message, Cause.pretty(cause))
 }
 
@@ -341,22 +341,24 @@ export function make<Body, Prepared, Frame, Event, State>(
 // `compile` is the important boundary: it turns a common `LLMRequest` into a
 // validated provider body plus transport-private prepared data, but does not
 // execute transport.
-const compile = Effect.fn("LLM.compile")(function* (request: LLMRequest) {
-  const resolved = applyCachePolicy(resolveRequestOptions(request))
-  const route = resolved.model.route
+const compileResolved = (resolved: LLMRequest) =>
+  Effect.gen(function* () {
+    const route = resolved.model.route
 
-  const body = yield* route.body
-    .from(resolved)
-    .pipe(Effect.flatMap(ProviderShared.validateWith(Schema.decodeUnknownEffect(route.body.schema))))
-  const prepared = yield* route.prepareTransport(body, resolved)
+    const body = yield* route.body
+      .from(resolved)
+      .pipe(Effect.flatMap(ProviderShared.validateWith(Schema.decodeUnknownEffect(route.body.schema))))
+    const prepared = yield* route.prepareTransport(body, resolved)
 
-  return {
-    request: resolved,
-    route,
-    body,
-    prepared,
-  }
-})
+    return {
+      request: resolved,
+      route,
+      body,
+      prepared,
+    }
+  })
+
+const compile = (request: LLMRequest) => compileResolved(applyCachePolicy(resolveRequestOptions(request)))
 
 const prepareWith = Effect.fn("LLMClient.prepare")(function* (request: LLMRequest) {
   const compiled = yield* compile(request)
@@ -371,13 +373,22 @@ const prepareWith = Effect.fn("LLMClient.prepare")(function* (request: LLMReques
   })
 })
 
-const streamRequestWith = (runtime: TransportRuntime) => (request: LLMRequest) =>
-  Stream.unwrap(
-    Effect.gen(function* () {
-      const compiled = yield* compile(request)
-      return compiled.route.streamPrepared(compiled.prepared, compiled.request, runtime)
-    }),
+const streamRequestWith = (runtime: TransportRuntime) => (request: LLMRequest) => {
+  return Stream.unwrap(
+    Effect.sync(() => applyCachePolicy(resolveRequestOptions(request))).pipe(
+      Effect.map((resolved) =>
+        LLMTelemetry.stream(
+          resolved,
+          Stream.unwrap(
+            compileResolved(resolved).pipe(
+              Effect.map((compiled) => compiled.route.streamPrepared(compiled.prepared, compiled.request, runtime)),
+            ),
+          ),
+        ),
+      ),
+    ),
   )
+}
 
 const generateWith = (stream: Interface["stream"]) =>
   Effect.fn("LLM.generate")(function* (request: LLMRequest) {

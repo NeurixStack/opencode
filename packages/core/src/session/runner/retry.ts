@@ -4,10 +4,13 @@ import { LLMError } from "@opencode-ai/llm"
 import { SessionError } from "@opencode-ai/schema/session-error"
 import { Data, Duration, Effect, Schedule } from "effect"
 import { EventV2 } from "../../event"
+import { AgentTelemetry } from "../../observability/agent"
 import { SessionEvent } from "../event"
 import { SessionMessage } from "../message"
 import { SessionSchema } from "../schema"
 import type { SessionRunner } from "./index"
+
+export const maxAttempts = 5
 
 export class RetryableFailure extends Data.TaggedError("SessionRunner.RetryableFailure")<{
   readonly cause: LLMError
@@ -45,7 +48,7 @@ const retryAfter = (failure: RetryableFailure) => {
 
 export const schedule = (events: EventV2.Interface, sessionID: SessionSchema.ID) =>
   Schedule.exponential("2 seconds").pipe(
-    Schedule.take(4),
+    Schedule.take(maxAttempts - 1),
     Schedule.setInputType<RetryableFailure | SessionRunner.RunError>(),
     Schedule.passthrough,
     Schedule.while(({ input }) => input instanceof RetryableFailure),
@@ -53,15 +56,24 @@ export const schedule = (events: EventV2.Interface, sessionID: SessionSchema.ID)
       const minimum = failure instanceof RetryableFailure ? retryAfter(failure) : undefined
       return Effect.succeed(minimum === undefined ? delay : Duration.max(delay, Duration.millis(minimum)))
     }),
-    Schedule.tap((metadata) =>
-      metadata.input instanceof RetryableFailure
-        ? events.publish(SessionEvent.RetryScheduled, {
-            sessionID,
-            assistantMessageID: metadata.input.assistantMessageID,
-            attempt: metadata.attempt + 1,
-            at: metadata.now + Duration.toMillis(metadata.duration),
-            error: metadata.input.error,
-          })
-        : Effect.void,
-    ),
+    Schedule.tap((metadata) => {
+      const failure = metadata.input
+      if (!(failure instanceof RetryableFailure)) return Effect.void
+      return Effect.gen(function* () {
+        yield* events.publish(SessionEvent.RetryScheduled, {
+          sessionID,
+          assistantMessageID: failure.assistantMessageID,
+          attempt: metadata.attempt + 1,
+          at: metadata.now + Duration.toMillis(metadata.duration),
+          error: failure.error,
+        })
+        yield* AgentTelemetry.retryScheduled({
+          attempt: metadata.attempt + 1,
+          maxAttempts,
+          delayMs: Duration.toMillis(metadata.duration),
+          retryAfterMs: retryAfter(failure),
+          errorType: failure.error.type,
+        })
+      })
+    }),
   )

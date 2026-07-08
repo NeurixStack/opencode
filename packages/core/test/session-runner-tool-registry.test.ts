@@ -7,8 +7,22 @@ import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
+import { ATTR_ERROR_TYPE, ATTR_GEN_AI_TOOL_CALL_ID } from "@opencode-ai/core/observability/semconv"
 import { executeTool, settleTool, testModel, toolDefinitions } from "./lib/tool"
-import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option, Schema, SchemaGetter, SchemaIssue, Scope } from "effect"
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Option,
+  Schema,
+  SchemaGetter,
+  SchemaIssue,
+  Scope,
+  Tracer,
+} from "effect"
 import { testEffect } from "./lib/effect"
 
 const bounds: ToolOutputStore.BoundInput[] = []
@@ -209,6 +223,33 @@ describe("ToolRegistry", () => {
           Effect.catchDefect(Effect.succeed),
         ),
       ).toBe("unexpected executor defect")
+    }),
+  )
+
+  it.effect("traces unknown and stale tool attempts", () =>
+    Effect.gen(function* () {
+      const spans: Tracer.NativeSpan[] = []
+      const tracer = Tracer.make({
+        span(options) {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        },
+      })
+      const service = yield* ToolRegistry.Service
+      yield* service.register({ echo: make() })
+      const materialized = yield* service.materialize({ model: testModel })
+
+      yield* materialized.settle(call("missing", "call-unknown")).pipe(Effect.provideService(Tracer.Tracer, tracer))
+      yield* service.register({ echo: make() })
+      yield* materialized.settle(call("echo", "call-stale")).pipe(Effect.provideService(Tracer.Tracer, tracer))
+
+      expect(spans.map((span) => span.name)).toEqual(["execute_tool missing", "execute_tool echo"])
+      expect(spans[0]?.attributes.get(ATTR_ERROR_TYPE)).toBe("tool.unknown")
+      expect(spans[0]?.attributes.get(ATTR_GEN_AI_TOOL_CALL_ID)).toBe("call-unknown")
+      expect(spans[1]?.attributes.get(ATTR_ERROR_TYPE)).toBe("tool.stale")
+      expect(spans[1]?.attributes.get(ATTR_GEN_AI_TOOL_CALL_ID)).toBe("call-stale")
+      expect(spans.every((span) => span.status._tag === "Ended" && span.status.exit._tag === "Failure")).toBeTrue()
     }),
   )
 

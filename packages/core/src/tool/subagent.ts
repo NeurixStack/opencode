@@ -5,6 +5,7 @@ import type { PluginContext } from "@opencode-ai/plugin/v2/effect"
 import { Effect, Schema, Scope } from "effect"
 import { AgentV2 } from "../agent"
 import { PluginRuntime } from "../plugin/runtime"
+import { ToolTelemetry } from "../observability/tool"
 import { SessionSchema } from "../session/schema"
 import { Tool } from "./tool"
 
@@ -131,13 +132,14 @@ export const Plugin = {
                       (error) => new ToolFailure({ message: `Parent session not found: ${context.sessionID}`, error }),
                     ),
                   )
+                const telemetry = yield* ToolTelemetry.child({ agent: input.agent, sessionID: child.id })
 
                 const background = input.background === true
 
                 const run = Effect.gen(function* () {
                   // The child session owns its agent/model (set at create); prompt only admits input.
                   yield* runtime.session.prompt({ sessionID: child.id, prompt: { text: input.prompt }, resume: false })
-                  yield* runtime.session.resume(child.id)
+                  yield* telemetry.resume(runtime.session.resume(child.id), background)
                   return yield* latestAssistantText(child.id)
                 }).pipe(Effect.onInterrupt(() => runtime.session.interrupt(child.id)))
 

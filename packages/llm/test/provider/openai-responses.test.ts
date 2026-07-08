@@ -1,5 +1,5 @@
 import { describe, expect } from "bun:test"
-import { ConfigProvider, Effect, Layer, Stream } from "effect"
+import { ConfigProvider, Effect, Layer, Stream, Tracer } from "effect"
 import { Headers, HttpClientRequest } from "effect/unstable/http"
 import { LLM, LLMError, Message, Model, ToolCallPart, Usage } from "../../src"
 import { Auth, LLMClient, RequestExecutor, WebSocketExecutor } from "../../src/route"
@@ -11,6 +11,7 @@ import { continuationRequest, nativeOpenAIResponsesContinuation } from "../conti
 import { it } from "../lib/effect"
 import { dynamicResponse, fixedResponse } from "../lib/http"
 import { sseEvents } from "../lib/sse"
+import { ATTR_ERROR_TYPE, ATTR_NETWORK_PROTOCOL_NAME, ATTR_NETWORK_TRANSPORT, ATTR_URL_FULL } from "../../src/semconv"
 
 const model = OpenAIResponses.route
   .with({ endpoint: { baseURL: "https://api.openai.test/v1/" }, auth: Auth.bearer("test") })
@@ -188,7 +189,19 @@ describe("OpenAI Responses route", () => {
   it.effect("streams OpenAI Responses over WebSocket", () =>
     Effect.gen(function* () {
       const sent: string[] = []
-      const opened: Array<{ readonly url: string; readonly authorization: string | undefined }> = []
+      const spans: Tracer.NativeSpan[] = []
+      const tracer = Tracer.make({
+        span(options) {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        },
+      })
+      const opened: Array<{
+        readonly url: string
+        readonly authorization: string | undefined
+        readonly traceparent: string | undefined
+      }> = []
       let closed = false
       const deps = Layer.mergeAll(
         Layer.succeed(
@@ -204,7 +217,11 @@ describe("OpenAI Responses route", () => {
               Effect.succeed({
                 sendText: (message) =>
                   Effect.sync(() => {
-                    opened.push({ url: input.url, authorization: input.headers.authorization })
+                    opened.push({
+                      url: input.url,
+                      authorization: input.headers.authorization,
+                      traceparent: input.headers.traceparent,
+                    })
                     sent.push(message)
                   }),
                 messages: Stream.fromArray([
@@ -225,10 +242,12 @@ describe("OpenAI Responses route", () => {
           ),
           prompt: "Say hello.",
         }),
-      ).pipe(Effect.provide(LLMClient.layer.pipe(Layer.provide(deps))))
+      ).pipe(Effect.provide(LLMClient.layer.pipe(Layer.provide(deps))), Effect.provideService(Tracer.Tracer, tracer))
 
       expect(response.text).toBe("Hi")
-      expect(opened).toEqual([{ url: "wss://api.openai.test/v1/responses", authorization: "Bearer test" }])
+      expect(opened).toEqual([
+        { url: "wss://api.openai.test/v1/responses", authorization: "Bearer test", traceparent: undefined },
+      ])
       expect(closed).toBe(true)
       expect(sent).toHaveLength(1)
       expect(JSON.parse(sent[0])).toEqual({
@@ -237,6 +256,16 @@ describe("OpenAI Responses route", () => {
         input: [{ role: "user", content: [{ type: "input_text", text: "Say hello." }] }],
         store: false,
       })
+      const websocket = spans.find((span) => span.name === "websocket.exchange")
+      expect(websocket?.attributes.get(ATTR_NETWORK_PROTOCOL_NAME)).toBe("websocket")
+      expect(websocket?.attributes.get(ATTR_NETWORK_TRANSPORT)).toBe("tcp")
+      expect(websocket?.attributes.get(ATTR_URL_FULL)).toBe("wss://api.openai.test/v1/responses")
+      expect(websocket?.attributes.has(ATTR_ERROR_TYPE)).toBeFalse()
+      expect(
+        websocket?.parent._tag === "Some" && websocket.parent.value._tag === "Span"
+          ? websocket.parent.value.name
+          : undefined,
+      ).toBe("chat gpt-4.1-mini")
     }),
   )
 
@@ -1374,10 +1403,6 @@ describe("OpenAI Responses route", () => {
         Effect.provide(fixedResponse(sseEvents({ type: "error", code: "rate_limit_exceeded", message: "Slow down" }))),
       )
 
-      // Prefix the code so consumers see the failure mode, not just the
-      // sometimes-generic provider message. The bare message alone meant
-      // production errors like rate limits were indistinguishable from
-      // unrelated stream failures.
       expect(response.events).toEqual([{ type: "provider-error", message: "rate_limit_exceeded: Slow down" }])
     }),
   )

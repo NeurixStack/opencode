@@ -107,6 +107,29 @@ describe("RequestExecutor", () => {
     }).pipe(Effect.provide(responsesLayer([new Response("invalid parameter", { status: 400 })]))),
   )
 
+  it.effect("retains known HTTP status when an error response body cannot be read", () =>
+    Effect.gen(function* () {
+      const executor = yield* RequestExecutor.Service
+      const error = yield* executor.execute(request).pipe(Effect.flip)
+
+      expectLLMError(error)
+      expect(error.reason).toMatchObject({ _tag: "ProviderInternal", status: 500, http: { response: { status: 500 } } })
+    }).pipe(
+      Effect.provide(
+        responsesLayer([
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error("provider body secret"))
+              },
+            }),
+            { status: 500 },
+          ),
+        ]),
+      ),
+    ),
+  )
+
   it.effect("returns redacted diagnostics for rate limits", () =>
     Effect.gen(function* () {
       const executor = yield* RequestExecutor.Service

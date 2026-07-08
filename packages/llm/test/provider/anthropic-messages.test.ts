@@ -492,8 +492,6 @@ describe("Anthropic Messages route", () => {
         ),
       )
 
-      // Prefix the error type so consumers can distinguish overloads, rate
-      // limits, and quota errors without parsing the message string.
       expect(response.events).toEqual([{ type: "provider-error", message: "overloaded_error: Overloaded" }])
     }),
   )

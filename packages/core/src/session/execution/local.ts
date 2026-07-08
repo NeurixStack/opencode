@@ -10,6 +10,7 @@ import { SessionStore } from "../store"
 import { SessionExecution } from "../execution"
 import { toSessionError } from "../to-session-error"
 import { UserInterruptedError } from "../error"
+import { SessionTelemetry } from "../../observability/session"
 
 export function terminal(exit: Exit.Exit<void, SessionRunner.RunError>, reason?: "user" | "shutdown" | "superseded") {
   if (Exit.isSuccess(exit)) return { type: "succeeded" as const }
@@ -19,6 +20,11 @@ export function terminal(exit: Exit.Exit<void, SessionRunner.RunError>, reason?:
   return { type: "failed" as const, error: toSessionError(failure) }
 }
 
+function errorType(cause: Cause.Cause<unknown>) {
+  const error = Cause.squash(cause)
+  return error instanceof Error ? error.name : "unknown"
+}
+
 /** Current-process routing for implicit-local Locations. Future remote placement belongs here. */
 const layer = Layer.effect(
   SessionExecution.Service,
@@ -26,13 +32,19 @@ const layer = Layer.effect(
     const store = yield* SessionStore.Service
     const locations = yield* LocationServiceMap.Service
     const events = yield* EventV2.Service
-    const reportLifecycle = <A>(sessionID: SessionSchema.ID, effect: Effect.Effect<A>) =>
+    const telemetry = SessionTelemetry.makeExecution<SessionSchema.ID>()
+    const reportLifecycle = <A>(sessionID: SessionSchema.ID, phase: string, effect: Effect.Effect<A>) =>
       effect.pipe(
         Effect.tapCause((cause) =>
           Cause.hasInterruptsOnly(cause)
             ? Effect.void
             : Effect.logError("Failed to publish Session execution lifecycle", cause).pipe(
-                Effect.annotateLogs({ sessionID }),
+                Effect.annotateLogs({
+                  operation: "session.execution.lifecycle",
+                  phase,
+                  sessionID,
+                  errorType: errorType(cause),
+                }),
               ),
         ),
         Effect.asVoid,
@@ -42,25 +54,34 @@ const layer = Layer.effect(
       SessionRunner.RunError,
       "user" | "shutdown" | "superseded"
     >({
-      started: (sessionID) => reportLifecycle(sessionID, events.publish(SessionEvent.Execution.Started, { sessionID })),
+      started: (sessionID) =>
+        reportLifecycle(sessionID, "started", events.publish(SessionEvent.Execution.Started, { sessionID })),
       drain: Effect.fnUntraced(function* (sessionID: SessionSchema.ID, force) {
         const session = yield* store.get(sessionID)
         if (!session) return yield* Effect.die(new Error(`Session not found: ${sessionID}`))
-        return yield* SessionRunner.Service.use((runner) => runner.drain({ sessionID, force })).pipe(
+        const drain = SessionRunner.Service.use((runner) => runner.drain({ sessionID, force })).pipe(
           Effect.provide(locations.get(session.location)),
           Effect.tapCause((cause) =>
             Cause.hasInterruptsOnly(cause)
               ? Effect.void
-              : Effect.logError("Failed to drain Session", cause).pipe(Effect.annotateLogs({ sessionID })),
+              : Effect.logError("Failed to drain Session", cause).pipe(
+                  Effect.annotateLogs({
+                    operation: "session.execution.drain",
+                    sessionID,
+                    errorType: toSessionError(Cause.squash(cause)).type,
+                  }),
+                ),
           ),
         )
+        return yield* telemetry.drain(sessionID, drain)
       }),
       // One terminal observation per busy period, covering every coalesced drain.
-      settled: (sessionID, exit, reason) =>
-        reportLifecycle(
+      settled: (sessionID, exit, reason) => {
+        const outcome = terminal(exit, reason)
+        return reportLifecycle(
           sessionID,
+          outcome.type,
           Effect.gen(function* () {
-            const outcome = terminal(exit, reason)
             if (outcome.type === "succeeded") {
               yield* events.publish(SessionEvent.Execution.Succeeded, { sessionID })
               return
@@ -74,13 +95,14 @@ const layer = Layer.effect(
               error: outcome.error,
             })
           }),
-        ),
+        ).pipe(Effect.ensuring(telemetry.settled(sessionID)))
+      },
     })
 
     return SessionExecution.Service.of({
       active: coordinator.active,
       interrupt: (sessionID) => coordinator.interrupt(sessionID, "user"),
-      resume: coordinator.run,
+      resume: (sessionID) => telemetry.resume(sessionID, coordinator.run(sessionID)),
       wake: coordinator.wake,
       awaitIdle: coordinator.awaitIdle,
     })

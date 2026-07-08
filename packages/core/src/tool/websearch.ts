@@ -7,6 +7,7 @@ import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { makeLocationNode } from "../effect/app-node"
 import { truthy } from "../flag/flag"
 import { InstallationVersion } from "../installation/version"
+import { HttpTelemetry } from "../observability/http"
 import { PositiveInt } from "../schema"
 import { PermissionV2 } from "../permission"
 import { Tool } from "./tool"
@@ -167,13 +168,16 @@ const callMcp = <F extends Schema.Struct.Fields>(
       }),
     )
     return yield* Effect.gen(function* () {
-      const response = yield* HttpClient.filterStatusOk(http).execute(request)
-      const body = yield* collectBoundedResponseBody(
-        response,
-        MAX_RESPONSE_BYTES,
-        () => new Error(`${tool} response exceeded ${MAX_RESPONSE_BYTES} bytes`),
+      return yield* HttpTelemetry.use(
+        HttpClient.filterStatusOk(http),
+        request,
+        (response) =>
+          collectBoundedResponseBody(
+            response,
+            MAX_RESPONSE_BYTES,
+            () => new Error(`${tool} response exceeded ${MAX_RESPONSE_BYTES} bytes`),
+          ).pipe(Effect.flatMap((body) => parseResponse(body.toString("utf8")))),
       )
-      return yield* parseResponse(body.toString("utf8"))
     }).pipe(
       Effect.timeoutOrElse({
         duration: Duration.seconds(25),

@@ -1,10 +1,17 @@
-import { Layer } from "effect"
+import { Effect, Layer } from "effect"
 import { OtlpLogger } from "effect/unstable/observability"
+import {
+  ATTR_DEPLOYMENT_ENVIRONMENT_NAME,
+  ATTR_OPENCODE_CLIENT,
+  ATTR_OPENCODE_RUN,
+  ATTR_SERVICE_INSTANCE_ID,
+} from "./semconv"
 import { Flag } from "../flag/flag"
 import { InstallationChannel, InstallationVersion } from "../installation/version"
 import { runID } from "./shared"
 
 const endpoint = Flag.OTEL_EXPORTER_OTLP_ENDPOINT
+let installedContextManager: { readonly manager: { disable(): unknown }; references: number } | undefined
 
 const headers = Flag.OTEL_EXPORTER_OTLP_HEADERS
   ? Flag.OTEL_EXPORTER_OTLP_HEADERS.split(",").reduce(
@@ -34,15 +41,16 @@ function resourceAttributes() {
 }
 
 export function resource(): { serviceName: string; serviceVersion: string; attributes: Record<string, string> } {
+  const attributes = resourceAttributes()
   return {
     serviceName: "opencode",
     serviceVersion: InstallationVersion,
     attributes: {
-      ...resourceAttributes(),
-      "deployment.environment.name": InstallationChannel,
-      "opencode.client": Flag.OPENCODE_CLIENT,
-      "opencode.run": runID,
-      "service.instance.id": runID,
+      ...attributes,
+      [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: attributes[ATTR_DEPLOYMENT_ENVIRONMENT_NAME] ?? InstallationChannel,
+      [ATTR_OPENCODE_CLIENT]: Flag.OPENCODE_CLIENT,
+      [ATTR_OPENCODE_RUN]: runID,
+      [ATTR_SERVICE_INSTANCE_ID]: runID,
     },
   }
 }
@@ -52,28 +60,53 @@ export function loggers() {
   return [OtlpLogger.make({ url: `${endpoint}/v1/logs`, resource: resource(), headers })]
 }
 
-export async function tracingLayer() {
+export const tracingLayer = Effect.gen(function* () {
   if (!endpoint) return Layer.empty
-  const NodeSdk = await import("@effect/opentelemetry/NodeSdk")
-  const OTLP = await import("@opentelemetry/exporter-trace-otlp-http")
-  const SdkBase = await import("@opentelemetry/sdk-trace-base")
-  const { AsyncLocalStorageContextManager } = await import("@opentelemetry/context-async-hooks")
-  const { context } = await import("@opentelemetry/api")
+  const NodeSdk = yield* Effect.promise(() => import("@effect/opentelemetry/NodeSdk"))
+  const OTLP = yield* Effect.promise(() => import("@opentelemetry/exporter-trace-otlp-http"))
+  const SdkBase = yield* Effect.promise(() => import("@opentelemetry/sdk-trace-base"))
+  const { AsyncLocalStorageContextManager } = yield* Effect.promise(() => import("@opentelemetry/context-async-hooks"))
+  const { context } = yield* Effect.promise(() => import("@opentelemetry/api"))
 
-  // The Effect Node SDK does not register a global context manager, but the AI SDK uses it to parent spans.
-  const manager = new AsyncLocalStorageContextManager()
-  manager.enable()
-  context.setGlobalContextManager(manager)
-
-  return NodeSdk.layer(() => ({
-    resource: resource(),
-    spanProcessor: new SdkBase.BatchSpanProcessor(
-      new OTLP.OTLPTraceExporter({
-        url: `${endpoint}/v1/traces`,
-        headers,
+  const contextManager = Layer.effectDiscard(
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        // The Effect Node SDK does not register a global context manager, but the AI SDK uses it to parent spans.
+        if (installedContextManager) {
+          installedContextManager.references += 1
+          return { installed: true, manager: installedContextManager.manager }
+        }
+        const manager = new AsyncLocalStorageContextManager().enable()
+        const installed = context.setGlobalContextManager(manager)
+        if (!installed) manager.disable()
+        if (installed) installedContextManager = { manager, references: 1 }
+        return { installed, manager }
       }),
+      ({ installed, manager }) =>
+        Effect.sync(() => {
+          if (!installed) return
+          if (installedContextManager?.manager !== manager) return
+          installedContextManager.references -= 1
+          if (installedContextManager.references > 0) return
+          installedContextManager = undefined
+          context.disable()
+          manager.disable()
+        }),
     ),
-  }))
-}
+  )
+
+  return Layer.merge(
+    contextManager,
+    NodeSdk.layer(() => ({
+      resource: resource(),
+      spanProcessor: new SdkBase.BatchSpanProcessor(
+        new OTLP.OTLPTraceExporter({
+          url: `${endpoint}/v1/traces`,
+          headers,
+        }),
+      ),
+    })),
+  )
+})
 
 export * as Otlp from "./otlp"

@@ -1,5 +1,11 @@
 import { HttpRecorder } from "@opencode-ai/http-recorder"
 import { HttpRecorderInternal } from "@opencode-ai/http-recorder/internal"
+import {
+  ATTR_GEN_AI_CONVERSATION_ID,
+  ATTR_GEN_AI_USAGE_INPUT_TOKENS,
+  ATTR_GEN_AI_USAGE_OUTPUT_TOKENS,
+  ATTR_HTTP_REQUEST_METHOD,
+} from "@opencode-ai/core/observability/semconv"
 import * as OpenAIChat from "@opencode-ai/llm/protocols/openai-chat"
 import { Auth, LLMClient, RequestExecutor } from "@opencode-ai/llm/route"
 import { Database } from "@opencode-ai/core/database/database"
@@ -39,7 +45,7 @@ import { ReferenceGuidance } from "@opencode-ai/core/reference/guidance"
 import { McpGuidance } from "@opencode-ai/core/mcp/guidance"
 import { describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Tracer } from "effect"
 import path from "node:path"
 import { testEffect } from "./lib/effect"
 
@@ -93,6 +99,14 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [PermissionV2.node, permission],
   [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
 ])
+const spans: Tracer.NativeSpan[] = []
+const tracer = Tracer.make({
+  span(options) {
+    const span = new Tracer.NativeSpan(options)
+    spans.push(span)
+    return span
+  },
+})
 const execution = Layer.effect(
   SessionExecution.Service,
   Effect.gen(function* () {
@@ -108,7 +122,10 @@ const execution = Layer.effect(
       awaitIdle: coordinator.awaitIdle,
     })
   }),
-).pipe(Layer.provide(runnerLayer))
+).pipe(
+  Layer.provide(runnerLayer),
+  Layer.updateService(Tracer.Tracer, () => tracer),
+)
 const it = testEffect(
   AppNodeBuilder.build(
     LayerNode.group([
@@ -149,6 +166,7 @@ const sessionID = SessionV2.ID.make("ses_runner_recorded")
 describe("SessionRunnerLLM recorded", () => {
   it.effect("executes one recorded V2 prompt through the recorded HTTP transport", () =>
     Effect.gen(function* () {
+      spans.length = 0
       const { db } = yield* Database.Service
       yield* db
         .insert(ProjectTable)
@@ -185,6 +203,14 @@ describe("SessionRunnerLLM recorded", () => {
       expect(messages[1]?.type === "assistant" ? messages[1].content : []).toMatchObject([
         { type: "text", text: "Hello!" },
       ])
+      const agent = spans.find((span) => span.name === "invoke_agent")
+      const model = spans.find((span) => span.name === "chat gpt-4o-mini")
+      const http = spans.find((span) => span.attributes.get(ATTR_HTTP_REQUEST_METHOD) === "POST")
+      expect(agent?.attributes.get(ATTR_GEN_AI_CONVERSATION_ID)).toBe(sessionID)
+      expect(model?.parent._tag === "Some" ? model.parent.value.spanId : undefined).toBe(agent?.spanId)
+      expect(http?.parent._tag === "Some" ? http.parent.value.spanId : undefined).toBe(model?.spanId)
+      expect(model?.attributes.get(ATTR_GEN_AI_USAGE_INPUT_TOKENS)).toBeNumber()
+      expect(model?.attributes.get(ATTR_GEN_AI_USAGE_OUTPUT_TOKENS)).toBeNumber()
       expect(
         (yield* db
           .select({ type: EventTable.type })

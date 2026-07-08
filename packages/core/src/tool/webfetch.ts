@@ -6,6 +6,7 @@ import { Duration, Effect, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { Parser } from "htmlparser2"
 import TurndownService from "turndown"
+import { HttpTelemetry } from "../observability/http"
 import { PermissionV2 } from "../permission"
 import { collectBoundedResponseBody } from "./http-body"
 import { Tool } from "./tool"
@@ -84,7 +85,21 @@ const assertHttpUrl = (url: URL) => {
 }
 
 const execute = (http: HttpClient.HttpClient, url: string, format: Format, userAgent = browserUserAgent) =>
-  http.execute(request(url, format, userAgent)).pipe(Effect.flatMap(HttpClientResponse.filterStatusOk))
+  HttpTelemetry.use(
+    http,
+    request(url, format, userAgent),
+    (response) =>
+      Effect.gen(function* () {
+        const contentType = response.headers["content-type"] || ""
+        const mime = mimeFrom(contentType)
+        if (isImageAttachment(mime))
+          return yield* Effect.fail(new Error(`Unsupported fetched image content type: ${mime}`))
+        if (!isTextualMime(mime))
+          return yield* Effect.fail(new Error(`Unsupported fetched file content type: ${mime}`))
+        return { body: yield* collectBody(response), contentType }
+      }),
+    HttpClientResponse.filterStatusOk,
+  )
 
 const collectBody = (response: HttpClientResponse.HttpClientResponse) =>
   collectBoundedResponseBody(
@@ -144,18 +159,8 @@ export const Plugin = {
                   source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
                 })
 
-                const { body, contentType } = yield* Effect.gen(function* () {
-                  const response = yield* execute(http, input.url, input.format).pipe(
-                    Effect.catchIf(isCloudflareChallenge, () => execute(http, input.url, input.format, "opencode")),
-                  )
-                  const contentType = response.headers["content-type"] || ""
-                  const mime = mimeFrom(contentType)
-                  if (isImageAttachment(mime))
-                    return yield* Effect.fail(new Error(`Unsupported fetched image content type: ${mime}`))
-                  if (!isTextualMime(mime))
-                    return yield* Effect.fail(new Error(`Unsupported fetched file content type: ${mime}`))
-                  return { body: yield* collectBody(response), contentType }
-                }).pipe(
+                const { body, contentType } = yield* execute(http, input.url, input.format).pipe(
+                  Effect.catchIf(isCloudflareChallenge, () => execute(http, input.url, input.format, "opencode")),
                   Effect.timeoutOrElse({
                     duration: Duration.seconds(input.timeout ?? DEFAULT_TIMEOUT_SECONDS),
                     orElse: () => Effect.fail(new Error("Request timed out")),
