@@ -65,7 +65,7 @@ export const Model = Schema.Struct({
   name: Schema.String,
   family: Schema.optional(Schema.String),
   release_date: Schema.String,
-  attachment: Schema.Boolean,
+  attachment: Schema.optional(Schema.Boolean),
   reasoning: Schema.Boolean,
   reasoning_options: Schema.optional(Schema.Array(ReasoningOption)),
   temperature: Schema.optional(Schema.Boolean),

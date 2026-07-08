@@ -11,8 +11,6 @@ import type { ModelV2 } from "../../model"
 import { SessionMessage } from "../message"
 import type { FileAttachment } from "@opencode-ai/schema/prompt"
 
-const imageMimes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"])
-
 const media = (file: FileAttachment): ContentPart => ({
   type: "media",
   mediaType: file.mime,
@@ -20,6 +18,23 @@ const media = (file: FileAttachment): ContentPart => ({
   filename: file.name,
   metadata: file.description === undefined ? undefined : { description: file.description },
 })
+
+const modality = (mime: string) => {
+  if (mime.startsWith("image/")) return "image"
+  if (mime.startsWith("audio/")) return "audio"
+  if (mime.startsWith("video/")) return "video"
+  if (mime === "application/pdf") return "pdf"
+  return undefined
+}
+
+const attachment = (file: FileAttachment, capabilities?: ModelV2.Capabilities): ContentPart => {
+  const type = modality(file.mime)
+  if (!type || (capabilities?.input ?? ["text", "image"]).includes(type)) return media(file)
+  return {
+    type: "text",
+    text: `ERROR: Cannot read ${file.name ? `"${file.name}"` : type} (this model does not support ${type} input). Inform the user.`,
+  }
+}
 
 const textAttachment = (file: FileAttachment) =>
   Message.make({
@@ -168,7 +183,12 @@ const assistant = (message: SessionMessage.Assistant, model: ModelV2.Ref, provid
   ]
 }
 
-function toLLMMessage(message: SessionMessage.Info, model: ModelV2.Ref, providerMetadataKey: string): Message[] {
+function toLLMMessage(
+  message: SessionMessage.Info,
+  model: ModelV2.Ref,
+  providerMetadataKey: string,
+  capabilities?: ModelV2.Capabilities,
+): Message[] {
   switch (message.type) {
     case "agent-switched":
     case "model-switched":
@@ -183,7 +203,9 @@ function toLLMMessage(message: SessionMessage.Info, model: ModelV2.Ref, provider
           role: "user",
           content: [
             { type: "text", text: message.text },
-            ...files.filter((file) => imageMimes.has(file.mime)).map(media),
+            ...files
+              .filter((file) => file.mime !== "text/plain" && file.mime !== "application/x-directory")
+              .map((file) => attachment(file, capabilities)),
           ],
           metadata: {
             ...message.metadata,
@@ -236,4 +258,5 @@ export const toLLMMessages = (
   messages: readonly SessionMessage.Info[],
   model: ModelV2.Ref,
   providerMetadataKey: string = model.providerID,
-) => messages.flatMap((message) => toLLMMessage(message, model, providerMetadataKey))
+  capabilities?: ModelV2.Capabilities,
+) => messages.flatMap((message) => toLLMMessage(message, model, providerMetadataKey, capabilities))

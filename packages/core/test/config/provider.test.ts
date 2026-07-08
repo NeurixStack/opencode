@@ -237,6 +237,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
 
         const provider = required(yield* catalog.provider.get(providerID))
         const model = required(yield* catalog.model.get(providerID, modelID))
+        const defaultModel = required(yield* catalog.model.get(providerID, ModelV2.ID.make("default")))
         expect((yield* catalog.model.default())?.id).toBe(ModelV2.ID.make("default"))
         expect(provider.name).toBe("Renamed")
         expect((yield* integrations.get(Integration.ID.make("custom")))?.methods).toContainEqual({
@@ -252,6 +253,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
         expect(model.modelID).toBe(ModelV2.ID.make("api-chat"))
         expect(model.name).toBe("Last")
         expect(model.capabilities).toEqual({ tools: true, input: ["text"], output: ["text"] })
+        expect(defaultModel.capabilities).toEqual({ tools: false, input: ["text", "image"], output: ["text"] })
         expect(model.enabled).toBe(false)
         expect(model.limit).toEqual({ context: 100, output: 75 })
         expect(model.cost).toEqual([

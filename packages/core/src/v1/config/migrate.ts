@@ -7,6 +7,7 @@ import { ConfigMCPV1 } from "./mcp"
 import { ConfigPermissionV1 } from "./permission"
 import { ConfigProviderV1 } from "./provider"
 import { ConfigProviderOptionsV1 } from "./provider-options"
+import { ModelV2 } from "../../model"
 import { ProviderV2 } from "../../provider"
 
 const keys = new Set([
@@ -245,8 +246,15 @@ function migrateModel(info: typeof ConfigProviderV1.Model.Type) {
       : []),
   ]
   const capabilities =
-    info.tool_call !== undefined || info.modalities?.input !== undefined || info.modalities?.output !== undefined
-      ? { tools: info.tool_call ?? false, input: info.modalities?.input ?? [], output: info.modalities?.output ?? [] }
+    info.tool_call !== undefined ||
+    info.attachment !== undefined ||
+    info.modalities?.input !== undefined ||
+    info.modalities?.output !== undefined
+      ? ModelV2.Capabilities.defaults({
+          tools: info.tool_call,
+          input: info.modalities?.input ?? (info.attachment === false ? ["text"] : undefined),
+          output: info.modalities?.output,
+        })
       : undefined
   return {
     modelID: info.id,

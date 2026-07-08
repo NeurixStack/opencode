@@ -26,7 +26,24 @@ export const Capabilities = Schema.Struct({
   tools: Schema.Boolean,
   input: Schema.Array(Schema.String),
   output: Schema.Array(Schema.String),
-}).annotate({ identifier: "Model.Capabilities" })
+})
+  .annotate({ identifier: "Model.Capabilities" })
+  .pipe(
+    statics((schema) => ({
+      defaults: (
+        input: {
+          readonly tools?: boolean
+          readonly input?: ReadonlyArray<string>
+          readonly output?: ReadonlyArray<string>
+        } = {},
+      ) =>
+        schema.make({
+          tools: input.tools ?? false,
+          input: input.input === undefined ? ["text", "image"] : [...input.input],
+          output: input.output === undefined ? ["text"] : [...input.output],
+        }),
+    })),
+  )
 
 export interface Cost extends Schema.Schema.Type<typeof Cost> {}
 export const Cost = Schema.Struct({
@@ -80,7 +97,7 @@ export const Info = Schema.Struct({
           modelID: id,
           providerID,
           name: id,
-          capabilities: { tools: false, input: [], output: [] },
+          capabilities: Capabilities.defaults(),
           variants: [],
           time: { released: 0 },
           cost: [],

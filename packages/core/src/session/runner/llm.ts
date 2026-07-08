@@ -14,6 +14,7 @@ import { SessionError } from "@opencode-ai/schema/session-error"
 import { Money } from "@opencode-ai/schema/money"
 import { Cause, Effect, Exit, Fiber, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
 import { AgentV2 } from "../../agent"
+import { Catalog } from "../../catalog"
 import { Config } from "../../config"
 import { Database } from "../../database/database"
 import { EventV2 } from "../../event"
@@ -137,6 +138,7 @@ const layer = Layer.effect(
     const tools = yield* ToolRegistry.Service
     const hooks = yield* PluginHooks.Service
     const models = yield* SessionRunnerModel.Service
+    const catalog = yield* Catalog.Service
     const store = yield* SessionStore.Service
     const location = yield* Location.Service
     const builtins = yield* InstructionBuiltIns.Service
@@ -234,12 +236,19 @@ const layer = Layer.effect(
       const resolved = yield* models.resolve(session)
       const model = resolved.model
       const providerMetadataKey = model.route.providerMetadataKey ?? model.provider
+      const catalogModel = yield* catalog.model.get(resolved.ref.providerID, resolved.ref.id)
+      if (!catalogModel)
+        return yield* new SessionRunnerModel.ModelUnavailableError({
+          providerID: resolved.ref.providerID,
+          modelID: resolved.ref.id,
+        })
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, checkpoint.baselineSeq)
       const context = entries.map((entry) => entry.message)
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
-      const toolMaterialization = isLastStep
-        ? undefined
-        : yield* tools.materialize({ permissions: agent.info?.permissions, model })
+      const toolMaterialization =
+        isLastStep || !catalogModel.capabilities.tools
+          ? undefined
+          : yield* tools.materialize({ permissions: agent.info?.permissions, model })
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
       const request = LLM.request({
         model,
@@ -251,7 +260,7 @@ const layer = Layer.effect(
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
         messages: [
-          ...toLLMMessages(context, resolved.ref, providerMetadataKey),
+          ...toLLMMessages(context, resolved.ref, providerMetadataKey, catalogModel.capabilities),
           ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : []),
         ],
         tools: toolMaterialization?.definitions ?? [],
@@ -380,7 +389,7 @@ const layer = Layer.effect(
       )
 
       const stepUsage = (settlement: NonNullable<ReturnType<typeof publisher.stepSettlement>>) => ({
-        cost: calculateCost(resolved.cost, settlement.tokens),
+        cost: calculateCost(catalogModel.cost, settlement.tokens),
         tokens: settlement.tokens,
       })
 
@@ -687,6 +696,7 @@ export const node = makeLocationNode({
     ToolRegistry.node,
     PluginHooks.node,
     SessionRunnerModel.node,
+    Catalog.node,
     SessionStore.node,
     Location.node,
     InstructionBuiltIns.node,

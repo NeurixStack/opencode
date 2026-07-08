@@ -165,6 +165,21 @@ describe("ModelsDev Service", () => {
     }),
   )
 
+  it.effect("allows models.dev entries without legacy attachment metadata", () =>
+    Effect.sync(() => {
+      const result = Schema.decodeUnknownSync(ModelsDev.Model)({
+        id: "no-attachment-model",
+        name: "No Attachment Model",
+        release_date: "2026-01-01",
+        reasoning: false,
+        tool_call: true,
+        limit: { context: 128000, output: 8192 },
+      })
+
+      expect(result.attachment).toBeUndefined()
+    }),
+  )
+
   it.live("get() returns providers from disk when cache file exists", () =>
     Effect.gen(function* () {
       yield* writeCache(fixture)

@@ -185,11 +185,12 @@ function applyModel(
   draft.family = model.family ? ModelV2.Family.make(model.family) : undefined
   draft.package = model.provider?.npm ? ProviderV2.aisdk(model.provider.npm) : undefined
   draft.settings = model.provider?.api ? { ...draft.settings, baseURL: model.provider.api } : draft.settings
-  draft.capabilities = {
+  const capabilities = ModelV2.Capabilities.defaults({
     tools: model.tool_call,
-    input: [...(model.modalities?.input ?? [])],
-    output: [...(model.modalities?.output ?? [])],
-  }
+    input: model.modalities?.input ?? (model.attachment === false ? ["text"] : undefined),
+    output: model.modalities?.output,
+  })
+  draft.capabilities = { ...capabilities, input: [...capabilities.input], output: [...capabilities.output] }
   mergeVariants(draft, input.variants ?? [])
   draft.time.released = released(model.release_date)
   draft.cost = (input.cost ?? cost(model.cost)).map((item) => ({

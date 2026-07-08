@@ -11,6 +11,7 @@ import { EventTable } from "@opencode-ai/core/event/sql"
 import { Job } from "@opencode-ai/core/job"
 import { PermissionV2 } from "@opencode-ai/core/permission"
 import { AgentV2 } from "@opencode-ai/core/agent"
+import { Catalog } from "@opencode-ai/core/catalog"
 import { Config } from "@opencode-ai/core/config"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
@@ -37,6 +38,7 @@ import { Instructions } from "@opencode-ai/core/instructions"
 import { SkillGuidance } from "@opencode-ai/core/skill/guidance"
 import { ReferenceGuidance } from "@opencode-ai/core/reference/guidance"
 import { McpGuidance } from "@opencode-ai/core/mcp/guidance"
+import { ModelV2 } from "@opencode-ai/core/model"
 import { describe, expect } from "bun:test"
 import { eq } from "drizzle-orm"
 import { Effect, Layer } from "effect"
@@ -73,6 +75,20 @@ const model = OpenAIChat.route
   })
   .model({ id: "gpt-4o-mini" })
 const models = SessionRunnerModel.layerWith(() => Effect.succeed(SessionRunnerModel.resolved(model)))
+const catalog = Layer.mock(Catalog.Service, {
+  provider: {
+    get: () => Effect.die("unused"),
+    all: () => Effect.die("unused"),
+    available: () => Effect.die("unused"),
+  },
+  model: {
+    get: (providerID, modelID) => Effect.succeed(ModelV2.Info.empty(providerID, modelID)),
+    all: () => Effect.die("unused"),
+    available: () => Effect.die("unused"),
+    default: () => Effect.die("unused"),
+    small: () => Effect.die("unused"),
+  },
+})
 const systemContext = Layer.mock(InstructionBuiltIns.Service, { load: () => Effect.succeed(Instructions.empty) })
 const instructionContext = Layer.mock(InstructionDiscovery.Service, { load: () => Effect.succeed(Instructions.empty) })
 const skillGuidance = Layer.mock(SkillGuidance.Service, { load: () => Effect.succeed(Instructions.empty) })
@@ -83,6 +99,7 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [Snapshot.node, Snapshot.noopLayer],
   [LayerNodePlatform.llmClient, client],
   [SessionRunnerModel.node, models],
+  [Catalog.node, catalog],
   [InstructionBuiltIns.node, systemContext],
   [InstructionDiscovery.node, instructionContext],
   [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
@@ -133,6 +150,7 @@ const it = testEffect(
       [PermissionV2.node, permission],
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
       [SessionRunnerModel.node, models],
+      [Catalog.node, catalog],
       [InstructionBuiltIns.node, systemContext],
       [InstructionDiscovery.node, instructionContext],
       [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],

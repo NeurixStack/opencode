@@ -42,6 +42,7 @@ import { ToolRegistry } from "@opencode-ai/core/tool/registry"
 import { QuestionTool } from "@opencode-ai/core/tool/question"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { AgentV2 } from "@opencode-ai/core/agent"
+import { Catalog } from "@opencode-ai/core/catalog"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigCompaction } from "@opencode-ai/core/config/compaction"
 import { Tool } from "@opencode-ai/core/tool/tool"
@@ -245,6 +246,24 @@ const models = SessionRunnerModel.layerWith((session) =>
     ),
   ),
 )
+let catalogCapabilities = ModelV2.Capabilities.defaults({ tools: true })
+const catalog = Layer.mock(Catalog.Service, {
+  provider: {
+    get: () => Effect.die("unused"),
+    all: () => Effect.die("unused"),
+    available: () => Effect.die("unused"),
+  },
+  model: {
+    get: (providerID, modelID) =>
+      Effect.succeed(
+        ModelV2.Info.make({ ...ModelV2.Info.empty(providerID, modelID), capabilities: catalogCapabilities }),
+      ),
+    all: () => Effect.die("unused"),
+    available: () => Effect.die("unused"),
+    default: () => Effect.die("unused"),
+    small: () => Effect.die("unused"),
+  },
+})
 const systemContextKey = Instructions.Key.make("test/context")
 let systemBaseline = "Initial context"
 let systemRemoved = false
@@ -311,6 +330,7 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [Snapshot.node, Snapshot.noopLayer],
   [LayerNodePlatform.llmClient, client],
   [SessionRunnerModel.node, models],
+  [Catalog.node, catalog],
   [InstructionBuiltIns.node, systemContext],
   [InstructionDiscovery.node, instructionContext],
   [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
@@ -365,6 +385,7 @@ const it = testEffect(
       [LayerNodePlatform.llmClient, client],
       [PermissionV2.node, permission],
       [SessionRunnerModel.node, models],
+      [Catalog.node, catalog],
       [InstructionBuiltIns.node, systemContext],
       [InstructionDiscovery.node, instructionContext],
       [Location.node, Location.boundNode({ directory: AbsolutePath.make("/project") })],
@@ -412,6 +433,7 @@ const setup = Effect.gen(function* () {
   systemLoadHook = Effect.void
   modelResolveHook = Effect.void
   currentModel = model
+  catalogCapabilities = ModelV2.Capabilities.defaults({ tools: true })
   skillBaselines.clear()
   responses = undefined
   streamFailure = undefined
@@ -784,6 +806,22 @@ describe("SessionRunnerLLM", () => {
         { role: "user", content: [{ type: "text", text: "Second" }] },
       ])
       expect(yield* session.messages({ sessionID })).toHaveLength(2)
+    }),
+  )
+
+  it.effect("does not advertise tools to a model without tool capability", () =>
+    Effect.gen(function* () {
+      yield* setup
+      catalogCapabilities = ModelV2.Capabilities.defaults()
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "No tools" }), resume: false })
+
+      requests.length = 0
+      response = []
+      yield* session.resume(sessionID)
+
+      expect(requests).toHaveLength(1)
+      expect(requests[0]?.tools).toEqual([])
     }),
   )
 

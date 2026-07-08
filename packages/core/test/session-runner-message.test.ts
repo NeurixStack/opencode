@@ -240,7 +240,7 @@ Recent work
     expect(messages[1]?.content).toEqual([{ type: "text", text: "Review this directory" }])
   })
 
-  test("uses materialized image data as provider media and drops unsupported attachments", () => {
+  test("defaults missing model capabilities to text and image input", () => {
     const data = Base64.make("AAECAw==")
     const messages = toLLMMessages(
       [
@@ -266,6 +266,113 @@ Recent work
     expect(messages[0]?.content).toEqual([
       { type: "text", text: "Inspect this image" },
       { type: "media", mediaType: "image/png", data, filename: "image.png" },
+      {
+        type: "text",
+        text: 'ERROR: Cannot read "document.pdf" (this model does not support pdf input). Inform the user.',
+      },
+    ])
+  })
+
+  test("uses explicit model input capabilities instead of attachment defaults", () => {
+    const data = Base64.make("AAECAw==")
+    const messages = toLLMMessages(
+      [
+        SessionMessage.User.make({
+          id: id("user-unsupported-pdf"),
+          type: "user",
+          text: "Inspect these files",
+          files: [
+            FileAttachment.make({ data, mime: "image/png", source: { type: "inline" }, name: "image.png" }),
+            FileAttachment.make({
+              data: Base64.make("JVBERg=="),
+              mime: "application/pdf",
+              source: { type: "inline" },
+              name: "document.pdf",
+            }),
+          ],
+          time: { created },
+        }),
+      ],
+      model,
+      model.providerID,
+      { tools: true, input: ["text", "pdf"], output: ["text"] },
+    )
+
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "Inspect these files" },
+      {
+        type: "text",
+        text: 'ERROR: Cannot read "image.png" (this model does not support image input). Inform the user.',
+      },
+      { type: "media", mediaType: "application/pdf", data: "JVBERg==", filename: "document.pdf" },
+    ])
+  })
+
+  test("treats explicit empty input capabilities as authoritative", () => {
+    const messages = toLLMMessages(
+      [
+        SessionMessage.User.make({
+          id: id("user-empty-capabilities"),
+          type: "user",
+          text: "Inspect this image",
+          files: [
+            FileAttachment.make({
+              data: Base64.make("AAECAw=="),
+              mime: "image/png",
+              source: { type: "inline" },
+              name: "image.png",
+            }),
+          ],
+          time: { created },
+        }),
+      ],
+      model,
+      model.providerID,
+      { tools: false, input: [], output: [] },
+    )
+
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "Inspect this image" },
+      {
+        type: "text",
+        text: 'ERROR: Cannot read "image.png" (this model does not support image input). Inform the user.',
+      },
+    ])
+  })
+
+  test("classifies audio and video MIME families through explicit capabilities", () => {
+    const messages = toLLMMessages(
+      [
+        SessionMessage.User.make({
+          id: id("user-media-capabilities"),
+          type: "user",
+          text: "Inspect this media",
+          files: [
+            FileAttachment.make({
+              data: Base64.make("AAECAw=="),
+              mime: "audio/mpeg",
+              source: { type: "inline" },
+              name: "audio.mp3",
+            }),
+            FileAttachment.make({
+              data: Base64.make("AAECAw=="),
+              mime: "video/webm",
+              source: { type: "inline" },
+              name: "video.webm",
+            }),
+          ],
+          time: { created },
+        }),
+      ],
+      model,
+      model.providerID,
+      { tools: false, input: ["text", "audio", "video"], output: ["text"] },
+    )
+
+    expect(messages[0]?.content).toEqual([
+      { type: "text", text: "Inspect this media" },
+      { type: "media", mediaType: "audio/mpeg", data: "AAECAw==", filename: "audio.mp3" },
+      { type: "media", mediaType: "video/webm", data: "AAECAw==", filename: "video.webm" },
     ])
   })
 
