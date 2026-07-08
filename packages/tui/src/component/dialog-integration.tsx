@@ -65,11 +65,11 @@ export function DialogIntegration(
       .map((integration) => {
         const methods = connectMethods(integration)
         const connected = integration.connections.length > 0
-        const search = integration.search
-        const selected = data.location.search.provider() === integration.id
+        const websearch = integration.websearch
+        const selected = data.location.websearch.provider() === integration.id
         const credentials = credentialConnections(integration)
-        const description = search?.connection === "optional" ? "API key optional" : undefined
-        const category = search ? "Web search" : undefined
+        const description = websearch?.connection === "optional" ? "API key optional" : undefined
+        const category = websearch ? "Web search" : undefined
         return {
           title: integration.name,
           value: integration.id,
@@ -79,7 +79,7 @@ export function DialogIntegration(
               .filter((value) => value !== undefined && value.length > 0)
               .join(" · ") || undefined,
           category: category ?? (integration.id in INTEGRATION_PRIORITY ? "Popular" : "Services"),
-          disabled: methods.length === 0 && !search,
+          disabled: methods.length === 0 && !websearch,
           gutter: connected ? () => <text fg={theme.success}>✓</text> : undefined,
           onSelect: () => {
             if (props.connectionOnly) {
@@ -87,7 +87,7 @@ export function DialogIntegration(
                 ? manageConnections(integration, methods, dialog, props.onConnected)
                 : selectMethod(integration, methods, dialog, props.onConnected)
             }
-            if (search) return manageIntegration(integration, methods, search, dialog)
+            if (websearch) return manageIntegration(integration, methods, websearch, dialog)
             return credentials.length
               ? manageConnections(integration, methods, dialog, props.onConnected)
               : selectMethod(integration, methods, dialog, props.onConnected)
@@ -112,7 +112,7 @@ export function DialogIntegration(
 function manageIntegration(
   integration: IntegrationInfo,
   methods: ConnectMethod[],
-  search: NonNullable<IntegrationInfo["search"]>,
+  websearch: NonNullable<IntegrationInfo["websearch"]>,
   dialog: ReturnType<typeof useDialog>,
 ) {
   const connected = integration.connections.length > 0
@@ -121,15 +121,15 @@ function manageIntegration(
     const sdk = useSDK()
     const toast = useToast()
     const credentials = credentialConnections(integration)
-    const selected = createMemo(() => data.location.search.provider() === integration.id)
-    const selectSearch = () => {
-      void sdk.api.search.provider
+    const selected = createMemo(() => data.location.websearch.provider() === integration.id)
+    const selectWebSearch = () => {
+      void sdk.api.websearch.provider
         .select({
           providerID: integration.id,
           location: location(data),
         })
         .then(async () => {
-          await Promise.all([data.location.integration.refresh(), data.location.search.refresh()])
+          await Promise.all([data.location.integration.refresh(), data.location.websearch.refresh()])
           toast.show({ variant: "success", message: `${integration.name} is now the web search default` })
           dialog.clear()
         })
@@ -142,12 +142,12 @@ function manageIntegration(
         options={[
           {
             title: selected() ? "Web search default" : "Use for web search",
-            value: "search",
+            value: "websearch",
             disabled: selected(),
             onSelect:
-              search.connection === "required" && !connected
-                ? () => selectMethod(integration, methods, dialog, selectSearch)
-                : selectSearch,
+              websearch.connection === "required" && !connected
+                ? () => selectMethod(integration, methods, dialog, selectWebSearch)
+                : selectWebSearch,
           },
           ...(methods.length
             ? [

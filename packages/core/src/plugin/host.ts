@@ -345,11 +345,11 @@ function registerIntegration(draft: Integration.Draft, definition: IntegrationDe
       }),
     )
   }
-  if (!definition.search) return
-  draft.search.update({
+  if (!definition.websearch) return
+  draft.websearch.update({
     integrationID,
-    connection: definition.search.connection,
-    execute: definition.search.execute,
+    connection: definition.websearch.connection,
+    execute: definition.websearch.execute,
   })
 }
 

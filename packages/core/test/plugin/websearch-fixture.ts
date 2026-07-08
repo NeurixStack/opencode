@@ -7,16 +7,16 @@ import { EventV2 } from "@opencode-ai/core/event"
 import { Integration } from "@opencode-ai/core/integration"
 import { testEffect } from "../lib/effect"
 
-export interface SearchRequest {
+export interface WebSearchRequest {
   readonly url: string
   readonly headers: Record<string, string>
   readonly body: unknown
 }
 
-export const requests: SearchRequest[] = []
+export const requests: WebSearchRequest[] = []
 export const response = { body: "" }
 
-export function resetSearchFixture(body: string) {
+export function resetWebSearchFixture(body: string) {
   requests.length = 0
   response.body = body
 }
@@ -36,6 +36,6 @@ const http = Layer.succeed(
   ),
 )
 
-export const searchIntegrationTest = testEffect(
+export const webSearchIntegrationTest = testEffect(
   Layer.merge(AppNodeBuilder.build(LayerNode.group([Integration.node, Credential.node, EventV2.node])), http),
 )

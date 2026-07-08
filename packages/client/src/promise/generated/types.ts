@@ -2306,7 +2306,7 @@ export type IntegrationListOutput = {
       | { readonly type: "key"; readonly label?: string }
       | { readonly type: "env"; readonly names: ReadonlyArray<string> }
     >
-    readonly search?: { readonly connection: "optional" | "required" }
+    readonly websearch?: { readonly connection: "optional" | "required" }
     readonly connections: ReadonlyArray<
       | { readonly type: "credential"; readonly id: string; readonly label: string }
       | { readonly type: "env"; readonly name: string }
@@ -2359,7 +2359,7 @@ export type IntegrationGetOutput = {
       | { readonly type: "key"; readonly label?: string }
       | { readonly type: "env"; readonly names: ReadonlyArray<string> }
     >
-    readonly search?: { readonly connection: "optional" | "required" }
+    readonly websearch?: { readonly connection: "optional" | "required" }
     readonly connections: ReadonlyArray<
       | { readonly type: "credential"; readonly id: string; readonly label: string }
       | { readonly type: "env"; readonly name: string }
@@ -6279,13 +6279,13 @@ export type DebugLocationEvictInput = {
 
 export type DebugLocationEvictOutput = void
 
-export type SearchProviderGetInput = {
+export type WebsearchProviderGetInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
 }
 
-export type SearchProviderGetOutput = {
+export type WebsearchProviderGetOutput = {
   readonly location: {
     readonly directory: string
     readonly workspaceID?: string
@@ -6294,16 +6294,16 @@ export type SearchProviderGetOutput = {
   readonly data: string | null
 }
 
-export type SearchProviderSelectInput = {
+export type WebsearchProviderSelectInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
   readonly providerID: { readonly providerID: string }["providerID"]
 }
 
-export type SearchProviderSelectOutput = void
+export type WebsearchProviderSelectOutput = void
 
-export type SearchQueryInput = {
+export type WebsearchQueryInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
@@ -6311,7 +6311,7 @@ export type SearchQueryInput = {
   readonly providerID?: { readonly query: string; readonly providerID?: string }["providerID"]
 }
 
-export type SearchQueryOutput = {
+export type WebsearchQueryOutput = {
   readonly location: {
     readonly directory: string
     readonly workspaceID?: string

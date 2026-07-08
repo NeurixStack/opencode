@@ -1,9 +1,9 @@
-export * as SearchExa from "./exa"
+export * as WebSearchExa from "./exa"
 
 import { define } from "@opencode-ai/plugin/v2/effect/plugin"
 import { Effect, Schema, Scope } from "effect"
 import { HttpClient } from "effect/unstable/http"
-import { SearchMcp } from "./mcp"
+import { WebSearchMcp } from "./mcp"
 
 export const endpoint = "https://mcp.exa.ai/mcp"
 
@@ -23,8 +23,8 @@ const Output = Schema.Struct({
 })
 
 export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
-  id: "opencode.search.exa",
-  effect: Effect.fn("SearchExa.Plugin")(function* (ctx) {
+  id: "opencode.websearch.exa",
+  effect: Effect.fn("WebSearchExa.Plugin")(function* (ctx) {
     const http = yield* HttpClient.HttpClient
     yield* ctx.integration.register({
       id: "exa",
@@ -33,17 +33,17 @@ export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
         { type: "key", label: "API key (optional)" },
         { type: "env", names: ["EXA_API_KEY"] },
       ],
-      search: {
+      websearch: {
         connection: "optional",
         execute: (input, context) => {
           const url = new URL(endpoint)
           if (context.credential?.type === "key") url.searchParams.set("exaApiKey", context.credential.key)
-          return SearchMcp.call(
+          return WebSearchMcp.call(
             http,
             url.toString(),
             "web_search_exa",
             { input: Input, output: Output },
-            { query: input.query },
+            { query: input.query, numResults: 8 },
           ).pipe(
             Effect.map((result) => {
               const content = result?.content.find((item) => item.text)

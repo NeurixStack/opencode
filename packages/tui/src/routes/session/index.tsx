@@ -2382,10 +2382,12 @@ function WebFetch(props: ToolProps) {
 
 function WebSearch(props: ToolProps) {
   const data = useData()
-  const [provider, setProvider] = createSignal(data.location.search.provider() ?? stringValue(props.metadata.provider))
+  const [provider, setProvider] = createSignal(
+    data.location.websearch.provider() ?? stringValue(props.metadata.provider),
+  )
   createEffect(() => {
     if (provider()) return
-    const next = data.location.search.provider()
+    const next = data.location.websearch.provider()
     if (next) setProvider(next)
   })
   return (

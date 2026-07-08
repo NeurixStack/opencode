@@ -1,4 +1,4 @@
-export * as SearchMcp from "./mcp"
+export * as WebSearchMcp from "./mcp"
 
 import { Duration, Effect, Schema } from "effect"
 import { HttpClient, HttpClientRequest } from "effect/unstable/http"

@@ -75,11 +75,11 @@ describe("Config", () => {
           })
 
           const config = yield* ConfigGlobal.Service
-          yield* config.update(["search"], { provider: "exa" })
+          yield* config.update(["websearch"], { provider: "exa" })
 
           const text = yield* Effect.promise(() => Bun.file(file).text())
           expect(text).toContain("// user config")
-          expect(parse(text)).toEqual({ username: "tester", search: { provider: "exa" } })
+          expect(parse(text)).toEqual({ username: "tester", websearch: { provider: "exa" } })
         }).pipe(
           Effect.provide(
             AppNodeBuilder.build(LayerNode.group([ConfigGlobal.node]), [

@@ -26,7 +26,7 @@ import { ModelsDev } from "../models-dev"
 import { Npm } from "../npm"
 import { PermissionV2 } from "../permission"
 import { Reference } from "../reference"
-import { Search } from "../search"
+import { WebSearch } from "../websearch"
 import { Ripgrep } from "../ripgrep"
 import { SessionInstructions } from "../session/instructions"
 import { SessionTodo } from "../session/todo"
@@ -51,7 +51,7 @@ import { AgentPlugin } from "./agent"
 import { CommandPlugin } from "./command"
 import { ModelsDevPlugin } from "./models-dev"
 import { ProviderPlugins } from "./provider"
-import { SearchPlugins } from "./search"
+import { WebSearchPlugins } from "./websearch"
 import { PluginRuntime } from "./runtime"
 import { SkillPlugin } from "./skill"
 import { VariantPlugin } from "./variant"
@@ -78,7 +78,7 @@ const services = Effect.fn("PluginInternal.services")(function* () {
   const form = yield* Form.Service
   const read = yield* ReadToolFileSystem.Service
   const reference = yield* Reference.Service
-  const search = yield* Search.Service
+  const websearch = yield* WebSearch.Service
   const ripgrep = yield* Ripgrep.Service
   const instructions = yield* SessionInstructions.Service
   const todo = yield* SessionTodo.Service
@@ -107,7 +107,7 @@ const services = Effect.fn("PluginInternal.services")(function* () {
     Context.make(Form.Service, form),
     Context.make(ReadToolFileSystem.Service, read),
     Context.make(Reference.Service, reference),
-    Context.make(Search.Service, search),
+    Context.make(WebSearch.Service, websearch),
     Context.make(Ripgrep.Service, ripgrep),
     Context.make(SessionInstructions.Service, instructions),
     Context.make(SessionTodo.Service, todo),
@@ -129,7 +129,7 @@ const pre = [
   SkillPlugin.Plugin,
   ModelsDevPlugin,
   ...ProviderPlugins,
-  ...SearchPlugins,
+  ...WebSearchPlugins,
   PatchTool.Plugin,
   EditTool.Plugin,
   GlobTool.Plugin,

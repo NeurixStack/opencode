@@ -2,13 +2,13 @@ import { beforeEach, describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { Credential } from "@opencode-ai/core/credential"
 import { Integration } from "@opencode-ai/core/integration"
-import { SearchExa } from "@opencode-ai/core/plugin/search/exa"
-import { SearchParallel } from "@opencode-ai/core/plugin/search/parallel"
+import { WebSearchExa } from "@opencode-ai/core/plugin/websearch/exa"
+import { WebSearchParallel } from "@opencode-ai/core/plugin/websearch/parallel"
 import { host, integrationHost } from "./host"
-import { requests, resetSearchFixture, searchIntegrationTest } from "./search-fixture"
+import { requests, resetWebSearchFixture, webSearchIntegrationTest } from "./websearch-fixture"
 
 beforeEach(() => {
-  resetSearchFixture(
+  resetWebSearchFixture(
     `event: message\ndata: ${JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
@@ -17,46 +17,46 @@ beforeEach(() => {
   )
 })
 
-const it = searchIntegrationTest
+const it = webSearchIntegrationTest
 
-describe("built-in search integrations", () => {
-  it.effect("registers and disposes an atomic search integration", () =>
+describe("built-in web search integrations", () => {
+  it.effect("registers and disposes an atomic web search integration", () =>
     Effect.gen(function* () {
       const integrations = yield* Integration.Service
       const registration = yield* integrationHost(integrations).register({
-        id: "test-search",
-        name: "Test Search",
+        id: "test-websearch",
+        name: "Test Web Search",
         methods: [{ type: "key", label: "API key" }],
-        search: {
+        websearch: {
           connection: "required",
           execute: (input) => Effect.succeed({ text: input.query }),
         },
       })
 
-      expect(yield* integrations.get(Integration.ID.make("test-search"))).toMatchObject({
-        name: "Test Search",
+      expect(yield* integrations.get(Integration.ID.make("test-websearch"))).toMatchObject({
+        name: "Test Web Search",
         methods: [{ type: "key", label: "API key" }],
-        search: { connection: "required" },
+        websearch: { connection: "required" },
       })
       yield* registration.dispose
-      expect(yield* integrations.get(Integration.ID.make("test-search"))).toBeUndefined()
+      expect(yield* integrations.get(Integration.ID.make("test-websearch"))).toBeUndefined()
     }),
   )
 
   it.effect("registers Exa with its MCP schema", () =>
     Effect.gen(function* () {
       const integrations = yield* Integration.Service
-      yield* SearchExa.Plugin.effect(host({ integration: integrationHost(integrations) }))
+      yield* WebSearchExa.Plugin.effect(host({ integration: integrationHost(integrations) }))
 
       const info = yield* integrations.get(Integration.ID.make("exa"))
       expect(info).toMatchObject({
         id: "exa",
         name: "Exa",
         methods: [{ type: "key" }, { type: "env", names: ["EXA_API_KEY"] }],
-        search: { connection: "optional" },
+        websearch: { connection: "optional" },
       })
-      const provider = yield* integrations.search.get(Integration.ID.make("exa"))
-      if (!provider) return yield* Effect.die("Expected Exa search provider")
+      const provider = yield* integrations.websearch.get(Integration.ID.make("exa"))
+      if (!provider) return yield* Effect.die("Expected Exa web search provider")
       expect(
         yield* provider.execute(
           { query: "effect typescript" },
@@ -65,7 +65,7 @@ describe("built-in search integrations", () => {
       ).toEqual({ text: "search results", metadata: { searchTime: 123 } })
       expect(requests).toEqual([
         {
-          url: `${SearchExa.endpoint}?exaApiKey=exa+secret`,
+          url: `${WebSearchExa.endpoint}?exaApiKey=exa+secret`,
           headers: expect.any(Object),
           body: {
             jsonrpc: "2.0",
@@ -73,7 +73,7 @@ describe("built-in search integrations", () => {
             method: "tools/call",
             params: {
               name: "web_search_exa",
-              arguments: { query: "effect typescript" },
+              arguments: { query: "effect typescript", numResults: 8 },
             },
           },
         },
@@ -83,7 +83,7 @@ describe("built-in search integrations", () => {
 
   it.effect("registers Parallel and keeps its credential in the authorization header", () =>
     Effect.gen(function* () {
-      resetSearchFixture(
+      resetWebSearchFixture(
         JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
@@ -107,9 +107,9 @@ describe("built-in search integrations", () => {
         }),
       )
       const integrations = yield* Integration.Service
-      yield* SearchParallel.Plugin.effect(host({ integration: integrationHost(integrations) }))
-      const provider = yield* integrations.search.get(Integration.ID.make("parallel"))
-      if (!provider) return yield* Effect.die("Expected Parallel search provider")
+      yield* WebSearchParallel.Plugin.effect(host({ integration: integrationHost(integrations) }))
+      const provider = yield* integrations.websearch.get(Integration.ID.make("parallel"))
+      if (!provider) return yield* Effect.die("Expected Parallel web search provider")
 
       const output = yield* provider.execute(
         { query: "effect layers" },
@@ -136,7 +136,7 @@ describe("built-in search integrations", () => {
         },
       })
       expect(requests[0]).toMatchObject({
-        url: SearchParallel.endpoint,
+        url: WebSearchParallel.endpoint,
         headers: { authorization: "Bearer parallel-secret" },
         body: {
           jsonrpc: "2.0",

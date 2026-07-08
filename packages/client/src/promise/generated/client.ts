@@ -184,12 +184,12 @@ import type {
   DebugLocationListOutput,
   DebugLocationEvictInput,
   DebugLocationEvictOutput,
-  SearchProviderGetInput,
-  SearchProviderGetOutput,
-  SearchProviderSelectInput,
-  SearchProviderSelectOutput,
-  SearchQueryInput,
-  SearchQueryOutput,
+  WebsearchProviderGetInput,
+  WebsearchProviderGetOutput,
+  WebsearchProviderSelectInput,
+  WebsearchProviderSelectOutput,
+  WebsearchQueryInput,
+  WebsearchQueryOutput,
 } from "./types"
 import { ClientError } from "./client-error"
 
@@ -1566,13 +1566,13 @@ export function make(options: ClientOptions) {
           ),
       },
     },
-    search: {
+    websearch: {
       provider: {
-        get: (input?: SearchProviderGetInput, requestOptions?: RequestOptions) =>
-          request<SearchProviderGetOutput>(
+        get: (input?: WebsearchProviderGetInput, requestOptions?: RequestOptions) =>
+          request<WebsearchProviderGetOutput>(
             {
               method: "GET",
-              path: `/api/search/provider`,
+              path: `/api/websearch/provider`,
               query: { location: input?.["location"] },
               successStatus: 200,
               declaredStatuses: [401, 400],
@@ -1580,11 +1580,11 @@ export function make(options: ClientOptions) {
             },
             requestOptions,
           ),
-        select: (input: SearchProviderSelectInput, requestOptions?: RequestOptions) =>
-          request<SearchProviderSelectOutput>(
+        select: (input: WebsearchProviderSelectInput, requestOptions?: RequestOptions) =>
+          request<WebsearchProviderSelectOutput>(
             {
               method: "POST",
-              path: `/api/search/provider`,
+              path: `/api/websearch/provider`,
               query: { location: input["location"] },
               body: { providerID: input["providerID"] },
               successStatus: 204,
@@ -1594,11 +1594,11 @@ export function make(options: ClientOptions) {
             requestOptions,
           ),
       },
-      query: (input: SearchQueryInput, requestOptions?: RequestOptions) =>
-        request<SearchQueryOutput>(
+      query: (input: WebsearchQueryInput, requestOptions?: RequestOptions) =>
+        request<WebsearchQueryOutput>(
           {
             method: "POST",
-            path: `/api/search`,
+            path: `/api/websearch`,
             query: { location: input["location"] },
             body: { query: input["query"], providerID: input["providerID"] },
             successStatus: 200,

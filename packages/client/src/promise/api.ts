@@ -7,7 +7,7 @@ import type {
   PluginApi as EffectPluginApi,
   ProviderApi as EffectProviderApi,
   ReferenceApi as EffectReferenceApi,
-  SearchApi as EffectSearchApi,
+  WebsearchApi,
   SessionApi as EffectSessionApi,
   SkillApi as EffectSkillApi,
 } from "../effect/api/api.js"
@@ -37,7 +37,7 @@ export type ModelApi = PromisifyApi<EffectModelApi<unknown>>
 export type PluginApi = PromisifyApi<EffectPluginApi<unknown>>
 export type ProviderApi = PromisifyApi<EffectProviderApi<unknown>>
 export type ReferenceApi = PromisifyApi<EffectReferenceApi<unknown>>
-export type SearchApi = PromisifyApi<EffectSearchApi<unknown>>
+export type WebSearchApi = PromisifyApi<WebsearchApi<unknown>>
 export type SessionApi = PromisifyApi<EffectSessionApi<unknown>>
 export type SkillApi = PromisifyApi<EffectSkillApi<unknown>>
 

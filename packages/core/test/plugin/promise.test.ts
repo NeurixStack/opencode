@@ -95,19 +95,19 @@ describe("fromPromise", () => {
     }),
   )
 
-  it.effect("adapts promise search capability execution", () =>
+  it.effect("adapts promise web search capability execution", () =>
     Effect.gen(function* () {
       const integrations = yield* Integration.Service
       const plugin = yield* PluginV2.Service
       const host = yield* PluginHost.make(plugin)
       const promisePlugin = Plugin.define({
-        id: "promise-search",
+        id: "promise-websearch",
         setup: async (ctx) => {
           await ctx.integration.register({
-            id: "promise-search",
-            name: "Promise Search",
-            methods: [{ type: "env", names: ["PROMISE_SEARCH_KEY"] }],
-            search: {
+            id: "promise-websearch",
+            name: "Promise Web Search",
+            methods: [{ type: "env", names: ["PROMISE_WEBSEARCH_KEY"] }],
+            websearch: {
               connection: "optional",
               execute: async (input) => ({ text: `promise: ${input.query}` }),
             },
@@ -116,12 +116,12 @@ describe("fromPromise", () => {
       })
 
       yield* PluginPromise.fromPromise(promisePlugin).effect(host)
-      expect(yield* integrations.get(Integration.ID.make("promise-search"))).toMatchObject({
-        name: "Promise Search",
-        methods: [{ type: "env", names: ["PROMISE_SEARCH_KEY"] }],
+      expect(yield* integrations.get(Integration.ID.make("promise-websearch"))).toMatchObject({
+        name: "Promise Web Search",
+        methods: [{ type: "env", names: ["PROMISE_WEBSEARCH_KEY"] }],
       })
-      const provider = yield* integrations.search.get(Integration.ID.make("promise-search"))
-      if (!provider) return yield* Effect.die("Expected promise search provider")
+      const provider = yield* integrations.websearch.get(Integration.ID.make("promise-websearch"))
+      if (!provider) return yield* Effect.die("Expected promise web search provider")
       expect(yield* provider.execute({ query: "effect" }, {})).toEqual({ text: "promise: effect" })
     }),
   )

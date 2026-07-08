@@ -155,7 +155,7 @@ function resourceMcpLayer(url: string) {
             complete: unusedIntegration,
             cancel: unusedIntegration,
           },
-          search: {
+          websearch: {
             list: unusedIntegration,
             get: unusedIntegration,
           },

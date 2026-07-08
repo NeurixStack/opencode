@@ -16,7 +16,7 @@ import {
   Types,
 } from "effect"
 import { Integration } from "@opencode-ai/schema/integration"
-import { Search } from "@opencode-ai/schema/search"
+import { WebSearch } from "@opencode-ai/schema/websearch"
 import { Credential } from "./credential"
 import { State } from "./state"
 import { EventV2 } from "./event"
@@ -95,13 +95,13 @@ export interface EnvImplementation {
 
 export type Implementation = OAuthImplementation | KeyImplementation | EnvImplementation
 
-export interface SearchImplementation {
+export interface WebSearchImplementation {
   readonly integrationID: ID
-  readonly connection: Integration.Search["connection"]
+  readonly connection: Integration.WebSearch["connection"]
   readonly execute: (
-    input: Search.Input,
+    input: WebSearch.Input,
     context: { readonly credential?: Credential.Value; readonly sessionID?: string },
-  ) => Effect.Effect<Search.ProviderOutput, unknown>
+  ) => Effect.Effect<WebSearch.ProviderOutput, unknown>
 }
 
 export const Attempt = Integration.Attempt
@@ -129,7 +129,7 @@ type Entry = {
   ref: Types.DeepMutable<Ref>
   methods: Types.DeepMutable<Method>[]
   implementations: Map<MethodID, Types.DeepMutable<OAuthImplementation>>
-  search?: Types.DeepMutable<SearchImplementation>
+  websearch?: Types.DeepMutable<WebSearchImplementation>
 }
 
 type Data = {
@@ -146,9 +146,9 @@ export type Draft = {
     update: (implementation: Implementation) => void
     remove: (integrationID: ID, method: Method) => void
   }
-  search: {
-    list: () => readonly SearchImplementation[]
-    update: (implementation: SearchImplementation) => void
+  websearch: {
+    list: () => readonly WebSearchImplementation[]
+    update: (implementation: WebSearchImplementation) => void
     remove: (integrationID: ID) => void
   }
 }
@@ -207,9 +207,9 @@ export interface Interface extends State.Transformable<Draft> {
     /** Cancels an attempt and releases its resources. */
     readonly cancel: (attemptID: AttemptID) => Effect.Effect<void>
   }
-  readonly search: {
-    readonly list: () => Effect.Effect<readonly SearchImplementation[]>
-    readonly get: (integrationID: ID) => Effect.Effect<SearchImplementation | undefined>
+  readonly websearch: {
+    readonly list: () => Effect.Effect<readonly WebSearchImplementation[]>
+    readonly get: (integrationID: ID) => Effect.Effect<WebSearchImplementation | undefined>
   }
 }
 
@@ -301,10 +301,10 @@ const layer = Layer.effect(
             if (method.type === "oauth") current.implementations.delete(method.id)
           },
         },
-        search: {
+        websearch: {
           list: () =>
             Array.from(draft.integrations.values()).flatMap((entry) =>
-              entry.search ? [entry.search as SearchImplementation] : [],
+              entry.websearch ? [entry.websearch as WebSearchImplementation] : [],
             ),
           update: (implementation) => {
             const current = draft.integrations.get(implementation.integrationID) ?? {
@@ -318,11 +318,11 @@ const layer = Layer.effect(
             if (!draft.integrations.has(implementation.integrationID)) {
               draft.integrations.set(implementation.integrationID, current)
             }
-            current.search = implementation as Types.DeepMutable<SearchImplementation>
+            current.websearch = implementation as Types.DeepMutable<WebSearchImplementation>
           },
           remove: (integrationID) => {
             const current = draft.integrations.get(integrationID)
-            if (current) delete current.search
+            if (current) delete current.websearch
           },
         },
       }),
@@ -349,7 +349,7 @@ const layer = Layer.effect(
         id: entry.ref.id,
         name: entry.ref.name,
         methods: entry.methods,
-        search: entry.search ? { connection: entry.search.connection } : undefined,
+        websearch: entry.websearch ? { connection: entry.websearch.connection } : undefined,
         connections,
       })
 
@@ -559,14 +559,14 @@ const layer = Layer.effect(
           if (attempt) yield* Scope.close(attempt.scope, Exit.void)
         }),
       },
-      search: {
-        list: Effect.fn("Integration.search.list")(function* () {
+      websearch: {
+        list: Effect.fn("Integration.websearch.list")(function* () {
           return Array.from(state.get().integrations.values()).flatMap((entry) =>
-            entry.search ? [entry.search as SearchImplementation] : [],
+            entry.websearch ? [entry.websearch as WebSearchImplementation] : [],
           )
         }),
-        get: Effect.fn("Integration.search.get")(function* (integrationID) {
-          return state.get().integrations.get(integrationID)?.search as SearchImplementation | undefined
+        get: Effect.fn("Integration.websearch.get")(function* (integrationID) {
+          return state.get().integrations.get(integrationID)?.websearch as WebSearchImplementation | undefined
         }),
       },
     })

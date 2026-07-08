@@ -1,10 +1,10 @@
-export * as SearchParallel from "./parallel"
+export * as WebSearchParallel from "./parallel"
 
 import { define } from "@opencode-ai/plugin/v2/effect/plugin"
 import { Effect, Schema, Scope } from "effect"
 import { HttpClient } from "effect/unstable/http"
 import { InstallationVersion } from "../../installation/version"
-import { SearchMcp } from "./mcp"
+import { WebSearchMcp } from "./mcp"
 
 export const endpoint = "https://search.parallel.ai/mcp"
 
@@ -50,8 +50,8 @@ const Output = Schema.Struct({
 })
 
 export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
-  id: "opencode.search.parallel",
-  effect: Effect.fn("SearchParallel.Plugin")(function* (ctx) {
+  id: "opencode.websearch.parallel",
+  effect: Effect.fn("WebSearchParallel.Plugin")(function* (ctx) {
     const http = yield* HttpClient.HttpClient
     yield* ctx.integration.register({
       id: "parallel",
@@ -60,10 +60,10 @@ export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
         { type: "key", label: "API key (optional)" },
         { type: "env", names: ["PARALLEL_API_KEY"] },
       ],
-      search: {
+      websearch: {
         connection: "optional",
         execute: (input, context) =>
-          SearchMcp.call(
+          WebSearchMcp.call(
             http,
             endpoint,
             "web_search",

@@ -9,7 +9,7 @@ export type {
   PluginApi,
   ProviderApi,
   ReferenceApi,
-  SearchApi,
+  WebSearchApi,
   SessionApi,
   SkillApi,
 } from "./api.js"

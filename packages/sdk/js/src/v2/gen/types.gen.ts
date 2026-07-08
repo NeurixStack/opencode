@@ -5721,7 +5721,7 @@ export type IntegrationEnvMethod = {
   names: Array<string>
 }
 
-export type IntegrationSearch = {
+export type IntegrationWebSearch = {
   connection: "optional" | "required"
 }
 
@@ -5742,7 +5742,7 @@ export type IntegrationInfo = {
   id: string
   name: string
   methods: Array<IntegrationMethod>
-  search?: IntegrationSearch
+  websearch?: IntegrationWebSearch
   connections: Array<ConnectionInfo>
 }
 
@@ -7035,7 +7035,7 @@ export type ProjectCopyCopy = {
 
 export type VcsMode = "working" | "branch"
 
-export type SearchResult = {
+export type WebSearchResult = {
   providerID: string
   text: string
   metadata?: unknown
@@ -18955,7 +18955,7 @@ export type V2DebugLocationListResponses = {
 
 export type V2DebugLocationListResponse = V2DebugLocationListResponses[keyof V2DebugLocationListResponses]
 
-export type V2SearchProviderGetData = {
+export type V2WebsearchProviderGetData = {
   body?: never
   path?: never
   query?: {
@@ -18964,10 +18964,10 @@ export type V2SearchProviderGetData = {
       workspace?: string | null
     } | null
   }
-  url: "/api/search/provider"
+  url: "/api/websearch/provider"
 }
 
-export type V2SearchProviderGetErrors = {
+export type V2WebsearchProviderGetErrors = {
   /**
    * InvalidRequestError
    */
@@ -18978,9 +18978,9 @@ export type V2SearchProviderGetErrors = {
   401: UnauthorizedError
 }
 
-export type V2SearchProviderGetError = V2SearchProviderGetErrors[keyof V2SearchProviderGetErrors]
+export type V2WebsearchProviderGetError = V2WebsearchProviderGetErrors[keyof V2WebsearchProviderGetErrors]
 
-export type V2SearchProviderGetResponses = {
+export type V2WebsearchProviderGetResponses = {
   /**
    * Success
    */
@@ -18990,9 +18990,9 @@ export type V2SearchProviderGetResponses = {
   }
 }
 
-export type V2SearchProviderGetResponse = V2SearchProviderGetResponses[keyof V2SearchProviderGetResponses]
+export type V2WebsearchProviderGetResponse = V2WebsearchProviderGetResponses[keyof V2WebsearchProviderGetResponses]
 
-export type V2SearchProviderSelectData = {
+export type V2WebsearchProviderSelectData = {
   body: {
     providerID: string
   }
@@ -19003,10 +19003,10 @@ export type V2SearchProviderSelectData = {
       workspace?: string | null
     } | null
   }
-  url: "/api/search/provider"
+  url: "/api/websearch/provider"
 }
 
-export type V2SearchProviderSelectErrors = {
+export type V2WebsearchProviderSelectErrors = {
   /**
    * InvalidRequestError
    */
@@ -19021,18 +19021,19 @@ export type V2SearchProviderSelectErrors = {
   503: ServiceUnavailableErrorV2
 }
 
-export type V2SearchProviderSelectError = V2SearchProviderSelectErrors[keyof V2SearchProviderSelectErrors]
+export type V2WebsearchProviderSelectError = V2WebsearchProviderSelectErrors[keyof V2WebsearchProviderSelectErrors]
 
-export type V2SearchProviderSelectResponses = {
+export type V2WebsearchProviderSelectResponses = {
   /**
    * <No Content>
    */
   204: void
 }
 
-export type V2SearchProviderSelectResponse = V2SearchProviderSelectResponses[keyof V2SearchProviderSelectResponses]
+export type V2WebsearchProviderSelectResponse =
+  V2WebsearchProviderSelectResponses[keyof V2WebsearchProviderSelectResponses]
 
-export type V2SearchQueryData = {
+export type V2WebsearchQueryData = {
   body: {
     query: string
     providerID?: string
@@ -19044,10 +19045,10 @@ export type V2SearchQueryData = {
       workspace?: string | null
     } | null
   }
-  url: "/api/search"
+  url: "/api/websearch"
 }
 
-export type V2SearchQueryErrors = {
+export type V2WebsearchQueryErrors = {
   /**
    * InvalidRequestError
    */
@@ -19062,19 +19063,19 @@ export type V2SearchQueryErrors = {
   503: ServiceUnavailableErrorV2
 }
 
-export type V2SearchQueryError = V2SearchQueryErrors[keyof V2SearchQueryErrors]
+export type V2WebsearchQueryError = V2WebsearchQueryErrors[keyof V2WebsearchQueryErrors]
 
-export type V2SearchQueryResponses = {
+export type V2WebsearchQueryResponses = {
   /**
    * Success
    */
   200: {
     location: LocationInfoV2
-    data: SearchResult
+    data: WebSearchResult
   }
 }
 
-export type V2SearchQueryResponse = V2SearchQueryResponses[keyof V2SearchQueryResponses]
+export type V2WebsearchQueryResponse = V2WebsearchQueryResponses[keyof V2WebsearchQueryResponses]
 
 export type PtyConnectData = {
   body?: never

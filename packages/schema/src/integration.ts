@@ -76,10 +76,10 @@ export type Method = typeof Method.Type
 export const Inputs = Schema.Record(Schema.String, Schema.String).annotate({ identifier: "Integration.Inputs" })
 export type Inputs = typeof Inputs.Type
 
-export interface Search extends Schema.Schema.Type<typeof Search> {}
-export const Search = Schema.Struct({
+export interface WebSearch extends Schema.Schema.Type<typeof WebSearch> {}
+export const WebSearch = Schema.Struct({
   connection: Schema.Literals(["optional", "required"]),
-}).annotate({ identifier: "Integration.Search" })
+}).annotate({ identifier: "Integration.WebSearch" })
 
 const Updated = ephemeral({
   type: "integration.updated",
@@ -101,7 +101,7 @@ export class Info extends Schema.Class<Info>("Integration.Info")({
   id: ID,
   name: Schema.String,
   methods: Schema.Array(Method),
-  search: optional(Search),
+  websearch: optional(WebSearch),
   connections: Schema.Array(Connection.Info),
 }) {}
 

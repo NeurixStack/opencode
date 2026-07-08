@@ -56,7 +56,7 @@ type LocationData = {
   model?: ModelInfo[]
   provider?: ProviderV2Info[]
   reference?: ReferenceInfo[]
-  searchProvider?: string | null
+  websearchProvider?: string | null
   // Currently running shell commands for this location, keyed by shell id. Entries are removed
   // once the command exits or is deleted, so this only ever holds in-flight shells.
   shell?: Record<string, Shell>
@@ -803,7 +803,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           ])
           break
         case "config.updated":
-          void result.location.search.refresh(event.location)
+          void result.location.websearch.refresh(event.location)
           break
         // Authenticating an MCP integration reconnects its server, which emits mcp.status.changed,
         // so the mcp list refreshes here rather than off integration.updated.
@@ -1049,14 +1049,14 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             setStore("location", key, { ...store.location[key], reference: mutable(result.data) })
           },
         },
-        search: {
+        websearch: {
           provider(location?: LocationRef) {
-            return store.location[locationKey(location ?? defaultLocation())]?.searchProvider ?? undefined
+            return store.location[locationKey(location ?? defaultLocation())]?.websearchProvider ?? undefined
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.api.search.provider.get({ location: locationQuery(ref ?? defaultLocation()) })
+            const result = await sdk.api.websearch.provider.get({ location: locationQuery(ref ?? defaultLocation()) })
             const key = locationKey(result.location)
-            setStore("location", key, { ...store.location[key], searchProvider: result.data ?? null })
+            setStore("location", key, { ...store.location[key], websearchProvider: result.data ?? null })
           },
         },
         skill: {
@@ -1119,7 +1119,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         result.location.model.refresh(),
         result.location.provider.refresh(),
         result.location.reference.refresh(),
-        result.location.search.refresh(),
+        result.location.websearch.refresh(),
         result.location.command.refresh(),
         result.location.skill.refresh(),
         result.shell.refresh(),

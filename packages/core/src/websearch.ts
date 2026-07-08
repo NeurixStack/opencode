@@ -1,12 +1,12 @@
-export * as Search from "./search"
+export * as WebSearch from "./websearch"
 
-import { Search } from "@opencode-ai/schema/search"
+import { WebSearch } from "@opencode-ai/schema/websearch"
 import { Config as ConfigSchema } from "@opencode-ai/schema/config"
 import { Context, Effect, Layer, Schema, Semaphore, Stream } from "effect"
 import path from "node:path"
 import { Config } from "./config"
 import { ConfigGlobal } from "./config/global"
-import { ConfigSearch } from "./config/search"
+import { ConfigWebSearch } from "./config/websearch"
 import { makeLocationNode } from "./effect/app-node"
 import { EventV2 } from "./event"
 import { Form } from "./form"
@@ -14,32 +14,32 @@ import { Global } from "./global"
 import { Integration } from "./integration"
 import { truthy } from "./flag/flag"
 
-export const Input = Search.Input
-export type Input = Search.Input
+export const Input = WebSearch.Input
+export type Input = WebSearch.Input
 
-export const ProviderOutput = Search.ProviderOutput
-export type ProviderOutput = Search.ProviderOutput
+export const ProviderOutput = WebSearch.ProviderOutput
+export type ProviderOutput = WebSearch.ProviderOutput
 
-export const Result = Search.Result
-export type Result = Search.Result
+export const Result = WebSearch.Result
+export type Result = WebSearch.Result
 
 export class ProviderRequiredError extends Schema.TaggedErrorClass<ProviderRequiredError>()(
-  "Search.ProviderRequired",
+  "WebSearch.ProviderRequired",
   {},
 ) {}
 
-export class ProviderNotFoundError extends Schema.TaggedErrorClass<ProviderNotFoundError>()("Search.ProviderNotFound", {
+export class ProviderNotFoundError extends Schema.TaggedErrorClass<ProviderNotFoundError>()("WebSearch.ProviderNotFound", {
   providerID: Integration.ID,
 }) {}
 
 export class ConnectionRequiredError extends Schema.TaggedErrorClass<ConnectionRequiredError>()(
-  "Search.ConnectionRequired",
+  "WebSearch.ConnectionRequired",
   { providerID: Integration.ID },
 ) {}
 
-export class CancelledError extends Schema.TaggedErrorClass<CancelledError>()("Search.Cancelled", {}) {}
+export class CancelledError extends Schema.TaggedErrorClass<CancelledError>()("WebSearch.Cancelled", {}) {}
 
-export class RequestError extends Schema.TaggedErrorClass<RequestError>()("Search.Request", {
+export class RequestError extends Schema.TaggedErrorClass<RequestError>()("WebSearch.Request", {
   providerID: Integration.ID,
   cause: Schema.Defect(),
 }) {}
@@ -61,7 +61,7 @@ export interface Interface {
   readonly query: (input: QueryInput) => Effect.Effect<Result, Error>
 }
 
-export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Search") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/v2/WebSearch") {}
 
 const layer = Layer.effect(
   Service,
@@ -78,27 +78,27 @@ const layer = Layer.effect(
     let pendingProviderID: Integration.ID | undefined
 
     const requireProvider = (
-      providers: Map<Integration.ID, Integration.SearchImplementation>,
+      providers: Map<Integration.ID, Integration.WebSearchImplementation>,
       providerID: Integration.ID,
     ) => {
       const provider = providers.get(providerID)
       return provider ? Effect.succeed(provider) : Effect.fail(new ProviderNotFoundError({ providerID }))
     }
 
-    const globalProviderID = Effect.fn("Search.globalProviderID")(function* () {
+    const globalProviderID = Effect.fn("WebSearch.globalProviderID")(function* () {
       const entries = (yield* config.entries()).filter(
         (entry) => entry.type === "document" && entry.path && path.dirname(entry.path) === globalConfigPath,
       )
-      return Config.latest(entries, "search")?.provider
+      return Config.latest(entries, "websearch")?.provider
     })
 
-    const selected = Effect.fn("Search.selected")(function* () {
+    const selected = Effect.fn("WebSearch.selected")(function* () {
       return pendingProviderID ?? (yield* globalProviderID())
     })
 
-    const saveProvider = Effect.fn("Search.saveProvider")(function* (providerID: Integration.ID) {
+    const saveProvider = Effect.fn("WebSearch.saveProvider")(function* (providerID: Integration.ID) {
       pendingProviderID = providerID
-      yield* configGlobal.update(["search"], new ConfigSearch.Info({ provider: providerID })).pipe(
+      yield* configGlobal.update(["websearch"], new ConfigWebSearch.Info({ provider: providerID })).pipe(
         Effect.tapError(() => Effect.sync(() => (pendingProviderID = undefined))),
         Effect.orDie,
       )
@@ -118,8 +118,8 @@ const layer = Layer.effect(
       Effect.forkScoped,
     )
 
-    const ask = Effect.fn("Search.ask")(function* (
-      providers: Map<Integration.ID, Integration.SearchImplementation>,
+    const ask = Effect.fn("WebSearch.ask")(function* (
+      providers: Map<Integration.ID, Integration.WebSearchImplementation>,
       sessionID: string,
     ) {
       if (providers.size === 0) return yield* new ProviderRequiredError()
@@ -128,7 +128,7 @@ const layer = Layer.effect(
         .ask({
           sessionID,
           title: "Choose a web search provider",
-          metadata: { kind: "search.provider" },
+          metadata: { kind: "websearch.provider" },
           mode: "form",
           fields: [
             {
@@ -161,8 +161,8 @@ const layer = Layer.effect(
       return yield* requireProvider(providers, Integration.ID.make(answer))
     })
 
-    const connect = Effect.fn("Search.connect")(function* (
-      provider: Integration.SearchImplementation,
+    const connect = Effect.fn("WebSearch.connect")(function* (
+      provider: Integration.WebSearchImplementation,
       sessionID?: string,
     ) {
       const active = yield* integrations.connection.active(provider.integrationID)
@@ -183,12 +183,12 @@ const layer = Layer.effect(
       return connected
     })
 
-    const resolve = Effect.fn("Search.resolve")(function* (input: QueryInput) {
+    const resolve = Effect.fn("WebSearch.resolve")(function* (input: QueryInput) {
       const providers = new Map(
-        (yield* integrations.search.list()).map((provider) => [provider.integrationID, provider]),
+        (yield* integrations.websearch.list()).map((provider) => [provider.integrationID, provider]),
       )
       if (input.providerID) return yield* requireProvider(providers, input.providerID)
-      const configuredProviderID = Config.latest(yield* config.entries(), "search")?.provider
+      const configuredProviderID = Config.latest(yield* config.entries(), "websearch")?.provider
       if (configuredProviderID) return yield* requireProvider(providers, configuredProviderID)
       if (process.env.OPENCODE_WEBSEARCH_PROVIDER) {
         return yield* requireProvider(providers, Integration.ID.make(process.env.OPENCODE_WEBSEARCH_PROVIDER))
@@ -219,12 +219,12 @@ const layer = Layer.effect(
 
     return Service.of({
       selected,
-      select: Effect.fn("Search.select")(function* (providerID) {
-        const provider = yield* integrations.search.get(providerID)
+      select: Effect.fn("WebSearch.select")(function* (providerID) {
+        const provider = yield* integrations.websearch.get(providerID)
         if (!provider) return yield* new ProviderNotFoundError({ providerID })
         yield* saveProvider(providerID)
       }),
-      query: Effect.fn("Search.query")(function* (input) {
+      query: Effect.fn("WebSearch.query")(function* (input) {
         const provider = yield* resolve(input)
         const connection = yield* connect(provider, input.sessionID)
         const credential = connection

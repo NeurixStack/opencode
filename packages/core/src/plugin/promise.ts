@@ -131,7 +131,7 @@ export function fromPromise(plugin: PromisePlugin) {
 }
 
 function adaptIntegration(definition: IntegrationDefinition) {
-  const { methods, search, ...definitionInfo } = definition
+  const { methods, websearch, ...definitionInfo } = definition
   return {
     ...definitionInfo,
     methods: methods?.map((method) => {
@@ -163,16 +163,16 @@ function adaptIntegration(definition: IntegrationDefinition) {
           : {}),
       }
     }),
-    ...(search
+    ...(websearch
       ? {
-          search: {
-            connection: search.connection,
+          websearch: {
+            connection: websearch.connection,
             execute: (
-              input: Parameters<typeof search.execute>[0],
-              execution: Omit<Parameters<typeof search.execute>[1], "signal">,
+              input: Parameters<typeof websearch.execute>[0],
+              execution: Omit<Parameters<typeof websearch.execute>[1], "signal">,
             ) =>
               Effect.tryPromise({
-                try: (signal) => search.execute(input, { ...execution, signal }),
+                try: (signal) => websearch.execute(input, { ...execution, signal }),
                 catch: (cause) => cause,
               }),
           },

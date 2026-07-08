@@ -5,7 +5,7 @@ import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Schema } from "effect"
 import { Integration } from "../integration"
 import { PermissionV2 } from "../permission"
-import { Search } from "../search"
+import { WebSearch } from "../websearch"
 import { Tool } from "./tool"
 
 export const name = "websearch"
@@ -29,7 +29,7 @@ export const Plugin = {
   id: "opencode.tool.websearch",
   effect: Effect.fn("WebSearchTool.Plugin")(function* (ctx: PluginContext) {
     const permission = yield* PermissionV2.Service
-    const search = yield* Search.Service
+    const websearch = yield* WebSearch.Service
 
     yield* ctx.tool
       .transform((draft) =>
@@ -51,7 +51,7 @@ export const Plugin = {
                   agent: context.agent,
                   source: { type: "tool", messageID: context.assistantMessageID, callID: context.toolCallID },
                 })
-                const result = yield* search.query({ ...input, sessionID: context.sessionID })
+                const result = yield* websearch.query({ ...input, sessionID: context.sessionID })
                 return {
                   provider: result.providerID,
                   text: result.text || NO_RESULTS,

@@ -1099,35 +1099,35 @@ const adaptGroup25 = (raw: RawClient["server.debug"]) => ({
   location: { list: Endpoint25_0(raw), evict: Endpoint25_1(raw) },
 })
 
-type Endpoint26_0Request = Parameters<RawClient["server.search"]["search.provider.get"]>[0]
+type Endpoint26_0Request = Parameters<RawClient["server.websearch"]["websearch.provider.get"]>[0]
 type Endpoint26_0Input = { readonly location?: Endpoint26_0Request["query"]["location"] }
-const Endpoint26_0 = (raw: RawClient["server.search"]) => (input?: Endpoint26_0Input) =>
-  raw["search.provider.get"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError))
+const Endpoint26_0 = (raw: RawClient["server.websearch"]) => (input?: Endpoint26_0Input) =>
+  raw["websearch.provider.get"]({ query: { location: input?.["location"] } }).pipe(Effect.mapError(mapClientError))
 
-type Endpoint26_1Request = Parameters<RawClient["server.search"]["search.provider.select"]>[0]
+type Endpoint26_1Request = Parameters<RawClient["server.websearch"]["websearch.provider.select"]>[0]
 type Endpoint26_1Input = {
   readonly location?: Endpoint26_1Request["query"]["location"]
   readonly providerID: Endpoint26_1Request["payload"]["providerID"]
 }
-const Endpoint26_1 = (raw: RawClient["server.search"]) => (input: Endpoint26_1Input) =>
-  raw["search.provider.select"]({
+const Endpoint26_1 = (raw: RawClient["server.websearch"]) => (input: Endpoint26_1Input) =>
+  raw["websearch.provider.select"]({
     query: { location: input["location"] },
     payload: { providerID: input["providerID"] },
   }).pipe(Effect.mapError(mapClientError))
 
-type Endpoint26_2Request = Parameters<RawClient["server.search"]["search.query"]>[0]
+type Endpoint26_2Request = Parameters<RawClient["server.websearch"]["websearch.query"]>[0]
 type Endpoint26_2Input = {
   readonly location?: Endpoint26_2Request["query"]["location"]
   readonly query: Endpoint26_2Request["payload"]["query"]
   readonly providerID?: Endpoint26_2Request["payload"]["providerID"]
 }
-const Endpoint26_2 = (raw: RawClient["server.search"]) => (input: Endpoint26_2Input) =>
-  raw["search.query"]({
+const Endpoint26_2 = (raw: RawClient["server.websearch"]) => (input: Endpoint26_2Input) =>
+  raw["websearch.query"]({
     query: { location: input["location"] },
     payload: { query: input["query"], providerID: input["providerID"] },
   }).pipe(Effect.mapError(mapClientError))
 
-const adaptGroup26 = (raw: RawClient["server.search"]) => ({
+const adaptGroup26 = (raw: RawClient["server.websearch"]) => ({
   provider: { get: Endpoint26_0(raw), select: Endpoint26_1(raw) },
   query: Endpoint26_2(raw),
 })
@@ -1159,7 +1159,7 @@ const adaptClient = (raw: RawClient) => ({
   projectCopy: adaptGroup23(raw["server.projectCopy"]),
   vcs: adaptGroup24(raw["server.vcs"]),
   debug: adaptGroup25(raw["server.debug"]),
-  search: adaptGroup26(raw["server.search"]),
+  websearch: adaptGroup26(raw["server.websearch"]),
 })
 
 export const make = (options?: { readonly baseUrl?: URL | string }) =>

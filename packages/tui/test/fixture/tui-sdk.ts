@@ -118,7 +118,7 @@ export function createFetch(override?: FetchHandler, events?: ReturnType<typeof 
       })
     if (url.pathname === "/api/reference")
       return json({ location: { directory, project: { id: "proj_test", directory } }, data: [] })
-    if (url.pathname === "/api/search/provider") {
+    if (url.pathname === "/api/websearch/provider") {
       if (request.method === "POST") return new Response(null, { status: 204 })
       return json({ location: { directory, project: { id: "proj_test", directory } }, data: null })
     }

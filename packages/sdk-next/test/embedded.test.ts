@@ -302,25 +302,25 @@ it.live(
   10_000,
 )
 
-it.live("embedded client exposes integration-backed search", () =>
-  withEmbedded("opencode-embedded-search-", (fixture) =>
+it.live("embedded client exposes integration-backed web search", () =>
+  withEmbedded("opencode-embedded-websearch-", (fixture) =>
     Effect.gen(function* () {
       const opencode = yield* fixture.sdk.OpenCode.create()
-      const providerID = fixture.sdk.Integration.ID.make("embedded-search")
+      const providerID = fixture.sdk.Integration.ID.make("embedded-websearch")
       yield* opencode.plugin({
-        id: `embedded-search-${crypto.randomUUID()}`,
+        id: `embedded-websearch-${crypto.randomUUID()}`,
         effect: (ctx) =>
           ctx.integration.register({
             id: providerID,
-            name: "Embedded search",
-            search: {
+            name: "Embedded web search",
+            websearch: {
               connection: "optional",
               execute: (input) => Effect.succeed({ text: `Found ${input.query}`, metadata: { source: "embedded" } }),
             },
           }),
       })
 
-      const result = yield* opencode.search.query({
+      const result = yield* opencode.websearch.query({
         query: "opencode",
         providerID,
         location: location(fixture),
