@@ -75,6 +75,7 @@ import * as SessionRunnerLLM from "@opencode-ai/core/session/runner/llm"
 import { SessionRunnerModel } from "@opencode-ai/core/session/runner/model"
 import { SessionRunnerSystemPrompt } from "@opencode-ai/core/session/runner/system-prompt"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
+import { PluginSupervisor } from "@opencode-ai/core/plugin/supervisor"
 import { QuestionTool } from "@opencode-ai/core/tool/question"
 import { ToolOutputStore } from "@opencode-ai/core/tool-output-store"
 import { AgentV2 } from "@opencode-ai/core/agent"
@@ -344,6 +345,13 @@ const config = Layer.succeed(
       ]),
   }),
 )
+let pluginFlushHook = Effect.void
+const pluginSupervisor = Layer.succeed(
+  PluginSupervisor.Service,
+  PluginSupervisor.Service.of({
+    flush: Effect.suspend(() => pluginFlushHook),
+  }),
+)
 const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [Snapshot.node, Snapshot.noopLayer],
   [LayerNodePlatform.llmClient, client],
@@ -357,6 +365,7 @@ const runnerLayer = AppNodeBuilder.build(SessionRunnerLLM.node, [
   [Config.node, config],
   [McpGuidance.node, mcpGuidance],
   [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
+  [PluginSupervisor.node, pluginSupervisor],
 ])
 const spans: Tracer.NativeSpan[] = []
 const tracer = Tracer.make({
@@ -429,6 +438,7 @@ const it = testEffect(
       [SessionExecution.node, execution],
       [Config.node, config],
       [ToolOutputStore.node, ToolOutputStore.nodeWithoutConfig],
+      [PluginSupervisor.node, pluginSupervisor],
     ],
   ),
 )
@@ -466,6 +476,7 @@ const setup = Effect.gen(function* () {
   systemUnavailable = false
   systemLoadHook = Effect.void
   modelResolveHook = Effect.void
+  pluginFlushHook = Effect.void
   currentModel = model
   skillBaselines.clear()
   responses = undefined
@@ -479,6 +490,12 @@ const setup = Effect.gen(function* () {
   activeToolExecutions = 0
   maxActiveToolExecutions = 0
   spans.length = 0
+  const agents = yield* AgentV2.Service
+  yield* agents.transform((draft) =>
+    draft.update(AgentV2.ID.make("build"), (agent) => {
+      agent.mode = "primary"
+    }),
+  )
   yield* db
     .insert(ProjectTable)
     .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
@@ -1307,10 +1324,64 @@ describe("SessionRunnerLLM", () => {
     }),
   )
 
+  it.effect("fails before the model request when the selected agent is unavailable", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const { db } = yield* Database.Service
+      yield* db
+        .update(SessionTable)
+        .set({ agent: "explore" })
+        .where(eq(SessionTable.id, sessionID))
+        .run()
+        .pipe(Effect.orDie)
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "Inspect files" }), resume: false })
+
+      requests.length = 0
+      response = []
+      const failure = yield* session.resume(sessionID).pipe(Effect.flip)
+
+      expect(failure).toMatchObject({
+        _tag: "Session.AgentNotFoundError",
+        sessionID,
+        agent: "explore",
+      })
+      expect(requests).toHaveLength(0)
+    }),
+  )
+
+  it.effect("waits for initial plugin readiness before constructing the model request", () =>
+    Effect.gen(function* () {
+      yield* setup
+      const release = yield* Deferred.make<void>()
+      pluginFlushHook = Deferred.await(release)
+      const session = yield* SessionV2.Service
+      yield* session.prompt({ sessionID, prompt: PromptInput.Prompt.make({ text: "Wait for plugins" }), resume: false })
+
+      requests.length = 0
+      response = []
+      const running = yield* session.resume(sessionID).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* Effect.yieldNow
+
+      expect(requests).toHaveLength(0)
+      expect(running.pollUnsafe()).toBeUndefined()
+
+      yield* Deferred.succeed(release, undefined)
+      yield* Fiber.join(running)
+      expect(requests).toHaveLength(1)
+    }),
+  )
+
   it.effect("updates selected-agent skill guidance after an agent switch", () =>
     Effect.gen(function* () {
       const session = yield* setup
       const events = yield* EventV2.Service
+      const agents = yield* AgentV2.Service
+      yield* agents.transform((draft) =>
+        draft.update(AgentV2.ID.make("reviewer"), (agent) => {
+          agent.mode = "primary"
+        }),
+      )
       skillBaselines.set(AgentV2.ID.make("build"), "Build skills")
       yield* admit(session, "First")
 
