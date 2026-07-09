@@ -1441,6 +1441,7 @@ test("public provider info omits invalid models", () => {
         limit: { context: 128_000, output: 16_000 },
       },
     },
+    // @ts-expect-error dead V1 fixture uses the removed pre-normalized ModelsDev provider type.
   } as unknown as ModelsDev.Provider)
   provider.models.invalid = {
     ...provider.models.valid,
