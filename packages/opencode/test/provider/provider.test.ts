@@ -4,7 +4,6 @@ import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { Effect, Layer } from "effect"
-import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Global } from "@opencode-ai/core/global"
@@ -23,6 +22,8 @@ import { InstanceStore } from "@/project/instance-store"
 import { testEffect } from "../lib/effect"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+
+type ModelsDevProvider = Parameters<typeof Provider.fromModelsDevProvider>[0]
 
 const originalEnv = new Map<string, string | undefined>()
 
@@ -1386,8 +1387,7 @@ test("mode cost preserves over-200k pricing from base model", () => {
         },
       },
     },
-    // @ts-expect-error dead V1 fixture uses the removed pre-normalized ModelsDev provider type.
-  } as unknown as ModelsDev.Provider
+  } as unknown as ModelsDevProvider
 
   const model = Provider.fromModelsDevProvider(provider).models["gpt-5.4-fast"]
   expect(model.cost.input).toEqual(5)
@@ -1416,8 +1416,7 @@ test("models.dev normalization fills required response fields", () => {
         limit: { context: 1_050_000, input: 922_000, output: 128_000 },
       },
     },
-    // @ts-expect-error dead V1 fixture uses the removed pre-normalized ModelsDev provider type.
-  } as unknown as ModelsDev.Provider
+  } as unknown as ModelsDevProvider
 
   const model = Provider.fromModelsDevProvider(provider).models["gpt-5.4"]
   expect(model.api.url).toBe("")
@@ -1441,8 +1440,7 @@ test("public provider info omits invalid models", () => {
         limit: { context: 128_000, output: 16_000 },
       },
     },
-    // @ts-expect-error dead V1 fixture uses the removed pre-normalized ModelsDev provider type.
-  } as unknown as ModelsDev.Provider)
+  } as unknown as ModelsDevProvider)
   provider.models.invalid = {
     ...provider.models.valid,
     id: ModelV2.ID.make("invalid"),
