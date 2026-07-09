@@ -33,6 +33,14 @@ const icons = {
     viewBox: "0 0 20 20",
     body: `<path d="M2 10V18H18V10M2 10V2H18V10M2 10H18M5 6H9M5 14H9" stroke="currentColor"/>`,
   },
+  tools: {
+    viewBox: "0 0 16 16",
+    body: `<path d="M8 6.74934V9.24934M10.668 6.74934V9.24934M5.33398 6.74934V9.24934M1.33398 2.44418V13.5542H14.6673V2.44418H1.33398Z" stroke="currentColor" stroke-linecap="square"/>`,
+  },
+  "tools-warning": {
+    viewBox: "0 0 16 16",
+    body: `<path d="M9.50073 2.44498H1.33398V13.555H14.6673V6.49997M8.00073 6.74934V9.24934M10.6687 6.74934V9.24934M5.33472 6.74934V9.24934" stroke="currentColor" stroke-linecap="square"/>`,
+  },
   "status-active": {
     viewBox: "0 0 20 20",
     body: `<path d="M18 2H2V10H18V2Z" fill="currentColor" fill-opacity="0.1"/><path d="M2 18H18V10H2V18Z" fill="currentColor" fill-opacity="0.1"/><path d="M2 10V18H18V10M2 10V2H18V10M2 10H18M5 6H9M5 14H9" stroke="currentColor"/>`,

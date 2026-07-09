@@ -2,7 +2,7 @@ import { Show, createEffect, createMemo, createResource, createSignal, onCleanup
 import { createStore } from "solid-js/store"
 import { Portal } from "solid-js/web"
 import { useSearchParams } from "@solidjs/router"
-import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { createMediaQuery } from "@solid-primitives/media"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { NewSessionDesignView } from "@/components/session"
@@ -51,6 +51,7 @@ export default function NewSessionPage() {
   const providers = useProviders(() => sdk().directory)
   const openProviderSettings = useSettingsDialog("providers")
   const route = useSessionKey()
+  const isDesktop = createMediaQuery("(min-width: 768px)")
   const [searchParams, setSearchParams] = useSearchParams<{ draftId?: string; prompt?: string }>()
 
   useComposerCommands()
@@ -112,10 +113,10 @@ export default function NewSessionPage() {
       <Show when={rightMount()}>
         {(mount) => (
           <Portal mount={mount()}>
-            <Show when={settings.visibility.status()}>
-              <Tooltip placement="bottom" value={language.t("status.popover.trigger")}>
+            <Show when={isDesktop() && settings.general.newLayoutDesigns()}>
+              <TooltipV2 placement="bottom" value={language.t("status.popover.tools.trigger")}>
                 <StatusPopoverV2 />
-              </Tooltip>
+              </TooltipV2>
             </Show>
           </Portal>
         )}

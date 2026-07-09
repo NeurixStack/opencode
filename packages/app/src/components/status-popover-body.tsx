@@ -16,6 +16,7 @@ import { type ServerHealth } from "@/utils/server-health"
 import { useGlobal } from "@/context/global"
 import { useSettings } from "@/context/settings"
 import { useMcpToggle } from "@/context/mcp"
+import { ToolsMenu } from "./tools-menu"
 
 const pluginEmptyMessage = (value: string, file: string): JSXElement => {
   const parts = value.split(file)
@@ -280,7 +281,14 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
   const toggleMcp = useMcpToggle()
   const defaultServer = useDefaultServerKey(platform.getDefaultServer)
   const mcpNames = createMemo(() => Object.keys(sync().data.mcp ?? {}).sort((a, b) => a.localeCompare(b)))
+  const configuredMcpNames = createMemo(() =>
+    Object.keys(sync().data.config.mcp ?? {}).sort((a, b) => a.localeCompare(b)),
+  )
   const mcpStatus = (name: string) => sync().data.mcp?.[name]?.status
+  const mcpError = (name: string) => {
+    const status = sync().data.mcp?.[name]
+    if (status?.status === "failed" || status?.status === "needs_client_registration") return status.error
+  }
   const mcpConnected = createMemo(() => mcpNames().filter((name) => mcpStatus(name) === "connected").length)
   const lspItems = createMemo(() => sync().data.lsp ?? [])
   const lspCount = createMemo(() => lspItems().length)
@@ -289,6 +297,41 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
   )
   const pluginCount = createMemo(() => plugins().length)
   const pluginEmpty = createMemo(() => pluginEmptyMessage(language.t("dialog.plugins.empty"), "opencode.json"))
+  if (settings.general.newLayoutDesigns()) {
+    return (
+      <ToolsMenu
+        labels={{
+          menu: language.t("status.popover.tools.trigger"),
+          mcp: language.t("status.popover.tab.mcp"),
+          lsp: language.t("status.popover.tab.lsp"),
+          plugins: language.t("status.popover.tab.plugins"),
+          mcpDescription: language.t("status.popover.tools.mcp.description"),
+          lspDescription: language.t("status.popover.tools.lsp.description"),
+          pluginsDescription: language.t("status.popover.tools.plugins.description"),
+          disabled: language.t("mcp.status.disabled"),
+          failed: language.t("mcp.status.failed"),
+          reauthenticate: language.t("status.popover.tools.reauthenticate"),
+        }}
+        empty={{
+          mcp: language.t("status.popover.tools.mcp.empty"),
+          lsp: language.t("status.popover.tools.lsp.empty"),
+          plugins: language.t("status.popover.tools.plugins.empty"),
+        }}
+        mcp={configuredMcpNames().map((name) => ({
+          name,
+          status: mcpStatus(name),
+          error: mcpError(name),
+          pending: !mcpStatus(name) || (toggleMcp.isPending && toggleMcp.variables === name),
+          onToggle: () => {
+            if (toggleMcp.isPending) return
+            toggleMcp.mutate(name)
+          },
+        }))}
+        lsp={lspItems().map((item) => ({ name: item.name || item.id, status: item.status }))}
+        plugins={plugins()}
+      />
+    )
+  }
 
   return (
     <div class="flex items-center gap-1 w-[360px] rounded-xl shadow-[var(--shadow-lg-border-base)]">

@@ -1,7 +1,7 @@
+// @refresh reload
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
 import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
-import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { Popover } from "@opencode-ai/ui/popover"
 import { Suspense, createMemo, createSignal, lazy, Show, type JSX } from "solid-js"
 import { useLanguage } from "@/context/language"
@@ -9,6 +9,7 @@ import { ServerConnection, useServer } from "@/context/server"
 import { useServerSDK } from "@/context/server-sdk"
 import { useSync } from "@/context/sync"
 import { useGlobal } from "@/context/global"
+import { ToolsMenuIcon } from "./tools-menu"
 
 const Body = lazy(() => import("./status-popover-body").then((x) => ({ default: x.StatusPopoverBody })))
 const ServerBody = lazy(() => import("./status-popover-body").then((x) => ({ default: x.StatusPopoverServerBody })))
@@ -89,7 +90,10 @@ function DirectoryStatusPopover() {
   const serverHealth = () => global.servers.health[ServerConnection.key(server().server)]?.healthy
   const ready = createMemo(() => serverHealth() === false || sync().data.mcp_ready)
   const mcpIssue = createMemo(() => {
-    const mcp = Object.values(sync().data.mcp ?? {})
+    const mcp = Object.keys(sync().data.config.mcp ?? {}).flatMap((name) => {
+      const status = sync().data.mcp?.[name]
+      return status ? [status] : []
+    })
     const failed = mcp.some((item) => item.status === "failed" || item.status === "needs_client_registration")
     const warn = mcp.some((item) => item.status === "needs_auth")
     if (failed) return "critical" as const
@@ -102,7 +106,7 @@ function DirectoryStatusPopover() {
     healthy: healthy(),
     serverHealth: serverHealth(),
     issue: mcpIssue(),
-    label: language.t("status.popover.trigger"),
+    label: language.t("status.popover.tools.trigger"),
     onOpenChange: setShown,
     body: () => (
       <StatusPopoverBody shown={shown()}>
@@ -161,15 +165,7 @@ function StatusPopoverBody(props: { shown: boolean; children: JSX.Element }) {
 }
 
 function StatusPopoverView(props: { state: StatusPopoverState }) {
-  const statusDotClass = () => ({
-    "absolute rounded-full": true,
-    "bg-icon-success-base": props.state.ready && props.state.healthy,
-    "bg-icon-warning-base": props.state.ready && props.state.serverHealth === true && props.state.issue === "warning",
-    "bg-icon-critical-base":
-      props.state.serverHealth === false ||
-      (props.state.ready && props.state.serverHealth === true && props.state.issue === "critical"),
-    "bg-border-weak-base": props.state.serverHealth === undefined || !props.state.ready,
-  })
+  const warning = () => props.state.serverHealth === false || props.state.issue !== undefined
 
   const popoverProps = {
     class:
@@ -191,15 +187,7 @@ function StatusPopoverView(props: { state: StatusPopoverState }) {
         state: props.state.shown ? "pressed" : undefined,
         "aria-label": props.state.label,
       }}
-      trigger={
-        <div class="relative size-4">
-          <IconV2 name={props.state.shown ? "status-active" : "status"} />
-          <div
-            classList={statusDotClass()}
-            class="-top-1 -right-1 size-2 border border-[var(--v2-background-bg-deep)]"
-          />
-        </div>
-      }
+      trigger={<ToolsMenuIcon warning={warning()} />}
       {...popoverProps}
     >
       {props.state.body()}

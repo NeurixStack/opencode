@@ -1,3 +1,4 @@
+// @refresh reload
 import { AppIcon } from "@opencode-ai/ui/app-icon"
 import { Button } from "@opencode-ai/ui/button"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
@@ -235,8 +236,8 @@ export function SessionHeader() {
     messageAgentColor(params.id ? sync().data.message[params.id] : undefined, sync().data.agent),
   )
   const v2ActionsState = createMemo<SessionHeaderV2ActionsState>(() => ({
-    statusVisible: status(),
-    statusLabel: language.t("status.popover.trigger"),
+    toolsVisible: isDesktop(),
+    statusLabel: language.t("status.popover.tools.trigger"),
     reviewLabel: language.t("command.review.toggle"),
     reviewKeybind: reviewTooltipKeybind(command),
     reviewVisible: isDesktop(),
@@ -517,7 +518,7 @@ export function SessionHeader() {
 }
 
 type SessionHeaderV2ActionsState = {
-  statusVisible: boolean
+  toolsVisible: boolean
   statusLabel: string
   reviewLabel: string
   reviewKeybind: string[]
@@ -530,11 +531,11 @@ function SessionHeaderV2Actions(props: { state: SessionHeaderV2ActionsState }) {
   const language = useLanguage()
 
   return (
-    <div class="flex items-center gap-2">
-      <Show when={props.state.statusVisible}>
-        <Tooltip placement="bottom" value={props.state.statusLabel}>
+    <div class="flex items-center gap-[6px]">
+      <Show when={props.state.toolsVisible}>
+        <TooltipV2 placement="bottom" value={props.state.statusLabel}>
           <StatusPopoverV2 />
-        </Tooltip>
+        </TooltipV2>
       </Show>
       <Show when={props.state.reviewVisible}>
         <TooltipV2
