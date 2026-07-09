@@ -236,6 +236,38 @@ describe("ModelsDevPlugin", () => {
     ),
   )
 
+  it.effect("marks environment-backed source providers with integration identity", () =>
+    Effect.gen(function* () {
+      const integrations = yield* Integration.Service
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.make("env-provider")
+      const models = ModelsDev.Service.of({
+        get: () =>
+          Effect.succeed([
+            {
+              info: {
+                id: providerID,
+                name: "Env Provider",
+                package: ProviderV2.aisdk("@ai-sdk/openai-compatible"),
+              },
+              environment: ["ENV_PROVIDER_API_KEY"],
+              models: [],
+            },
+          ] satisfies readonly ModelsDev.Snapshot[]),
+        refresh: () => Effect.void,
+      })
+
+      yield* ModelsDevPlugin.effect(
+        host({
+          catalog: catalogHost(catalog),
+          integration: integrationHost(integrations),
+        }),
+      ).pipe(Effect.provideService(ModelsDev.Service, models))
+
+      expect((yield* catalog.provider.get(providerID))?.integrationID).toBe(Integration.ID.make(providerID))
+    }),
+  )
+
   it.effect("converts reasoning options into settings variants", () =>
     Effect.acquireUseRelease(
       Effect.sync(() => {
