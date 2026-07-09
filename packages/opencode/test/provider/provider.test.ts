@@ -1411,6 +1411,8 @@ test("models.dev normalization fills required response fields", () => {
         id: "gpt-5.4",
         name: "GPT-5.4",
         family: "gpt",
+        reasoning: true,
+        reasoning_options: [{ type: "effort", values: [null, "none", "high"] }],
         cost: { input: 2.5, output: 15 },
         limit: { context: 1_050_000, input: 922_000, output: 128_000 },
       },
@@ -1420,7 +1422,8 @@ test("models.dev normalization fills required response fields", () => {
   const model = Provider.fromModelsDevProvider(provider).models["gpt-5.4"]
   expect(model.api.url).toBe("")
   expect(model.capabilities.temperature).toBe(false)
-  expect(model.capabilities.reasoning).toBe(false)
+  expect(model.capabilities.reasoning).toBe(true)
+  expect(model.reasoning_options).toEqual([{ type: "effort", values: ["none", "high"] }])
   expect(model.capabilities.attachment).toBe(false)
   expect(model.capabilities.toolcall).toBe(true)
   expect(model.release_date).toBe("")
@@ -1430,8 +1433,7 @@ it.instance("model variants are generated for reasoning models", () =>
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")
     const providers = yield* list
-    // Claude sonnet 4 has reasoning capability
-    const model = providers[ProviderV2.ID.anthropic].models["claude-sonnet-4-20250514"]
+    const model = providers[ProviderV2.ID.anthropic].models["claude-opus-4-7"]
     expect(model.capabilities.reasoning).toBe(true)
     expect(model.variants).toBeDefined()
     expect(Object.keys(model.variants!).length).toBeGreaterThan(0)
@@ -1443,7 +1445,7 @@ it.instance(
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")
     const providers = yield* list
-    const model = providers[ProviderV2.ID.anthropic].models["claude-sonnet-4-20250514"]
+    const model = providers[ProviderV2.ID.anthropic].models["claude-opus-4-7"]
     expect(model.variants).toBeDefined()
     expect(model.variants!["high"]).toBeUndefined()
     // max variant should still exist
@@ -1453,7 +1455,7 @@ it.instance(
     config: {
       provider: {
         anthropic: {
-          models: { "claude-sonnet-4-20250514": { variants: { high: { disabled: true } } } },
+          models: { "claude-opus-4-7": { variants: { high: { disabled: true } } } },
         },
       },
     },
@@ -1465,7 +1467,7 @@ it.instance(
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")
     const providers = yield* list
-    const model = providers[ProviderV2.ID.anthropic].models["claude-sonnet-4-20250514"]
+    const model = providers[ProviderV2.ID.anthropic].models["claude-opus-4-7"]
     expect(model.variants!["high"]).toBeDefined()
     expect(model.variants!["high"].thinking.budgetTokens).toBe(20000)
   }),
@@ -1474,7 +1476,7 @@ it.instance(
       provider: {
         anthropic: {
           models: {
-            "claude-sonnet-4-20250514": {
+            "claude-opus-4-7": {
               variants: { high: { thinking: { type: "enabled", budgetTokens: 20000 } } },
             },
           },
@@ -1489,7 +1491,7 @@ it.instance(
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")
     const providers = yield* list
-    const model = providers[ProviderV2.ID.anthropic].models["claude-sonnet-4-20250514"]
+    const model = providers[ProviderV2.ID.anthropic].models["claude-opus-4-7"]
     expect(model.variants!["max"]).toBeDefined()
     expect(model.variants!["max"].disabled).toBeUndefined()
     expect(model.variants!["max"].customField).toBe("test")
@@ -1499,7 +1501,7 @@ it.instance(
       provider: {
         anthropic: {
           models: {
-            "claude-sonnet-4-20250514": {
+            "claude-opus-4-7": {
               variants: { max: { disabled: false, customField: "test" } },
             },
           },
@@ -1514,7 +1516,7 @@ it.instance(
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")
     const providers = yield* list
-    const model = providers[ProviderV2.ID.anthropic].models["claude-sonnet-4-20250514"]
+    const model = providers[ProviderV2.ID.anthropic].models["claude-opus-4-7"]
     expect(model.variants).toBeDefined()
     expect(Object.keys(model.variants!).length).toBe(0)
   }),
@@ -1523,8 +1525,14 @@ it.instance(
       provider: {
         anthropic: {
           models: {
-            "claude-sonnet-4-20250514": {
-              variants: { high: { disabled: true }, max: { disabled: true } },
+            "claude-opus-4-7": {
+              variants: {
+                low: { disabled: true },
+                medium: { disabled: true },
+                high: { disabled: true },
+                xhigh: { disabled: true },
+                max: { disabled: true },
+              },
             },
           },
         },
@@ -1538,7 +1546,7 @@ it.instance(
   Effect.gen(function* () {
     yield* set("ANTHROPIC_API_KEY", "test-api-key")
     const providers = yield* list
-    const model = providers[ProviderV2.ID.anthropic].models["claude-sonnet-4-20250514"]
+    const model = providers[ProviderV2.ID.anthropic].models["claude-opus-4-7"]
     expect(model.variants!["high"]).toBeDefined()
     // Should have both the generated thinking config and the custom option
     expect(model.variants!["high"].thinking).toBeDefined()
@@ -1549,7 +1557,7 @@ it.instance(
       provider: {
         anthropic: {
           models: {
-            "claude-sonnet-4-20250514": { variants: { high: { extraOption: "custom-value" } } },
+            "claude-opus-4-7": { variants: { high: { extraOption: "custom-value" } } },
           },
         },
       },

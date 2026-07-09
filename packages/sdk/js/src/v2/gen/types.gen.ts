@@ -2059,6 +2059,20 @@ export type Model = {
           field: "reasoning" | "reasoning_content" | "reasoning_details"
         }
   }
+  reasoning_options?: Array<
+    | {
+        type: "effort"
+        values: Array<string>
+      }
+    | {
+        type: "toggle"
+      }
+    | {
+        type: "budget_tokens"
+        min?: number
+        max?: number
+      }
+  >
   cost: {
     input: number
     output: number

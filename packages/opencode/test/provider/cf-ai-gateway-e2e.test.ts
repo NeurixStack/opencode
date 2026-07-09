@@ -109,18 +109,6 @@ describe("cf-ai-gateway end-to-end (regression: #24432)", () => {
     expect(upstream?.reasoning_effort).toBe("xhigh")
   })
 
-  test("variants() output for openai/gpt-5.4 lands xhigh on the wire", async () => {
-    // The other half of the bug: workflow `variant: xhigh` flows through variants()
-    // and must reach the wire. variants() returns the providerOptions payload
-    // unwrapped; providerOptions() wraps it under the SDK key.
-    const variants = ProviderTransform.variants(cfModel("openai/gpt-5.4"))
-    expect(variants.xhigh).toEqual({ reasoningEffort: "xhigh" })
-
-    const opts = ProviderTransform.providerOptions(cfModel("openai/gpt-5.4"), variants.xhigh)
-    const upstream = await callThroughGateway("openai/gpt-5.4", opts)
-    expect(upstream?.reasoning_effort).toBe("xhigh")
-  })
-
   test("legacy buggy key 'cloudflare-ai-gateway' does NOT reach the wire (proves the bug)", async () => {
     // Sanity: confirms the bug class. If a future change accidentally restores
     // providerID-keyed providerOptions, this test fails before users notice.

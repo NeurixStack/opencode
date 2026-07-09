@@ -2,8 +2,11 @@ import { define } from "./internal"
 import type { ModelV2Info } from "@opencode-ai/sdk/v2/types"
 import { Effect, Stream } from "effect"
 import { EventV2 } from "../event"
+import { ModelV2 } from "../model"
 import { ModelsDev } from "../models-dev"
 import { ProviderV2 } from "../provider"
+import { ReasoningVariants } from "../reasoning-variants"
+import { ConfigProviderOptionsV1 } from "../v1/config/provider-options"
 
 function released(date: string) {
   const time = Date.parse(date)
@@ -69,8 +72,27 @@ function mergeCost(base: ModelV2Info["cost"], override: ModelsDev.Model["cost"] 
   return [merge(baseDefault ?? { input: 0, output: 0, cache: { read: 0, write: 0 } }, nextDefault), ...tiers.values()]
 }
 
+function reasoningVariants(provider: ModelsDev.Provider, model: ModelsDev.Model): ModelV2Info["variants"] {
+  const npm = model.provider?.npm ?? provider.npm
+  const lowerer = ConfigProviderOptionsV1.get(npm)
+  return Object.entries(ReasoningVariants.generate(npm, model.reasoning_options)).map(([id, settings]) => ({
+    id: ModelV2.VariantID.make(id),
+    headers: {},
+    body: lowerer.request(settings),
+  }))
+}
+
 function modeName(model: ModelsDev.Model, mode: string) {
   return `${model.name} ${mode.charAt(0).toUpperCase()}${mode.slice(1)}`
+}
+
+function mergeVariants(model: ModelV2Info, next: ModelV2Info["variants"]) {
+  const existing = new Map(model.variants.map((variant) => [variant.id, variant]))
+  const nextIDs = new Set(next.map((variant) => variant.id))
+  model.variants = [
+    ...next.map((variant) => existing.get(variant.id) ?? variant),
+    ...model.variants.filter((variant) => !nextIDs.has(variant.id)),
+  ]
 }
 
 function applyModel(
@@ -80,6 +102,7 @@ function applyModel(
     readonly name?: string
     readonly cost?: ModelV2Info["cost"]
     readonly request?: NonNullable<NonNullable<ModelsDev.Model["experimental"]>["modes"]>[string]["provider"]
+    readonly variants?: ModelV2Info["variants"]
   } = {},
 ) {
   draft.name = input.name ?? model.name
@@ -102,7 +125,7 @@ function applyModel(
     input: [...(model.modalities?.input ?? [])],
     output: [...(model.modalities?.output ?? [])],
   }
-  draft.variants = []
+  mergeVariants(draft, input.variants ?? [])
   draft.time.released = released(model.release_date)
   draft.cost = input.cost ?? cost(model.cost)
   draft.status = model.status ?? "active"
@@ -161,13 +184,17 @@ export const ModelsDevPlugin = define({
 
           for (const model of Object.values(item.models)) {
             const baseCost = cost(model.cost)
-            catalog.model.update(providerID, model.id, (draft) => applyModel(draft, model, { cost: baseCost }))
+            const variants = reasoningVariants(item, model)
+            catalog.model.update(providerID, model.id, (draft) =>
+              applyModel(draft, model, { cost: baseCost, variants }),
+            )
             for (const [mode, options] of Object.entries(model.experimental?.modes ?? {})) {
               catalog.model.update(providerID, `${model.id}-${mode}`, (draft) =>
                 applyModel(draft, model, {
                   name: modeName(model, mode),
                   cost: mergeCost(baseCost, options.cost),
                   request: options.provider,
+                  variants,
                 }),
               )
             }

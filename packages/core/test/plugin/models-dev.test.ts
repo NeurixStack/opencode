@@ -167,4 +167,94 @@ describe("ModelsDevPlugin", () => {
         }),
     ),
   )
+
+  it.effect("converts reasoning options into request variants", () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => {
+        const previous = {
+          path: Flag.OPENCODE_MODELS_PATH,
+          disabled: Flag.OPENCODE_DISABLE_MODELS_FETCH,
+        }
+        Flag.OPENCODE_MODELS_PATH = path.join(import.meta.dir, "fixtures", "models-dev-reasoning.json")
+        Flag.OPENCODE_DISABLE_MODELS_FETCH = true
+        return previous
+      }),
+      () =>
+        Effect.gen(function* () {
+          const catalog = yield* Catalog.Service
+          const integrations = yield* Integration.Service
+          yield* ModelsDevPlugin.effect(
+            host({
+              catalog: catalogHost(catalog),
+              integration: integrationHost(integrations),
+            }),
+          )
+
+          const model = yield* catalog.model.get(ProviderV2.ID.openai, ModelV2.ID.make("gpt-reasoning"))
+          expect(model?.variants.map((variant) => variant.id)).toEqual([
+            ModelV2.VariantID.make("none"),
+            ModelV2.VariantID.make("low"),
+            ModelV2.VariantID.make("high"),
+          ])
+          expect(model?.variants).toContainEqual({
+            id: ModelV2.VariantID.make("low"),
+            headers: {},
+            body: {
+              reasoning: { effort: "low", summary: "auto" },
+              include: ["reasoning.encrypted_content"],
+            },
+          })
+          expect(model?.variants).toContainEqual({
+            id: ModelV2.VariantID.make("high"),
+            headers: {},
+            body: {
+              reasoning: { effort: "high", summary: "auto" },
+              include: ["reasoning.encrypted_content"],
+            },
+          })
+
+          const mode = yield* catalog.model.get(ProviderV2.ID.openai, ModelV2.ID.make("gpt-reasoning-high"))
+          expect(mode).toMatchObject({
+            id: "gpt-reasoning-high",
+            name: "GPT Reasoning High",
+            request: {
+              headers: { "x-mode": "high" },
+              body: { service_tier: "priority" },
+            },
+          })
+          expect(mode?.variants.map((variant) => variant.id)).toEqual([
+            ModelV2.VariantID.make("none"),
+            ModelV2.VariantID.make("low"),
+            ModelV2.VariantID.make("high"),
+          ])
+
+          const budgetModel = yield* catalog.model.get(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-budget"))
+          expect(budgetModel?.variants).toContainEqual({
+            id: ModelV2.VariantID.make("high"),
+            headers: {},
+            body: { thinking: { type: "enabled", budget_tokens: 16000 } },
+          })
+          expect(budgetModel?.variants).toContainEqual({
+            id: ModelV2.VariantID.make("max"),
+            headers: {},
+            body: { thinking: { type: "enabled", budget_tokens: 64000 } },
+          })
+
+          const effortModel = yield* catalog.model.get(ProviderV2.ID.anthropic, ModelV2.ID.make("claude-effort"))
+          expect(effortModel?.variants).toContainEqual({
+            id: ModelV2.VariantID.make("low"),
+            headers: {},
+            body: {
+              thinking: { type: "adaptive", display: "summarized" },
+              output_config: { effort: "low" },
+            },
+          })
+        }).pipe(Effect.provide(AppNodeBuilder.build(ModelsDev.node))),
+      (previous) =>
+        Effect.sync(() => {
+          Flag.OPENCODE_MODELS_PATH = previous.path
+          Flag.OPENCODE_DISABLE_MODELS_FETCH = previous.disabled
+        }),
+    ),
+  )
 })
