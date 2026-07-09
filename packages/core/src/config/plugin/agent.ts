@@ -78,8 +78,17 @@ export const Plugin = define({
       if (configuredDefault !== undefined) draft.default(AgentV2.ID.make(configuredDefault))
       for (const current of draft.list()) {
         draft.update(current.id, (agent) => {
-          const initial = AgentV2.Info.empty(AgentV2.ID.make(current.id)).permissions.length
-          const hasBuiltInDefaults = AgentPlugin.defaultPermissions.every((rule, index) => {
+          const defaults = AgentV2.Info.empty(AgentV2.ID.make(current.id)).permissions
+          const hasDefaults = defaults.every((rule, index) => {
+            const existing = agent.permissions[index]
+            return (
+              existing?.action === rule.action &&
+              existing.resource === rule.resource &&
+              existing.effect === rule.effect
+            )
+          })
+          const initial = hasDefaults ? defaults.length : 0
+          const hasBuiltInDefaults = hasDefaults && AgentPlugin.defaultPermissions.every((rule, index) => {
             const existing = agent.permissions[initial + index]
             return (
               existing?.action === rule.action &&

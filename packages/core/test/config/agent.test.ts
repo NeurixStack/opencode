@@ -70,7 +70,10 @@ describe("ConfigAgentPlugin.Plugin", () => {
               type: "document",
               info: decode(
                 ConfigMigrateV1.migrate({
-                  permission: { bash: { "rm*": "ask", "git reset*": "ask" } },
+                  permission: {
+                    bash: { "rm*": "ask", "git reset*": "ask" },
+                    read: { "secret*": "deny" },
+                  },
                 }),
               ),
             }),
@@ -87,6 +90,8 @@ describe("ConfigAgentPlugin.Plugin", () => {
       expect(PermissionV2.evaluate("shell", "rm -rf tmp", build.permissions).effect).toBe("ask")
       expect(PermissionV2.evaluate("shell", "rm -rf tmp", explore.permissions).effect).toBe("deny")
       expect(PermissionV2.evaluate("shell", "ls", explore.permissions).effect).toBe("deny")
+      expect(PermissionV2.evaluate("read", "secret.txt", build.permissions).effect).toBe("deny")
+      expect(PermissionV2.evaluate("read", "secret.txt", explore.permissions).effect).toBe("allow")
     }),
   )
 
@@ -94,12 +99,16 @@ describe("ConfigAgentPlugin.Plugin", () => {
     Effect.gen(function* () {
       const agents = yield* AgentV2.Service
       const build = AgentV2.ID.make("build")
-      yield* agents.transform((editor) =>
+      const replacement = AgentV2.ID.make("replacement")
+      yield* agents.transform((editor) => {
         editor.update(build, (agent) => {
           agent.mode = "primary"
           agent.permissions.push({ action: "bash", resource: "*", effect: "allow" })
-        }),
-      )
+        })
+        editor.update(replacement, (agent) => {
+          agent.permissions.splice(0, agent.permissions.length, { action: "bash", resource: "*", effect: "deny" })
+        })
+      })
 
       const config = Config.Service.of({
         entries: () =>
@@ -156,6 +165,11 @@ describe("ConfigAgentPlugin.Plugin", () => {
       ])
       expect(PermissionV2.evaluate("bash", "git status", buildAgent.permissions).effect).toBe("allow")
       expect(PermissionV2.evaluate("bash", "bun test", buildAgent.permissions).effect).toBe("allow")
+      expect((yield* agents.get(replacement))?.permissions).toEqual([
+        { action: "bash", resource: "*", effect: "ask" },
+        { action: "read", resource: "*", effect: "allow" },
+        { action: "bash", resource: "*", effect: "deny" },
+      ])
 
       const reviewer = yield* agents.get(AgentV2.ID.make("reviewer"))
       if (!reviewer) throw new Error("expected configured reviewer agent")
