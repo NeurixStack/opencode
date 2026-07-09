@@ -4,7 +4,11 @@ import { createMediaQuery } from "@solid-primitives/media"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Icon } from "@opencode-ai/ui/icon"
+import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
+import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
+import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { TooltipKeybind } from "@opencode-ai/ui/tooltip"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { ResizeHandle } from "@opencode-ai/ui/resize-handle"
 import { Mark } from "@opencode-ai/ui/logo"
 import { DragDropProvider, DragDropSensors, DragOverlay, SortableProvider, closestCenter } from "@thisbeyond/solid-dnd"
@@ -193,6 +197,30 @@ export function SessionSidePanel(props: {
     previewTab(SESSION_OPEN_FILE_TAB)
     queueMicrotask(() => fileFilter?.focus())
   }
+  const openFileButton = () => (
+    <TooltipKeybind
+      title={language.t("command.file.open")}
+      keybind={command.keybind("file.open")}
+      class="flex items-center"
+    >
+      <IconButton
+        icon="plus-small"
+        variant="ghost"
+        iconSize="large"
+        class="!rounded-md"
+        onClick={() => {
+          if (props.fileBrowserState) {
+            openFileBrowser()
+            return
+          }
+          void import("@/components/dialog-select-file").then((x) => {
+            dialog.show(() => <x.DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
+          })
+        }}
+        aria-label={language.t("command.file.open")}
+      />
+    </TooltipKeybind>
+  )
   const activateTab = (value: string) => {
     const next = normalizeTab(value)
     const path = file.pathFromTab(next)
@@ -307,6 +335,7 @@ export function SessionSidePanel(props: {
                               </div>
                             </Tabs.Trigger>
                           </Show>
+                          <Show when={settings.general.newLayoutDesigns()}>{openFileButton()}</Show>
                           <Show when={contextOpen()}>
                             <Tabs.Trigger
                               value="context"
@@ -379,29 +408,30 @@ export function SessionSidePanel(props: {
                               )}
                             </For>
                           </SortableProvider>
-                          <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 flex items-center justify-center pr-3">
-                            <TooltipKeybind
-                              title={language.t("command.file.open")}
-                              keybind={command.keybind("file.open")}
-                              class="flex items-center"
-                            >
-                              <IconButton
-                                icon="plus-small"
-                                variant="ghost"
-                                iconSize="large"
-                                class="!rounded-md"
-                                onClick={() => {
-                                  if (props.fileBrowserState) {
-                                    openFileBrowser()
-                                    return
-                                  }
-                                  void import("@/components/dialog-select-file").then((x) => {
-                                    dialog.show(() => <x.DialogSelectFile mode="files" onOpenFile={showAllFiles} />)
-                                  })
-                                }}
-                                aria-label={language.t("command.file.open")}
-                              />
-                            </TooltipKeybind>
+                          <div class="bg-background-stronger h-full shrink-0 sticky right-0 z-10 ml-auto flex items-center pr-3">
+                            <Show when={!settings.general.newLayoutDesigns()}>{openFileButton()}</Show>
+                            <Show when={settings.general.newLayoutDesigns()}>
+                              <TooltipV2
+                                openDelay={1000}
+                                value={
+                                  <>
+                                    {language.t("command.terminal.toggle")}
+                                    <KeybindV2 keys={command.keybindParts("terminal.toggle")} variant="neutral" />
+                                  </>
+                                }
+                              >
+                                <IconButtonV2
+                                  variant="ghost-muted"
+                                  size="large"
+                                  state={view().terminal.opened() ? "pressed" : undefined}
+                                  aria-label={language.t("command.terminal.toggle")}
+                                  aria-pressed={view().terminal.opened()}
+                                  aria-controls="terminal-panel"
+                                  onClick={() => view().terminal.toggle()}
+                                  icon={<IconV2 name="outline-terminal" />}
+                                />
+                              </TooltipV2>
+                            </Show>
                           </div>
                         </Tabs.List>
                       </div>
