@@ -11,6 +11,7 @@ export type HomeRoute = {
 export type SessionRoute = {
   type: "session"
   sessionID: string
+  fresh?: boolean
   prompt?: PromptInfo
 }
 

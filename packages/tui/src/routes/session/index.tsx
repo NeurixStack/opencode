@@ -237,7 +237,10 @@ export function Session() {
   const toast = useToast()
   const sdk = useSDK()
   const editor = useEditorContext()
-  const rows = createSessionRows(() => route.sessionID)
+  const rows = createSessionRows(
+    () => route.sessionID,
+    () => route.fresh !== true,
+  )
 
   createEffect(
     on(descendantSessionIDs, (sessionIDs) => {

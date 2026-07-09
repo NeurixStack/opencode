@@ -1169,6 +1169,7 @@ export function Prompt(props: PromptProps) {
         route.navigate({
           type: "session",
           sessionID,
+          fresh: true,
         })
       }, 50)
     }

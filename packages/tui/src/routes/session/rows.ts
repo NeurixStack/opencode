@@ -20,7 +20,7 @@ export type SessionRow =
     }
   | { type: "assistant-footer"; messageID: string }
 
-export function createSessionRows(sessionID: Accessor<string>) {
+export function createSessionRows(sessionID: Accessor<string>, refresh: Accessor<boolean> = () => true) {
   const data = useData()
   const [rows, setRows] = createStore<SessionRow[]>([])
   const revertBoundary = () => data.session.get(sessionID())?.revert?.messageID
@@ -54,6 +54,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
   createEffect(
     on(sessionID, (id) => {
       setRows(reconcile(reduce()))
+      if (!refresh()) return
       void data.session.message.refresh(id).then(
         () => {
           if (sessionID() !== id) return

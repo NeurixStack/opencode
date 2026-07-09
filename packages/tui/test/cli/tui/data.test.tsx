@@ -2066,6 +2066,76 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
   }
 })
 
+test("does not refresh a fresh session timeline", async () => {
+  const events = createEventStream()
+  const sessionID = "session-refresh-race"
+  const messageID = "msg-refresh-race"
+  let refreshes = 0
+  const calls = createFetch((url) => {
+    if (url.pathname === `/api/session/${sessionID}/message`) {
+      refreshes++
+      return json({ data: [], cursor: {} })
+    }
+  }, events)
+  let data!: ReturnType<typeof useData>
+  let rows!: ReturnType<typeof createSessionRows>
+
+  function Probe() {
+    data = useData()
+    rows = createSessionRows(
+      () => sessionID,
+      () => false,
+    )
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    emitEvent(events, {
+      id: "evt-refresh-race-admitted",
+      created: 1,
+      type: "session.input.admitted",
+      durable: durable(sessionID),
+      data: {
+        sessionID,
+        inputID: messageID,
+        input: { type: "user", data: { text: "do not lose me" }, delivery: "steer" },
+      },
+    })
+    await wait(() => data.session.message.get(sessionID, messageID)?.type === "user")
+
+    emitEvent(events, {
+      id: "evt-refresh-race-promoted",
+      created: 2,
+      type: "session.input.promoted",
+      durable: durable(sessionID, 1),
+      data: { sessionID, inputID: messageID },
+    })
+    await wait(() => data.session.input.list(sessionID).length === 0)
+
+    expect(refreshes).toBe(0)
+    expect(rows).toContainEqual({ type: "message", messageID })
+    expect(data.session.message.get(sessionID, messageID)).toMatchObject({
+      id: messageID,
+      type: "user",
+      text: "do not lose me",
+    })
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
 test("projects live instruction updates with their message ID", async () => {
   const events = createEventStream()
   const calls = createFetch(undefined, events)
