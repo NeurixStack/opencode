@@ -132,6 +132,16 @@ function display(field: Field, value: FormValue | undefined) {
   return label(value)
 }
 
+function requestOptions(form: FormInfo) {
+  if (form.sessionID !== "global" || !form.location) return undefined
+  return {
+    headers: {
+      "x-opencode-directory": encodeURIComponent(form.location.directory),
+      ...(form.location.workspaceID ? { "x-opencode-workspace": form.location.workspaceID } : {}),
+    },
+  }
+}
+
 export function FormPrompt(props: { form: FormInfo }) {
   if (props.form.mode === "url") return <UrlPrompt form={props.form} />
   if (props.form.mode === "integration") return <IntegrationPrompt form={props.form} />
@@ -199,7 +209,10 @@ function UrlPrompt(props: { form: FormInfo & { mode: "url" } }) {
         title: "Dismiss form",
         category: "Form",
         run() {
-          void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id })
+          void sdk.api.form.cancel(
+            { sessionID: props.form.sessionID, formID: props.form.id },
+            requestOptions(props.form),
+          )
         },
       },
     ],
@@ -217,7 +230,10 @@ function UrlPrompt(props: { form: FormInfo & { mode: "url" } }) {
         desc: "Dismiss form",
         group: "Form",
         cmd: () => {
-          void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id })
+          void sdk.api.form.cancel(
+            { sessionID: props.form.sessionID, formID: props.form.id },
+            requestOptions(props.form),
+          )
         },
       },
     ],
@@ -231,7 +247,7 @@ function UrlPrompt(props: { form: FormInfo & { mode: "url" } }) {
       customBorderChars={SplitBorder.customBorderChars}
     >
       <box gap={1} paddingLeft={2} paddingRight={3} paddingTop={1} paddingBottom={1}>
-        <text fg={theme.text}>{props.form.title ?? "Input requested"}</text>
+        <text fg={theme.text}>{props.form.title}</text>
         <Show when={message()}>
           <text fg={theme.textMuted}>{message()}</text>
         </Show>
@@ -373,11 +389,14 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
 
   function replySingle(field: Field, value: FormValue) {
     sdk.api.form
-      .reply({
-        sessionID: props.form.sessionID,
-        formID: props.form.id,
-        answer: { [field.key]: value },
-      })
+      .reply(
+        {
+          sessionID: props.form.sessionID,
+          formID: props.form.id,
+          answer: { [field.key]: value },
+        },
+        requestOptions(props.form),
+      )
       .catch((error: unknown) => {
         setStore(
           "error",
@@ -577,7 +596,10 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
         group: "Form",
         cmd: () => {
           if (textual()) {
-            void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id })
+            void sdk.api.form.cancel(
+              { sessionID: props.form.sessionID, formID: props.form.id },
+              requestOptions(props.form),
+            )
             return
           }
           setStore("editing", false)
@@ -639,7 +661,10 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
           title: "Dismiss form",
           category: "Form",
           run() {
-            void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id })
+            void sdk.api.form.cancel(
+              { sessionID: props.form.sessionID, formID: props.form.id },
+              requestOptions(props.form),
+            )
           },
         },
       ],
@@ -683,16 +708,19 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
                     return
                   }
                   sdk.api.form
-                    .reply({
-                      sessionID: props.form.sessionID,
-                      formID: props.form.id,
-                      answer: Object.fromEntries(
-                        fields().flatMap((field) => {
-                          const value = store.answers[field.key]
-                          return value === undefined ? [] : [[field.key, value] as const]
-                        }),
-                      ),
-                    })
+                    .reply(
+                      {
+                        sessionID: props.form.sessionID,
+                        formID: props.form.id,
+                        answer: Object.fromEntries(
+                          fields().flatMap((field) => {
+                            const value = store.answers[field.key]
+                            return value === undefined ? [] : [[field.key, value] as const]
+                          }),
+                        ),
+                      },
+                      requestOptions(props.form),
+                    )
                     .catch((error: unknown) => {
                       setStore(
                         "error",
@@ -711,7 +739,10 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
                 desc: "Dismiss form",
                 group: "Form",
                 cmd: () => {
-                  void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id })
+                  void sdk.api.form.cancel(
+                    { sessionID: props.form.sessionID, formID: props.form.id },
+                    requestOptions(props.form),
+                  )
                 },
               },
               { key: "up", desc: "Scroll review", group: "Form", cmd: () => review?.scrollBy(-1) },
@@ -760,7 +791,10 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
                 desc: "Dismiss form",
                 group: "Form",
                 cmd: () => {
-                  void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id })
+                  void sdk.api.form.cancel(
+                    { sessionID: props.form.sessionID, formID: props.form.id },
+                    requestOptions(props.form),
+                  )
                 },
               },
               ...tuiConfig.keybinds.get("app.exit"),
@@ -777,11 +811,9 @@ function FieldsPrompt(props: { form: FormInfo & { mode: "form" } }) {
       customBorderChars={SplitBorder.customBorderChars}
     >
       <box gap={1} paddingLeft={1} paddingRight={3} paddingTop={1} paddingBottom={1}>
-        <Show when={props.form.title}>
-          <box paddingLeft={1}>
-            <text fg={theme.textMuted}>{props.form.title}</text>
-          </box>
-        </Show>
+        <box paddingLeft={1}>
+          <text fg={theme.textMuted}>{props.form.title}</text>
+        </box>
         <Show when={!single() && !tabbed()}>
           <box flexDirection="row" gap={1} paddingLeft={1}>
             <text fg={theme.textMuted}>

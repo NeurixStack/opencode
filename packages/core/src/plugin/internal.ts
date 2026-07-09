@@ -29,7 +29,6 @@ import { Reference } from "../reference"
 import { WebSearch } from "../websearch"
 import { Ripgrep } from "../ripgrep"
 import { SessionInstructions } from "../session/instructions"
-import { SessionTodo } from "../session/todo"
 import { Shell } from "../shell"
 import { SkillV2 } from "../skill"
 import { PatchTool } from "../tool/patch"
@@ -42,7 +41,6 @@ import { ReadTool } from "../tool/read"
 import { ShellTool } from "../tool/shell"
 import { SkillTool } from "../tool/skill"
 import { SubagentTool } from "../tool/subagent"
-import { TodoWriteTool } from "../tool/todowrite"
 import { Tools } from "../tool/tools"
 import { WebFetchTool } from "../tool/webfetch"
 import { WebSearchTool } from "../tool/websearch"
@@ -81,7 +79,6 @@ const services = Effect.fn("PluginInternal.services")(function* () {
   const websearch = yield* WebSearch.Service
   const ripgrep = yield* Ripgrep.Service
   const instructions = yield* SessionInstructions.Service
-  const todo = yield* SessionTodo.Service
   const shell = yield* Shell.Service
   const skill = yield* SkillV2.Service
   const tools = yield* Tools.Service
@@ -110,7 +107,6 @@ const services = Effect.fn("PluginInternal.services")(function* () {
     Context.make(WebSearch.Service, websearch),
     Context.make(Ripgrep.Service, ripgrep),
     Context.make(SessionInstructions.Service, instructions),
-    Context.make(SessionTodo.Service, todo),
     Context.make(Shell.Service, shell),
     Context.make(SkillV2.Service, skill),
     Context.make(Tools.Service, tools),
@@ -139,7 +135,6 @@ const pre = [
   ShellTool.Plugin,
   SkillTool.Plugin,
   SubagentTool.Plugin,
-  TodoWriteTool.Plugin,
   WebFetchTool.Plugin,
   WebSearchTool.Plugin,
   WriteTool.Plugin,

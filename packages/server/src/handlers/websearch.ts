@@ -10,7 +10,7 @@ export const WebSearchHandler = HttpApiBuilder.group(Api, "server.websearch", (h
   Effect.gen(function* () {
     const awaitPlugins = Effect.fn("server.websearch.awaitPlugins")(function* () {
       const plugins = yield* PluginSupervisor.Service
-      yield* plugins.ready.pipe(
+      yield* plugins.flush.pipe(
         Effect.timeoutOrElse({
           duration: "5 seconds",
           orElse: () =>
