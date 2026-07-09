@@ -14,6 +14,7 @@ import {
   useContext,
 } from "solid-js"
 import path from "node:path"
+import { EOL, tmpdir } from "node:os"
 import { mkdir, writeFile } from "node:fs/promises"
 import { useRoute, useRouteData } from "../../context/route"
 import { createStore } from "solid-js/store"
@@ -44,7 +45,6 @@ import { useEditorContext } from "../../context/editor"
 import { openEditor } from "../../editor"
 import { useDialog } from "../../ui/dialog"
 import { DialogSessionRename } from "../../component/dialog-session-rename"
-import { TodoItem } from "../../component/todo-item"
 import { DialogMessage } from "./dialog-message"
 import { DialogFork } from "./dialog-fork"
 import { Sidebar } from "./sidebar"
@@ -61,6 +61,7 @@ import { normalizePath } from "../../util/path"
 import { PermissionPrompt } from "./permission"
 import { FormPrompt } from "./form"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
+import { DialogExportResult } from "../../ui/dialog-export-result"
 import { sessionEpilogue } from "../../util/presentation"
 import { useTuiConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
@@ -183,8 +184,11 @@ export function Session() {
     )
   })
   const forms = createMemo(() => {
-    if (session()?.parentID) return []
-    return data.session.form.list(route.sessionID) ?? []
+    const global = data.session.form.list("global", location()) ?? []
+    if (session()?.parentID) return global
+    return [route.sessionID, ...descendantSessionIDs()]
+      .flatMap((sessionID) => data.session.form.list(sessionID) ?? [])
+      .concat(global)
   })
   const [composer, setComposer] = createStore({
     open: false,
@@ -237,7 +241,12 @@ export function Session() {
 
   createEffect(
     on(descendantSessionIDs, (sessionIDs) => {
-      void Promise.all(sessionIDs.map((sessionID) => data.session.permission.refresh(sessionID)))
+      void Promise.all(
+        sessionIDs.flatMap((sessionID) => [
+          data.session.permission.refresh(sessionID),
+          data.session.form.refresh(sessionID),
+        ]),
+      )
     }),
   )
 
@@ -259,6 +268,15 @@ export function Session() {
         navigate({ type: "home" })
         return
       }
+      void data.session.form
+        .refresh("global", info.location)
+        .catch((error) =>
+          toast.show({
+            message: `Failed to refresh global forms: ${errorMessage(error)}`,
+            variant: "error",
+            duration: 5000,
+          }),
+        )
       project.workspace.set(info.location.workspaceID)
       editor.reconnect(info.location.directory)
       if (route.sessionID === sessionID && scroll) scroll.scrollBy(100_000)
@@ -411,29 +429,34 @@ export function Session() {
       category: "Session",
       slash: { name: "undo" },
       run: () => {
-        void (async () => {
-          const boundary = session()?.revert?.messageID
-          const list = messages()
-          let target: string | undefined
-          for (let i = list.length - 1; i >= 0; i--) {
-            const message = list[i]
-            if (message.type !== "user" || !message.text.trim()) continue
-            if (boundary && message.id >= boundary) continue
-            target = message.id
-            break
-          }
-          if (!target) {
-            toast.show({ message: "Nothing to undo", variant: "error", duration: 3000 })
-            dialog.clear()
-            return
-          }
-          const error = await sdk.api.session.revert.stage({ sessionID: route.sessionID, messageID: target }).then(
-            () => undefined,
-            (error) => error,
-          )
-          if (error) toast.show({ message: errorMessage(error), variant: "error", duration: 5000 })
+        const boundary = session()?.revert?.messageID
+        const message = messages().findLast(
+          (message): message is SessionMessageUser =>
+            message.type === "user" && !!message.text.trim() && (!boundary || message.id < boundary),
+        )
+        if (!message) {
+          toast.show({ message: "Nothing to undo", variant: "error", duration: 3000 })
           dialog.clear()
-        })()
+          return
+        }
+        void sdk.api.session.revert
+          .stage({ sessionID: route.sessionID, messageID: message.id })
+          .catch((error) => toast.show({ message: errorMessage(error), variant: "error", duration: 5000 }))
+        prompt?.set({
+          text: message.text,
+          files: message.files?.map((file) => ({
+            uri: file.source.type === "uri" ? file.source.uri : `data:${file.mime};base64,${file.data}`,
+            name: file.name,
+            description: file.description,
+            mention: file.mention ? { ...file.mention } : undefined,
+          })),
+          agents: message.agents?.map((agent) => ({
+            name: agent.name,
+            mention: agent.mention ? { ...agent.mention } : undefined,
+          })),
+          pasted: [],
+        })
+        dialog.clear()
       },
     },
     {
@@ -711,7 +734,13 @@ export function Session() {
         try {
           const sessionData = session()
           if (!sessionData) return
-          const transcript = formatSessionTranscript(sessionData, messages(), showThinking(), showDetails())
+          const transcript = formatSessionTranscript(
+            sessionData,
+            messages(),
+            showThinking(),
+            showDetails(),
+            showAssistantMetadata(),
+          )
           await clipboard.write?.(transcript)
           toast.show({ message: "Session transcript copied to clipboard!", variant: "success" })
         } catch {
@@ -731,53 +760,70 @@ export function Session() {
         try {
           const sessionData = session()
           if (!sessionData) return
-          const defaultFilename = `session-${sessionData.id.slice(0, 8)}.md`
 
           const options = await DialogExportOptions.show(
             dialog,
-            defaultFilename,
             showThinking(),
             showDetails(),
             showAssistantMetadata(),
-            false,
           )
 
           if (options === null) return
 
-          const transcript = formatSessionTranscript(sessionData, messages(), options.thinking, options.toolDetails)
+          const content =
+            options.format === "markdown"
+              ? formatSessionTranscript(
+                  sessionData,
+                  messages(),
+                  options.thinking,
+                  options.toolDetails,
+                  options.assistantMetadata,
+                )
+              : await (async () => {
+                  if (options.debug) {
+                    const events: { readonly created: number }[] = []
+                    for await (const event of sdk.api.session.log({ sessionID: sessionData.id, follow: false })) {
+                      if (event.type !== "log.synced") events.push(event)
+                    }
+                    // Durable events stay in aggregate order even when their wall-clock timestamps differ.
+                    sdk.connection.internal.history().forEach((event) => {
+                      const index = events.findIndex((item) => item.created > event.created)
+                      if (index === -1) {
+                        events.push(event)
+                        return
+                      }
+                      events.splice(index, 0, event)
+                    })
+                    return JSON.stringify({ info: sessionData, events }, null, 2) + EOL
+                  }
 
-          if (options.openWithoutSaving) {
-            // Just open in editor without saving
-            await openEditor({
-              renderer,
-              value: transcript,
-              cwd:
-                (project.instance.path().worktree === "/" ? undefined : project.instance.path().worktree) ||
-                project.instance.directory() ||
-                paths.cwd,
-            })
-          } else {
-            const exportDir = paths.cwd
-            const filename = options.filename.trim()
-            const filepath = path.join(exportDir, filename)
+                  const messages: unknown[] = []
+                  let cursor: string | undefined
+                  do {
+                    const page = await sdk.api.message.list(
+                      cursor
+                        ? { sessionID: sessionData.id, limit: 200, cursor }
+                        : { sessionID: sessionData.id, limit: 200, order: "asc" },
+                    )
+                    messages.push(...page.data)
+                    cursor = page.data.length ? (page.cursor.next ?? undefined) : undefined
+                  } while (cursor)
+                  return JSON.stringify({ info: sessionData, messages }, null, 2) + EOL
+                })()
 
-            await writeExport(filepath, transcript)
-
-            // Open with EDITOR if available
-            const result = await openEditor({
-              renderer,
-              value: transcript,
-              cwd:
-                (project.instance.path().worktree === "/" ? undefined : project.instance.path().worktree) ||
-                project.instance.directory() ||
-                paths.cwd,
-            })
-            if (result !== undefined) {
-              await writeExport(filepath, result)
-            }
-
-            toast.show({ message: `Session exported to ${filename}`, variant: "success" })
+          if (options.action === "copy") {
+            await clipboard.write?.(content)
+            dialog.clear()
+            toast.show({ message: "Copied to clipboard", variant: "success" })
+            return
           }
+
+          const filepath = path.join(
+            tmpdir(),
+            `session-${crypto.randomUUID()}.${options.format === "markdown" ? "md" : "json"}`,
+          )
+          await writeExport(filepath, content)
+          await DialogExportResult.show(dialog, filepath)
         } catch {
           toast.show({ message: "Failed to export session", variant: "error" })
         }
@@ -941,12 +987,12 @@ export function Session() {
               <box flexShrink={0}>
                 <Composer
                   sessionID={route.sessionID}
-                  open={composer.open || !!session()?.parentID}
+                  open={composer.open || (!!session()?.parentID && forms().length === 0)}
                   defaultTab={composer.tab ?? (session()?.parentID ? "subagents" : undefined)}
                   onClose={() => setComposer("open", false)}
                 />
                 <Switch>
-                  <Match when={composer.open || !!session()?.parentID}>{null}</Match>
+                  <Match when={composer.open || (!!session()?.parentID && forms().length === 0)}>{null}</Match>
                   <Match when={permissions().length > 0}>
                     <PermissionPrompt request={permissions()[0]} directory={session()?.location.directory} />
                   </Match>
@@ -1896,9 +1942,6 @@ function ToolPart(props: { part: SessionMessageAssistantTool }) {
         <Match when={display() === "patch"}>
           <ApplyPatch {...toolprops} />
         </Match>
-        <Match when={display() === "todowrite"}>
-          <TodoWrite {...toolprops} />
-        </Match>
         <Match when={display() === "question"}>
           <Question {...toolprops} />
         </Match>
@@ -2598,32 +2641,6 @@ function ApplyPatch(props: ToolProps) {
   )
 }
 
-function TodoWrite(props: ToolProps) {
-  const todos = createMemo(() => parseTodos(props.input.todos))
-  return (
-    <Switch>
-      <Match when={parseTodos(props.metadata.todos).length}>
-        <BlockTool title="# Todos" part={props.part}>
-          <box>
-            <For each={todos()}>{(todo) => <TodoItem status={todo.status} content={todo.content} />}</For>
-          </box>
-        </BlockTool>
-      </Match>
-      <Match when={true}>
-        <InlineTool
-          icon="⚙"
-          pending="Updating todos..."
-          failure="Todo update failed"
-          complete={false}
-          part={props.part}
-        >
-          Updating todos...
-        </InlineTool>
-      </Match>
-    </Switch>
-  )
-}
-
 function Question(props: ToolProps) {
   const { theme } = useTheme()
   const questions = createMemo(() => parseQuestions(props.input.questions))
@@ -2724,7 +2741,6 @@ const toolDisplays = new Set([
   "subagent",
   "execute",
   "patch",
-  "todowrite",
   "question",
   "skill",
 ])
@@ -2746,6 +2762,7 @@ function formatSessionTranscript(
   messages: SessionMessageInfo[],
   thinking: boolean,
   toolDetails: boolean,
+  assistantMetadata: boolean,
 ) {
   const body = messages.flatMap((message) => {
     if (message.type === "user") return [`## User\n\n${message.text}`]
@@ -2767,7 +2784,13 @@ function formatSessionTranscript(
                 .join("\n")
       return [`**Tool: ${item.name}**\n\n**Input:**\n\`\`\`json\n${input}\n\`\`\`\n\n${output}`]
     })
-    return [`## Assistant\n\n${content.join("\n\n")}`]
+    const duration = message.time.completed
+      ? ` · ${((message.time.completed - message.time.created) / 1000).toFixed(1)}s`
+      : ""
+    const heading = assistantMetadata
+      ? `## Assistant (${message.agent} · ${message.model.providerID}/${message.model.id}${duration})`
+      : "## Assistant"
+    return [`${heading}\n\n${content.join("\n\n")}`]
   })
   return `# ${session.title}\n\n**Session ID:** ${session.id}\n**Created:** ${new Date(session.time.created).toLocaleString()}\n**Updated:** ${new Date(session.time.updated).toLocaleString()}\n\n---\n\n${body.join("\n\n---\n\n")}\n`
 }
@@ -2796,16 +2819,6 @@ export function parseApplyPatchFiles(value: unknown) {
     )
       return []
     return [{ type, relativePath, filePath, patch, additions, deletions, movePath: stringValue(file.movePath) }]
-  })
-}
-
-export function parseTodos(value: unknown) {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((item) => {
-    const todo = recordValue(item)
-    const status = stringValue(todo?.status)
-    const content = stringValue(todo?.content)
-    return status && content ? [{ status, content }] : []
   })
 }
 

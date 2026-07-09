@@ -3,7 +3,6 @@ import { sql } from "drizzle-orm"
 import { directoryColumn, pathColumn } from "../database/path"
 import { ProjectTable } from "../project/sql"
 import type { SessionMessage } from "./message"
-import type { Prompt } from "@opencode-ai/schema/prompt"
 import type { SessionInput } from "./input"
 import type { FileDiff } from "@opencode-ai/schema/file-diff"
 import { PermissionV1 } from "../v1/permission"
@@ -14,6 +13,7 @@ import { WorkspaceV2 } from "../workspace"
 import { Timestamps } from "../database/schema.sql"
 import type { Instructions } from "../instructions/index"
 import type { Session } from "@opencode-ai/schema/session"
+import type { SyntheticData, UserData } from "@opencode-ai/schema/session-input"
 import type { RevertV1 } from "@opencode-ai/schema/session-revert"
 import type { Schema } from "effect"
 
@@ -61,11 +61,15 @@ export const SessionTable = sqliteTable(
     ...Timestamps,
     time_compacting: integer(),
     time_archived: integer(),
+    time_suspended: integer(),
   },
   (table) => [
     index("session_project_idx").on(table.project_id),
     index("session_workspace_idx").on(table.workspace_id),
     index("session_parent_idx").on(table.parent_id),
+    index("session_time_suspended_idx")
+      .on(table.time_suspended)
+      .where(sql`${table.time_suspended} is not null`),
   ],
 )
 
@@ -101,25 +105,6 @@ export const PartTable = sqliteTable(
   ],
 )
 
-export const TodoTable = sqliteTable(
-  "todo",
-  {
-    session_id: text()
-      .$type<SessionSchema.ID>()
-      .notNull()
-      .references(() => SessionTable.id, { onDelete: "cascade" }),
-    content: text().notNull(),
-    status: text().notNull(),
-    priority: text().notNull(),
-    position: integer().notNull(),
-    ...Timestamps,
-  },
-  (table) => [
-    primaryKey({ columns: [table.session_id, table.position] }),
-    index("todo_session_idx").on(table.session_id),
-  ],
-)
-
 export const SessionMessageTable = sqliteTable(
   "session_message",
   {
@@ -150,7 +135,7 @@ export const SessionInputTable = sqliteTable(
       .notNull()
       .references(() => SessionTable.id, { onDelete: "cascade" }),
     type: text().$type<SessionInput.Info["type"]>().notNull(),
-    prompt: text({ mode: "json" }).$type<Prompt>(),
+    data: text({ mode: "json" }).$type<UserData | SyntheticData | Record<string, never>>().notNull(),
     delivery: text().$type<SessionInput.Delivery>(),
     admitted_seq: integer().notNull(),
     promoted_seq: integer(),
@@ -159,10 +144,9 @@ export const SessionInputTable = sqliteTable(
       .$default(() => Date.now()),
   },
   (table) => [
-    index("session_input_session_pending_type_delivery_seq_idx").on(
+    index("session_input_session_pending_delivery_seq_idx").on(
       table.session_id,
       table.promoted_seq,
-      table.type,
       table.delivery,
       table.admitted_seq,
     ),

@@ -19,7 +19,6 @@ import { Plugin } from "../src/plugin.js"
 import { SessionEvent } from "../src/session-event.js"
 import { SessionID } from "../src/session-id.js"
 import { SessionMessage } from "../src/session-message.js"
-import { SessionTodo } from "../src/session-todo.js"
 import { SessionV1 } from "../src/session-v1.js"
 import { WorkspaceEvent } from "../src/workspace-event.js"
 
@@ -64,7 +63,6 @@ describe("public event manifest", () => {
     expect(Workspace.Event).toBe(WorkspaceEvent)
     expect(Workspace.Event.Definitions).toBe(WorkspaceEvent.Definitions)
     expect(EventManifest.Latest.get("session.step.ended")).toBe(SessionEvent.Step.Ended)
-    expect(EventManifest.Latest.get("todo.updated")).toBe(SessionTodo.Event.Updated)
     expect(EventManifest.Latest.get("agent.updated")).toBe(Agent.Event.Updated)
     expect(EventManifest.Latest.get("project.updated")).toBe(Project.Event.Updated)
     expect(Agent.Event.Definitions).toEqual([Agent.Event.Updated])
@@ -107,8 +105,8 @@ describe("public event manifest", () => {
         "session.moved.1",
         "session.renamed.1",
         "session.forked.1",
-        "session.prompt.promoted.1",
-        "session.prompt.admitted.1",
+        "session.input.promoted.1",
+        "session.input.admitted.1",
         "session.execution.started.1",
         "session.execution.succeeded.1",
         "session.execution.failed.1",

@@ -171,7 +171,7 @@ export default {
           \`id\` text PRIMARY KEY,
           \`session_id\` text NOT NULL,
           \`type\` text NOT NULL,
-          \`prompt\` text,
+          \`data\` text NOT NULL,
           \`delivery\` text,
           \`admitted_seq\` integer NOT NULL,
           \`promoted_seq\` integer,
@@ -224,20 +224,8 @@ export default {
           \`time_updated\` integer NOT NULL,
           \`time_compacting\` integer,
           \`time_archived\` integer,
+          \`time_suspended\` integer,
           CONSTRAINT \`fk_session_project_id_project_id_fk\` FOREIGN KEY (\`project_id\`) REFERENCES \`project\`(\`id\`) ON DELETE CASCADE
-        );
-      `)
-      yield* tx.run(`
-        CREATE TABLE \`todo\` (
-          \`session_id\` text NOT NULL,
-          \`content\` text NOT NULL,
-          \`status\` text NOT NULL,
-          \`priority\` text NOT NULL,
-          \`position\` integer NOT NULL,
-          \`time_created\` integer NOT NULL,
-          \`time_updated\` integer NOT NULL,
-          CONSTRAINT \`todo_pk\` PRIMARY KEY(\`session_id\`, \`position\`),
-          CONSTRAINT \`fk_todo_session_id_session_id_fk\` FOREIGN KEY (\`session_id\`) REFERENCES \`session\`(\`id\`) ON DELETE CASCADE
         );
       `)
       yield* tx.run(`
@@ -262,7 +250,7 @@ export default {
       yield* tx.run(`CREATE INDEX \`part_message_id_id_idx\` ON \`part\` (\`message_id\`,\`id\`);`)
       yield* tx.run(`CREATE INDEX \`part_session_idx\` ON \`part\` (\`session_id\`);`)
       yield* tx.run(
-        `CREATE INDEX \`session_input_session_pending_type_delivery_seq_idx\` ON \`session_input\` (\`session_id\`,\`promoted_seq\`,\`type\`,\`delivery\`,\`admitted_seq\`);`,
+        `CREATE INDEX \`session_input_session_pending_delivery_seq_idx\` ON \`session_input\` (\`session_id\`,\`promoted_seq\`,\`delivery\`,\`admitted_seq\`);`,
       )
       yield* tx.run(
         `CREATE UNIQUE INDEX \`session_input_session_pending_compaction_idx\` ON \`session_input\` (\`session_id\`) WHERE "session_input"."type" = 'compaction' and "session_input"."promoted_seq" is null;`,
@@ -286,7 +274,9 @@ export default {
       yield* tx.run(`CREATE INDEX \`session_project_idx\` ON \`session\` (\`project_id\`);`)
       yield* tx.run(`CREATE INDEX \`session_workspace_idx\` ON \`session\` (\`workspace_id\`);`)
       yield* tx.run(`CREATE INDEX \`session_parent_idx\` ON \`session\` (\`parent_id\`);`)
-      yield* tx.run(`CREATE INDEX \`todo_session_idx\` ON \`todo\` (\`session_id\`);`)
+      yield* tx.run(
+        `CREATE INDEX \`session_time_suspended_idx\` ON \`session\` (\`time_suspended\`) WHERE "session"."time_suspended" is not null;`,
+      )
     })
   },
 } satisfies Omit<DatabaseMigration.Migration, "id">

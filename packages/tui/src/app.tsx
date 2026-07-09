@@ -2,6 +2,8 @@ import { render, TimeToFirstDraw, useRenderer, useTerminalDimensions } from "@op
 import { registerOpencodeSpinner } from "./component/register-spinner"
 import { createDefaultOpenTuiKeymap } from "@opentui/keymap/opentui"
 import { Deferred, Effect } from "effect"
+import { Service } from "@opencode-ai/client/effect"
+import { OpenCode } from "@opencode-ai/client/promise"
 import { Global } from "@opencode-ai/core/global"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
@@ -45,6 +47,8 @@ import { useConnected } from "./component/use-connected"
 import { DialogMcp } from "./component/dialog-mcp"
 import { DialogStatus } from "./component/dialog-status"
 import { DialogDebug } from "./component/dialog-debug"
+import { DialogPair, type DialogPairCredentials } from "./component/dialog-pair"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { DialogThemeList } from "./component/dialog-theme-list"
 import { DialogHelp } from "./ui/dialog-help"
 import { DialogAgent } from "./component/dialog-agent"
@@ -80,8 +84,6 @@ import {
   useOpencodeKeymap,
 } from "./keymap"
 
-import type { OpenCodeClient } from "@opencode-ai/client/promise"
-import type { OpencodeClient } from "@opencode-ai/sdk/v2"
 import { DialogVariant } from "./component/dialog-variant"
 import { createTuiAttention } from "./attention"
 import * as TuiAudio from "./audio"
@@ -121,6 +123,7 @@ const appBindingCommands = [
   "provider.connect",
   "console.org.switch",
   "opencode.status",
+  "server.pair",
   "opencode.debug",
   "theme.switch",
   "theme.switch_mode",
@@ -142,10 +145,11 @@ const appBindingCommands = [
 ] as const
 
 export type TuiInput = {
-  client: OpencodeClient
-  api: OpenCodeClient
-  discover?: () => Promise<{ client: OpencodeClient; api: OpenCodeClient }>
-  reload?: () => Promise<void>
+  server: {
+    endpoint: Service.Endpoint
+    reconnect?: (attempt: number) => Promise<Service.Endpoint>
+    reload?: () => Promise<void>
+  }
   args: Args
   config: TuiConfig.Resolved
   onSnapshot?: () => Promise<string[]>
@@ -188,6 +192,25 @@ function isVersionGreater(left: string, right: string) {
 export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   const log = input.log ?? (() => {})
   const global = yield* Global.Service
+  const options = { baseUrl: input.server.endpoint.url, headers: Service.headers(input.server.endpoint) }
+  const api = OpenCode.make(options)
+  const directory = yield* Effect.tryPromise(() => api.file.list({ location: { directory: process.cwd() } })).pipe(
+    Effect.map((response) => response.location.directory),
+    Effect.catch(() =>
+      Effect.tryPromise(() => api.location.get()).pipe(Effect.map((response) => response.directory)),
+    ),
+  )
+  const reconnectEndpoint = input.server.reconnect
+  const reconnect = reconnectEndpoint
+    ? async (attempt: number) => {
+        const endpoint = await reconnectEndpoint(attempt)
+        const next = { baseUrl: endpoint.url, headers: Service.headers(endpoint) }
+        return {
+          client: createOpencodeClient({ ...next, directory }),
+          api: OpenCode.make(next),
+        }
+      }
+    : undefined
   const exit = { epilogue: undefined as string | undefined, reason: undefined as unknown }
   const result = yield* Effect.scoped(
     Effect.gen(function* () {
@@ -314,10 +337,10 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                       <TuiConfigProvider config={input.config}>
                                         <PluginRuntimeProvider value={pluginRuntime}>
                                           <SDKProvider
-                                            client={input.client}
-                                            api={input.api}
-                                            discover={input.discover}
-                                            reload={input.reload}
+                                            client={createOpencodeClient({ ...options, directory })}
+                                            api={api}
+                                            reconnect={reconnect}
+                                            reload={input.server.reload}
                                           >
                                             <PermissionProvider>
                                               <ProjectProvider>
@@ -335,6 +358,14 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
                                                                       <App
                                                                         onSnapshot={input.onSnapshot}
                                                                         pluginHost={input.pluginHost}
+                                                                        pair={
+                                                                          input.server.endpoint.auth
+                                                                            ? input.server.endpoint.auth
+                                                                            : {
+                                                                                username: "opencode",
+                                                                                password: "",
+                                                                              }
+                                                                        }
                                                                       />
                                                                     </LocationProvider>
                                                                   </EditorContextProvider>
@@ -380,7 +411,11 @@ export const run = Effect.fn("Tui.run")(function* (input: TuiInput) {
   })
 })
 
-function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPluginHost }) {
+function App(props: {
+  onSnapshot?: () => Promise<string[]>
+  pluginHost: TuiPluginHost
+  pair?: DialogPairCredentials
+}) {
   const log = useLog({ component: "app" })
   const startup = useTuiStartup()
   const tuiConfig = useTuiConfig()
@@ -810,6 +845,15 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         slashName: "status",
         run: () => {
           dialog.replace(() => <DialogStatus />)
+        },
+        category: "System",
+      },
+      {
+        name: "server.pair",
+        title: "Pair device",
+        slashName: "pair",
+        run: () => {
+          dialog.replace(() => <DialogPair credentials={props.pair} />)
         },
         category: "System",
       },
