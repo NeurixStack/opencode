@@ -155,10 +155,6 @@ function resourceMcpLayer(url: string) {
             complete: unusedIntegration,
             cancel: unusedIntegration,
           },
-          websearch: {
-            list: unusedIntegration,
-            get: unusedIntegration,
-          },
         }),
         Layer.mock(Credential.Service, {}),
       ),

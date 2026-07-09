@@ -3,7 +3,6 @@ import { Effect, Layer } from "effect"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { PermissionV2 } from "@opencode-ai/core/permission"
-import { Integration } from "@opencode-ai/core/integration"
 import { WebSearch } from "@opencode-ai/core/websearch"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { ToolRegistry } from "@opencode-ai/core/tool/registry"
@@ -22,12 +21,12 @@ const webSearchToolNode = makeLocationNode({
 const sessionID = SessionV2.ID.make("ses_websearch_test")
 const assertions: PermissionV2.AssertInput[] = []
 const queries: WebSearch.QueryInput[] = []
-let result = new WebSearch.Result({ providerID: Integration.ID.make("exa"), text: "search results" })
+let result = new WebSearch.Result({ providerID: WebSearch.ID.make("exa"), text: "search results" })
 
 beforeEach(() => {
   assertions.length = 0
   queries.length = 0
-  result = new WebSearch.Result({ providerID: Integration.ID.make("exa"), text: "search results" })
+  result = new WebSearch.Result({ providerID: WebSearch.ID.make("exa"), text: "search results" })
 })
 
 const permission = Layer.succeed(
@@ -44,6 +43,8 @@ const permission = Layer.succeed(
 const websearch = Layer.succeed(
   WebSearch.Service,
   WebSearch.Service.of({
+    register: () => Effect.die("unused"),
+    list: () => Effect.succeed([]),
     selected: () => Effect.succeed(undefined),
     select: () => Effect.die("unused"),
     query: (input) =>
@@ -100,7 +101,7 @@ describe("WebSearchTool registration", () => {
   it.effect("keeps provider metadata in structured output", () =>
     Effect.gen(function* () {
       result = new WebSearch.Result({
-        providerID: Integration.ID.make("parallel"),
+        providerID: WebSearch.ID.make("parallel"),
         text: "parallel results",
         metadata: { requestID: "req_1" },
       })
@@ -124,7 +125,7 @@ describe("WebSearchTool registration", () => {
 
   it.effect("uses the concise no-results fallback", () =>
     Effect.gen(function* () {
-      result = new WebSearch.Result({ providerID: Integration.ID.make("exa"), text: "" })
+      result = new WebSearch.Result({ providerID: WebSearch.ID.make("exa"), text: "" })
       const registry = yield* ToolRegistry.Service
 
       expect(

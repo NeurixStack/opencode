@@ -10,7 +10,6 @@ import type {
   IntegrationRef,
 } from "@opencode-ai/sdk/v2/types"
 import type { IntegrationApi } from "@opencode-ai/client/effect/api"
-import type { WebSearch } from "@opencode-ai/schema/websearch"
 import type { Effect, Scope } from "effect"
 import type { Registration, Transform } from "./registration.js"
 
@@ -53,19 +52,10 @@ export type IntegrationOAuthMethodDefinition = IntegrationOAuthMethod & {
 
 export type IntegrationMethodDefinition = IntegrationOAuthMethodDefinition | IntegrationKeyMethod | IntegrationEnvMethod
 
-export interface IntegrationWebSearchDefinition {
-  readonly connection: "optional" | "required"
-  readonly execute: (
-    input: WebSearch.Input,
-    context: { readonly credential?: CredentialValue; readonly sessionID?: string },
-  ) => Effect.Effect<WebSearch.ProviderOutput, unknown>
-}
-
 export interface IntegrationDefinition {
   readonly id: string
   readonly name: string
   readonly methods?: readonly IntegrationMethodDefinition[]
-  readonly websearch?: IntegrationWebSearchDefinition
 }
 
 export interface IntegrationDraft {

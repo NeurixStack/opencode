@@ -16,7 +16,6 @@ import {
   Types,
 } from "effect"
 import { Integration } from "@opencode-ai/schema/integration"
-import { WebSearch } from "@opencode-ai/schema/websearch"
 import { Credential } from "./credential"
 import { State } from "./state"
 import { EventV2 } from "./event"
@@ -95,15 +94,6 @@ export interface EnvImplementation {
 
 export type Implementation = OAuthImplementation | KeyImplementation | EnvImplementation
 
-export interface WebSearchImplementation {
-  readonly integrationID: ID
-  readonly connection: Integration.WebSearch["connection"]
-  readonly execute: (
-    input: WebSearch.Input,
-    context: { readonly credential?: Credential.Value; readonly sessionID?: string },
-  ) => Effect.Effect<WebSearch.ProviderOutput, unknown>
-}
-
 export const Attempt = Integration.Attempt
 export type Attempt = Integration.Attempt
 
@@ -129,7 +119,6 @@ type Entry = {
   ref: Types.DeepMutable<Ref>
   methods: Types.DeepMutable<Method>[]
   implementations: Map<MethodID, Types.DeepMutable<OAuthImplementation>>
-  websearch?: Types.DeepMutable<WebSearchImplementation>
 }
 
 type Data = {
@@ -145,11 +134,6 @@ export type Draft = {
     list: (integrationID: ID) => readonly Method[]
     update: (implementation: Implementation) => void
     remove: (integrationID: ID, method: Method) => void
-  }
-  websearch: {
-    list: () => readonly WebSearchImplementation[]
-    update: (implementation: WebSearchImplementation) => void
-    remove: (integrationID: ID) => void
   }
 }
 
@@ -206,10 +190,6 @@ export interface Interface extends State.Transformable<Draft> {
     }) => Effect.Effect<void, CodeRequiredError | AuthorizationError>
     /** Cancels an attempt and releases its resources. */
     readonly cancel: (attemptID: AttemptID) => Effect.Effect<void>
-  }
-  readonly websearch: {
-    readonly list: () => Effect.Effect<readonly WebSearchImplementation[]>
-    readonly get: (integrationID: ID) => Effect.Effect<WebSearchImplementation | undefined>
   }
 }
 
@@ -302,30 +282,6 @@ const layer = Layer.effect(
             if (method.type === "oauth") current.implementations.delete(method.id)
           },
         },
-        websearch: {
-          list: () =>
-            Array.from(draft.integrations.values()).flatMap((entry) =>
-              entry.websearch ? [entry.websearch as WebSearchImplementation] : [],
-            ),
-          update: (implementation) => {
-            const current = draft.integrations.get(implementation.integrationID) ?? {
-              ref: {
-                id: implementation.integrationID,
-                name: implementation.integrationID,
-              },
-              methods: [],
-              implementations: new Map<MethodID, Types.DeepMutable<OAuthImplementation>>(),
-            }
-            if (!draft.integrations.has(implementation.integrationID)) {
-              draft.integrations.set(implementation.integrationID, current)
-            }
-            current.websearch = implementation as Types.DeepMutable<WebSearchImplementation>
-          },
-          remove: (integrationID) => {
-            const current = draft.integrations.get(integrationID)
-            if (current) delete current.websearch
-          },
-        },
       }),
       finalize: () => events.publish(Event.Updated, {}).pipe(Effect.asVoid),
     })
@@ -350,7 +306,6 @@ const layer = Layer.effect(
         id: entry.ref.id,
         name: entry.ref.name,
         methods: entry.methods,
-        websearch: entry.websearch ? { connection: entry.websearch.connection } : undefined,
         connections,
       })
 
@@ -593,16 +548,6 @@ const layer = Layer.effect(
             return [match, next]
           })
           if (attempt) yield* Scope.close(attempt.scope, Exit.void)
-        }),
-      },
-      websearch: {
-        list: Effect.fn("Integration.websearch.list")(function* () {
-          return Array.from(state.get().integrations.values()).flatMap((entry) =>
-            entry.websearch ? [entry.websearch as WebSearchImplementation] : [],
-          )
-        }),
-        get: Effect.fn("Integration.websearch.get")(function* (integrationID) {
-          return state.get().integrations.get(integrationID)?.websearch as WebSearchImplementation | undefined
         }),
       },
     })

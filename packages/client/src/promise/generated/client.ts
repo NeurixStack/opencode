@@ -185,8 +185,10 @@ import type {
   DebugLocationListOutput,
   DebugLocationEvictInput,
   DebugLocationEvictOutput,
-  WebsearchProviderGetInput,
-  WebsearchProviderGetOutput,
+  WebsearchProviderListInput,
+  WebsearchProviderListOutput,
+  WebsearchProviderSelectedInput,
+  WebsearchProviderSelectedOutput,
   WebsearchProviderSelectInput,
   WebsearchProviderSelectOutput,
   WebsearchQueryInput,
@@ -1586,11 +1588,23 @@ export function make(options: ClientOptions) {
     },
     websearch: {
       provider: {
-        get: (input?: WebsearchProviderGetInput, requestOptions?: RequestOptions) =>
-          request<WebsearchProviderGetOutput>(
+        list: (input?: WebsearchProviderListInput, requestOptions?: RequestOptions) =>
+          request<WebsearchProviderListOutput>(
             {
               method: "GET",
               path: `/api/websearch/provider`,
+              query: { location: input?.["location"] },
+              successStatus: 200,
+              declaredStatuses: [503, 401, 400],
+              empty: false,
+            },
+            requestOptions,
+          ),
+        selected: (input?: WebsearchProviderSelectedInput, requestOptions?: RequestOptions) =>
+          request<WebsearchProviderSelectedOutput>(
+            {
+              method: "GET",
+              path: `/api/websearch/provider/selected`,
               query: { location: input?.["location"] },
               successStatus: 200,
               declaredStatuses: [401, 400],
@@ -1602,7 +1616,7 @@ export function make(options: ClientOptions) {
           request<WebsearchProviderSelectOutput>(
             {
               method: "POST",
-              path: `/api/websearch/provider`,
+              path: `/api/websearch/provider/selected`,
               query: { location: input["location"] },
               body: { providerID: input["providerID"] },
               successStatus: 204,

@@ -3,7 +3,6 @@ export * as Form from "./form.js"
 import { Schema } from "effect"
 import { ephemeral, inventory } from "./event.js"
 import { ascending } from "./identifier.js"
-import { IntegrationID } from "./integration-id.js"
 import { NonNegativeInt, optional, statics } from "./schema.js"
 
 const IDSchema = Schema.String.check(Schema.isStartsWith("frm_")).pipe(Schema.brand("Form.ID"))
@@ -125,15 +124,8 @@ export const UrlInfo = Schema.Struct({
 }).annotate({ identifier: "Form.UrlInfo" })
 export interface UrlInfo extends Schema.Schema.Type<typeof UrlInfo> {}
 
-export const IntegrationInfo = Schema.Struct({
-  ...InfoBase,
-  mode: Schema.Literal("integration"),
-  integrationID: IntegrationID,
-}).annotate({ identifier: "Form.IntegrationInfo" })
-export interface IntegrationInfo extends Schema.Schema.Type<typeof IntegrationInfo> {}
-
-export const Info = Schema.Union([FormInfo, UrlInfo, IntegrationInfo]).pipe(Schema.toTaggedUnion("mode"))
-export type Info = FormInfo | UrlInfo | IntegrationInfo
+export const Info = Schema.Union([FormInfo, UrlInfo]).pipe(Schema.toTaggedUnion("mode"))
+export type Info = FormInfo | UrlInfo
 
 export const Value = Schema.Union([Schema.String, Schema.Number, Schema.Boolean, Schema.Array(Schema.String)]).annotate(
   {

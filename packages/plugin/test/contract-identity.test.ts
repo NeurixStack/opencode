@@ -8,6 +8,7 @@ import { Model } from "@opencode-ai/schema/model"
 import { Provider } from "@opencode-ai/schema/provider"
 import { Reference } from "@opencode-ai/schema/reference"
 import { Skill } from "@opencode-ai/schema/skill"
+import { WebSearch } from "@opencode-ai/schema/websearch"
 
 const Plugin = await import("../src/v2/effect/index")
 const PromisePlugin = await import("../src/v2/promise/index")
@@ -25,6 +26,7 @@ test.each([
   expect(entrypoint.Provider).toBe(Provider)
   expect(entrypoint.Reference).toBe(Reference)
   expect(entrypoint.Skill).toBe(Skill)
+  expect(entrypoint.WebSearch).toBe(WebSearch)
   expect(Object.keys(entrypoint).sort()).toEqual([
     "Agent",
     "Command",
@@ -36,5 +38,6 @@ test.each([
     "Provider",
     "Reference",
     "Skill",
+    "WebSearch",
   ])
 })

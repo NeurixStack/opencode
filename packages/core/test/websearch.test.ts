@@ -6,11 +6,9 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Config } from "@opencode-ai/core/config"
 import { ConfigGlobal } from "@opencode-ai/core/config/global"
 import { ConfigWebSearch } from "@opencode-ai/core/config/websearch"
-import { Credential } from "@opencode-ai/core/credential"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Form } from "@opencode-ai/core/form"
 import { Global } from "@opencode-ai/core/global"
-import { Integration } from "@opencode-ai/core/integration"
 import { WebSearch } from "@opencode-ai/core/websearch"
 import { testEffect } from "./lib/effect"
 
@@ -23,7 +21,7 @@ const configGlobal = Layer.succeed(
 )
 const it = testEffect(
   AppNodeBuilder.build(
-    LayerNode.group([WebSearch.node, Integration.node, Credential.node, EventV2.node, Form.node, ConfigGlobal.node]),
+    LayerNode.group([WebSearch.node, EventV2.node, Form.node, ConfigGlobal.node]),
     [
       [Config.node, config],
       [ConfigGlobal.node, configGlobal],
@@ -31,24 +29,21 @@ const it = testEffect(
   ),
 )
 
-const register = (id: string, connection: "optional" | "required" = "optional") =>
+const register = (id: string) =>
   Effect.gen(function* () {
-    const integrations = yield* Integration.Service
-    const integrationID = Integration.ID.make(id)
-    const calls: { input: WebSearch.Input; credential?: Credential.Value; sessionID?: string }[] = []
-    yield* integrations.transform((draft) => {
-      draft.update(integrationID, (integration) => (integration.name = id.toUpperCase()))
-      draft.websearch.update({
-        integrationID,
-        connection,
-        execute: (input, context) =>
-          Effect.sync(() => {
-            calls.push({ input, ...context })
-            return { text: `${id}: ${input.query}`, metadata: { id } }
-          }),
-      })
+    const websearch = yield* WebSearch.Service
+    const providerID = WebSearch.ID.make(id)
+    const calls: { input: Pick<WebSearch.Input, "query">; sessionID?: string }[] = []
+    yield* websearch.register({
+      id: providerID,
+      name: id.toUpperCase(),
+      execute: (input, context) =>
+        Effect.sync(() => {
+          calls.push({ input, ...context })
+          return { text: `${id}: ${input.query}`, metadata: { id } }
+        }),
     })
-    return { integrationID, calls }
+    return { providerID, calls }
   })
 
 beforeEach(() => {
@@ -62,9 +57,9 @@ describe("WebSearch", () => {
       const provider = yield* register("exa")
       const websearch = yield* WebSearch.Service
 
-      expect(yield* websearch.query({ query: "effect", providerID: provider.integrationID })).toEqual(
+      expect(yield* websearch.query({ query: "effect", providerID: provider.providerID })).toEqual(
         new WebSearch.Result({
-          providerID: provider.integrationID,
+          providerID: provider.providerID,
           text: "exa: effect",
           metadata: { id: "exa" },
         }),
@@ -72,8 +67,7 @@ describe("WebSearch", () => {
       expect(yield* websearch.selected()).toBeUndefined()
       expect(provider.calls).toEqual([
         {
-          input: { query: "effect", providerID: provider.integrationID },
-          credential: undefined,
+          input: { query: "effect" },
           sessionID: undefined,
         },
       ])
@@ -85,12 +79,12 @@ describe("WebSearch", () => {
       yield* register("exa")
       const parallel = yield* register("parallel")
       const websearch = yield* WebSearch.Service
-      yield* websearch.select(parallel.integrationID)
+      yield* websearch.select(parallel.providerID)
 
-      expect((yield* websearch.query({ query: "layers" })).providerID).toBe(parallel.integrationID)
-      expect(yield* websearch.selected()).toBe(parallel.integrationID)
+      expect((yield* websearch.query({ query: "layers" })).providerID).toBe(parallel.providerID)
+      expect(yield* websearch.selected()).toBe(parallel.providerID)
       expect(writes).toEqual([
-        { path: ["websearch"], value: new ConfigWebSearch.Info({ provider: parallel.integrationID }) },
+        { path: ["websearch"], value: new ConfigWebSearch.Info({ provider: parallel.providerID }) },
       ])
     }),
   )
@@ -103,12 +97,12 @@ describe("WebSearch", () => {
         new Config.Document({
           type: "document",
           path: path.join(Global.Path.config, "opencode.json"),
-          info: new Config.Info({ websearch: new ConfigWebSearch.Info({ provider: provider.integrationID }) }),
+          info: new Config.Info({ websearch: new ConfigWebSearch.Info({ provider: provider.providerID }) }),
         }),
       ]
 
-      expect(yield* websearch.selected()).toBe(provider.integrationID)
-      expect((yield* websearch.query({ query: "configured" })).providerID).toBe(provider.integrationID)
+      expect(yield* websearch.selected()).toBe(provider.providerID)
+      expect((yield* websearch.query({ query: "configured" })).providerID).toBe(provider.providerID)
     }),
   )
 
@@ -117,15 +111,15 @@ describe("WebSearch", () => {
       const exa = yield* register("exa")
       const parallel = yield* register("parallel")
       const websearch = yield* WebSearch.Service
-      yield* websearch.select(exa.integrationID)
+      yield* websearch.select(exa.providerID)
       entries = [
         new Config.Document({
           type: "document",
-          info: new Config.Info({ websearch: new ConfigWebSearch.Info({ provider: parallel.integrationID }) }),
+          info: new Config.Info({ websearch: new ConfigWebSearch.Info({ provider: parallel.providerID }) }),
         }),
       ]
 
-      expect((yield* websearch.query({ query: "configured" })).providerID).toBe(parallel.integrationID)
+      expect((yield* websearch.query({ query: "configured" })).providerID).toBe(parallel.providerID)
     }),
   )
 
@@ -142,34 +136,22 @@ describe("WebSearch", () => {
       expect(pending).toHaveLength(1)
       const form = pending[0]
       if (!form) return yield* Effect.die("Expected an onboarding form")
-      yield* forms.reply({ id: form.id, answer: { provider: provider.integrationID } })
+      yield* forms.reply({ id: form.id, answer: { provider: provider.providerID } })
 
-      expect((yield* Fiber.join(first)).providerID).toBe(provider.integrationID)
-      expect((yield* Fiber.join(second)).providerID).toBe(provider.integrationID)
-      expect(yield* websearch.selected()).toBe(provider.integrationID)
-    }),
-  )
-
-  it.effect("requires a connection before invoking a required provider", () =>
-    Effect.gen(function* () {
-      const provider = yield* register("private", "required")
-      const websearch = yield* WebSearch.Service
-
-      expect(
-        yield* websearch.query({ query: "secret", providerID: provider.integrationID }).pipe(Effect.flip),
-      ).toBeInstanceOf(WebSearch.ConnectionRequiredError)
-      expect(provider.calls).toEqual([])
+      expect((yield* Fiber.join(first)).providerID).toBe(provider.providerID)
+      expect((yield* Fiber.join(second)).providerID).toBe(provider.providerID)
+      expect(yield* websearch.selected()).toBe(provider.providerID)
     }),
   )
 
   it.effect("removes scoped provider registrations", () =>
     Effect.gen(function* () {
-      const integrations = yield* Integration.Service
+      const websearch = yield* WebSearch.Service
       const scope = yield* Scope.fork(yield* Scope.Scope)
       const provider = yield* register("temporary").pipe(Scope.provide(scope))
-      expect(yield* integrations.websearch.get(provider.integrationID)).toBeDefined()
+      expect(yield* websearch.list()).toContainEqual({ id: provider.providerID, name: "TEMPORARY" })
       yield* Scope.close(scope, Exit.void)
-      expect(yield* integrations.websearch.get(provider.integrationID)).toBeUndefined()
+      expect(yield* websearch.list()).not.toContainEqual({ id: provider.providerID, name: "TEMPORARY" })
     }),
   )
 })

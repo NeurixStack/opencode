@@ -41,7 +41,7 @@ test("exposes every standard HTTP API group", () => {
   expect(Object.keys(client.integration.connect)).toEqual(["key", "oauth"])
   expect(Object.keys(client.integration.attempt)).toEqual(["status", "complete", "cancel"])
   expect(Object.keys(client.websearch)).toEqual(["provider", "query"])
-  expect(Object.keys(client.websearch.provider)).toEqual(["get", "select"])
+  expect(Object.keys(client.websearch.provider)).toEqual(["list", "selected", "select"])
   expect(Object.keys(client.file)).toEqual(["read", "list", "find"])
   expect(Object.keys(client.vcs)).toEqual(["status", "diff"])
   expect(Object.keys(client.pty)).toEqual(["list", "create", "get", "update", "remove"])
@@ -84,19 +84,27 @@ test("websearch provider methods use the public HTTP contract", async () => {
       if (request.method === "POST") return new Response(null, { status: 204 })
       return Response.json({
         location: { directory: "/tmp/project", project: { id: "proj_test", directory: "/tmp/project" } },
-        data: "exa",
+        data: request.url.endsWith("/selected?location%5Bdirectory%5D=%2Ftmp%2Fproject")
+          ? "exa"
+          : [{ id: "exa", name: "Exa" }],
       })
     },
   })
 
-  expect(await client.websearch.provider.get({ location: { directory: "/tmp/project" } })).toMatchObject({ data: "exa" })
+  expect(await client.websearch.provider.list({ location: { directory: "/tmp/project" } })).toMatchObject({
+    data: [{ id: "exa", name: "Exa" }],
+  })
+  expect(await client.websearch.provider.selected({ location: { directory: "/tmp/project" } })).toMatchObject({
+    data: "exa",
+  })
   await client.websearch.provider.select({ providerID: "parallel", location: { directory: "/tmp/project" } })
 
   expect(requests.map((request) => [request.method, request.url])).toEqual([
     ["GET", "http://localhost:3000/api/websearch/provider?location%5Bdirectory%5D=%2Ftmp%2Fproject"],
-    ["POST", "http://localhost:3000/api/websearch/provider?location%5Bdirectory%5D=%2Ftmp%2Fproject"],
+    ["GET", "http://localhost:3000/api/websearch/provider/selected?location%5Bdirectory%5D=%2Ftmp%2Fproject"],
+    ["POST", "http://localhost:3000/api/websearch/provider/selected?location%5Bdirectory%5D=%2Ftmp%2Fproject"],
   ])
-  expect(await requests[1]?.json()).toEqual({ providerID: "parallel" })
+  expect(await requests[2]?.json()).toEqual({ providerID: "parallel" })
 })
 
 test("server.get uses the public HTTP contract", async () => {

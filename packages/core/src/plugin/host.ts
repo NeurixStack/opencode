@@ -24,6 +24,7 @@ import { Tool } from "../tool/tool"
 import { Tools } from "../tool/tools"
 import { ToolHooks } from "../tool/hooks"
 import { WorkspaceV2 } from "../workspace"
+import { WebSearch } from "../websearch"
 import { PluginHooks } from "./hooks"
 
 const mutable = <T>(value: T) => value as DeepMutable<T>
@@ -38,6 +39,7 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
   const reference = yield* Reference.Service
   const skill = yield* SkillV2.Service
   const tools = yield* Tools.Service
+  const websearch = yield* WebSearch.Service
   const toolHooks = yield* ToolHooks.Service
   const hooks = yield* PluginHooks.Service
   const runtime = yield* PluginRuntime.Service
@@ -304,6 +306,14 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
         })
       },
     },
+    websearch: {
+      register: (definition) =>
+        websearch.register({
+          id: WebSearch.ID.make(definition.id),
+          name: definition.name,
+          execute: definition.execute,
+        }),
+    },
     session: {
       hook: (name, callback) => hooks.register("session", name, callback),
       create: (input) =>
@@ -345,12 +355,6 @@ function registerIntegration(draft: Integration.Draft, definition: IntegrationDe
       }),
     )
   }
-  if (!definition.websearch) return
-  draft.websearch.update({
-    integrationID,
-    connection: definition.websearch.connection,
-    execute: definition.websearch.execute,
-  })
 }
 
 function methodImplementation(input: IntegrationMethodRegistration): Integration.Implementation {

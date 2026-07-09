@@ -3,8 +3,12 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { Credential } from "@opencode-ai/core/credential"
+import { Config } from "@opencode-ai/core/config"
+import { ConfigGlobal } from "@opencode-ai/core/config/global"
 import { EventV2 } from "@opencode-ai/core/event"
+import { Form } from "@opencode-ai/core/form"
 import { Integration } from "@opencode-ai/core/integration"
+import { WebSearch } from "@opencode-ai/core/websearch"
 import { testEffect } from "../lib/effect"
 
 export interface WebSearchRequest {
@@ -37,5 +41,24 @@ const http = Layer.succeed(
 )
 
 export const webSearchIntegrationTest = testEffect(
-  Layer.merge(AppNodeBuilder.build(LayerNode.group([Integration.node, Credential.node, EventV2.node])), http),
+  Layer.merge(
+    AppNodeBuilder.build(
+      LayerNode.group([
+        Integration.node,
+        Credential.node,
+        EventV2.node,
+        Form.node,
+        ConfigGlobal.node,
+        WebSearch.node,
+      ]),
+      [
+        [Config.node, Layer.succeed(Config.Service, Config.Service.of({ entries: () => Effect.succeed([]) }))],
+        [
+          ConfigGlobal.node,
+          Layer.succeed(ConfigGlobal.Service, ConfigGlobal.Service.of({ update: () => Effect.void })),
+        ],
+      ],
+    ),
+    http,
+  ),
 )

@@ -8,7 +8,6 @@ import type {
   IntegrationKeyMethod,
   IntegrationOAuthMethod,
 } from "@opencode-ai/sdk/v2/types"
-import type { WebSearch } from "@opencode-ai/schema/websearch"
 import type { Registration, Transform } from "./registration.js"
 
 export type { IntegrationDraft, IntegrationMethodRegistration }
@@ -35,19 +34,10 @@ export type IntegrationOAuthMethodDefinition = IntegrationOAuthMethod & {
 
 export type IntegrationMethodDefinition = IntegrationOAuthMethodDefinition | IntegrationKeyMethod | IntegrationEnvMethod
 
-export interface IntegrationWebSearchDefinition {
-  readonly connection: "optional" | "required"
-  readonly execute: (
-    input: WebSearch.Input,
-    context: { readonly credential?: CredentialValue; readonly sessionID?: string; readonly signal: AbortSignal },
-  ) => Promise<WebSearch.ProviderOutput>
-}
-
 export interface IntegrationDefinition {
   readonly id: string
   readonly name: string
   readonly methods?: readonly IntegrationMethodDefinition[]
-  readonly websearch?: IntegrationWebSearchDefinition
 }
 
 export interface IntegrationDomain extends IntegrationApi {

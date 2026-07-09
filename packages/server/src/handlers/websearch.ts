@@ -16,7 +16,7 @@ export const WebSearchHandler = HttpApiBuilder.group(Api, "server.websearch", (h
           orElse: () =>
             Effect.fail(
               new ServiceUnavailableError({
-                message: "Web search integration initialization timed out",
+                message: "Web search provider initialization timed out",
                 service: "websearch",
               }),
             ),
@@ -25,8 +25,16 @@ export const WebSearchHandler = HttpApiBuilder.group(Api, "server.websearch", (h
     })
     return handlers
       .handle(
-        "websearch.provider.get",
-        Effect.fn("server.websearch.provider.get")(function* () {
+        "websearch.provider.list",
+        Effect.fn("server.websearch.provider.list")(function* () {
+          yield* awaitPlugins()
+          const websearch = yield* WebSearch.Service
+          return yield* response(websearch.list())
+        }),
+      )
+      .handle(
+        "websearch.provider.selected",
+        Effect.fn("server.websearch.provider.selected")(function* () {
           const websearch = yield* WebSearch.Service
           return yield* response(websearch.selected())
         }),
@@ -67,12 +75,6 @@ export const WebSearchHandler = HttpApiBuilder.group(Api, "server.websearch", (h
                   new InvalidRequestError({
                     message: `Web search provider not found: ${error.providerID}`,
                     kind: "websearch_provider_not_found",
-                    field: "providerID",
-                  }),
-                "WebSearch.ConnectionRequired": (error) =>
-                  new InvalidRequestError({
-                    message: `Web search provider requires a connection: ${error.providerID}`,
-                    kind: "websearch_connection_required",
                     field: "providerID",
                   }),
                 "WebSearch.Cancelled": () =>

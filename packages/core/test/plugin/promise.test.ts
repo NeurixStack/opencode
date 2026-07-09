@@ -1,10 +1,10 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
-import { Integration } from "@opencode-ai/core/integration"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
 import { PluginPromise } from "@opencode-ai/core/plugin/promise"
+import { WebSearch } from "@opencode-ai/core/websearch"
 import { Plugin } from "@opencode-ai/plugin/v2"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "./fixture"
@@ -95,34 +95,33 @@ describe("fromPromise", () => {
     }),
   )
 
-  it.effect("adapts promise web search capability execution", () =>
+  it.effect("registers a standalone web search provider", () =>
     Effect.gen(function* () {
-      const integrations = yield* Integration.Service
+      const websearch = yield* WebSearch.Service
       const plugin = yield* PluginV2.Service
       const host = yield* PluginHost.make(plugin)
       const promisePlugin = Plugin.define({
         id: "promise-websearch",
         setup: async (ctx) => {
-          await ctx.integration.register({
+          await ctx.websearch.register({
             id: "promise-websearch",
             name: "Promise Web Search",
-            methods: [{ type: "env", names: ["PROMISE_WEBSEARCH_KEY"] }],
-            websearch: {
-              connection: "optional",
-              execute: async (input) => ({ text: `promise: ${input.query}` }),
-            },
+            execute: async (input) => ({ text: `promise: ${input.query}` }),
           })
         },
       })
 
       yield* PluginPromise.fromPromise(promisePlugin).effect(host)
-      expect(yield* integrations.get(Integration.ID.make("promise-websearch"))).toMatchObject({
+      expect(yield* websearch.list()).toContainEqual({
+        id: WebSearch.ID.make("promise-websearch"),
         name: "Promise Web Search",
-        methods: [{ type: "env", names: ["PROMISE_WEBSEARCH_KEY"] }],
       })
-      const provider = yield* integrations.websearch.get(Integration.ID.make("promise-websearch"))
-      if (!provider) return yield* Effect.die("Expected promise web search provider")
-      expect(yield* provider.execute({ query: "effect" }, {})).toEqual({ text: "promise: effect" })
+      expect(
+        yield* websearch.query({ query: "effect", providerID: WebSearch.ID.make("promise-websearch") }),
+      ).toEqual(
+        new WebSearch.Result({ providerID: WebSearch.ID.make("promise-websearch"), text: "promise: effect" }),
+      )
     }),
   )
+
 })

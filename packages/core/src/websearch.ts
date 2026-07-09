@@ -2,7 +2,7 @@ export * as WebSearch from "./websearch"
 
 import { WebSearch } from "@opencode-ai/schema/websearch"
 import { Config as ConfigSchema } from "@opencode-ai/schema/config"
-import { Context, Effect, Layer, Schema, Semaphore, Stream } from "effect"
+import { Context, Effect, Layer, Schema, Scope, Semaphore, Stream } from "effect"
 import path from "node:path"
 import { Config } from "./config"
 import { ConfigGlobal } from "./config/global"
@@ -11,8 +11,16 @@ import { makeLocationNode } from "./effect/app-node"
 import { EventV2 } from "./event"
 import { Form } from "./form"
 import { Global } from "./global"
-import { Integration } from "./integration"
 import { truthy } from "./flag/flag"
+import { State } from "./state"
+
+export const ID = WebSearch.ID
+export type ID = WebSearch.ID
+
+export const Provider = WebSearch.Provider
+export type Provider = WebSearch.Provider
+
+export const Event = WebSearch.Event
 
 export const Input = WebSearch.Input
 export type Input = WebSearch.Input
@@ -23,31 +31,32 @@ export type ProviderOutput = WebSearch.ProviderOutput
 export const Result = WebSearch.Result
 export type Result = WebSearch.Result
 
+export interface ProviderImplementation extends Provider {
+  readonly execute: (
+    input: Pick<Input, "query">,
+    context: { readonly sessionID?: string },
+  ) => Effect.Effect<ProviderOutput, unknown>
+}
+
 export class ProviderRequiredError extends Schema.TaggedErrorClass<ProviderRequiredError>()(
   "WebSearch.ProviderRequired",
   {},
 ) {}
 
 export class ProviderNotFoundError extends Schema.TaggedErrorClass<ProviderNotFoundError>()("WebSearch.ProviderNotFound", {
-  providerID: Integration.ID,
+  providerID: ID,
 }) {}
-
-export class ConnectionRequiredError extends Schema.TaggedErrorClass<ConnectionRequiredError>()(
-  "WebSearch.ConnectionRequired",
-  { providerID: Integration.ID },
-) {}
 
 export class CancelledError extends Schema.TaggedErrorClass<CancelledError>()("WebSearch.Cancelled", {}) {}
 
 export class RequestError extends Schema.TaggedErrorClass<RequestError>()("WebSearch.Request", {
-  providerID: Integration.ID,
+  providerID: ID,
   cause: Schema.Defect(),
 }) {}
 
 export type Error =
   | ProviderRequiredError
   | ProviderNotFoundError
-  | ConnectionRequiredError
   | CancelledError
   | RequestError
 
@@ -56,12 +65,24 @@ export interface QueryInput extends Input {
 }
 
 export interface Interface {
-  readonly selected: () => Effect.Effect<Integration.ID | undefined>
-  readonly select: (providerID: Integration.ID) => Effect.Effect<void, ProviderNotFoundError>
+  readonly register: (
+    provider: ProviderImplementation,
+  ) => Effect.Effect<State.Registration, never, Scope.Scope>
+  readonly list: () => Effect.Effect<readonly Provider[]>
+  readonly selected: () => Effect.Effect<ID | undefined>
+  readonly select: (providerID: ID) => Effect.Effect<void, ProviderNotFoundError>
   readonly query: (input: QueryInput) => Effect.Effect<Result, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/WebSearch") {}
+
+type Data = {
+  readonly providers: Map<ID, ProviderImplementation>
+}
+
+type Draft = {
+  register: (provider: ProviderImplementation) => void
+}
 
 const layer = Layer.effect(
   Service,
@@ -71,16 +92,19 @@ const layer = Layer.effect(
     const events = yield* EventV2.Service
     const forms = yield* Form.Service
     const global = yield* Global.Service
-    const integrations = yield* Integration.Service
     const onboarding = Semaphore.makeUnsafe(1)
     const decodeOutput = Schema.decodeUnknownEffect(ProviderOutput)
     const globalConfigPath = path.resolve(global.config)
-    let pendingProviderID: Integration.ID | undefined
+    let pendingProviderID: ID | undefined
+    const state = State.create<Data, Draft>({
+      initial: () => ({ providers: new Map() }),
+      draft: (draft) => ({
+        register: (provider) => draft.providers.set(provider.id, provider),
+      }),
+      finalize: () => events.publish(Event.Updated, {}).pipe(Effect.asVoid),
+    })
 
-    const requireProvider = (
-      providers: Map<Integration.ID, Integration.WebSearchImplementation>,
-      providerID: Integration.ID,
-    ) => {
+    const requireProvider = (providers: Map<ID, ProviderImplementation>, providerID: ID) => {
       const provider = providers.get(providerID)
       return provider ? Effect.succeed(provider) : Effect.fail(new ProviderNotFoundError({ providerID }))
     }
@@ -96,7 +120,7 @@ const layer = Layer.effect(
       return pendingProviderID ?? (yield* globalProviderID())
     })
 
-    const saveProvider = Effect.fn("WebSearch.saveProvider")(function* (providerID: Integration.ID) {
+    const saveProvider = Effect.fn("WebSearch.saveProvider")(function* (providerID: ID) {
       pendingProviderID = providerID
       yield* configGlobal.update(["websearch"], new ConfigWebSearch.Info({ provider: providerID })).pipe(
         Effect.tapError(() => Effect.sync(() => (pendingProviderID = undefined))),
@@ -118,12 +142,8 @@ const layer = Layer.effect(
       Effect.forkScoped,
     )
 
-    const ask = Effect.fn("WebSearch.ask")(function* (
-      providers: Map<Integration.ID, Integration.WebSearchImplementation>,
-      sessionID: string,
-    ) {
+    const ask = Effect.fn("WebSearch.ask")(function* (providers: Map<ID, ProviderImplementation>, sessionID: string) {
       if (providers.size === 0) return yield* new ProviderRequiredError()
-      const infos = new Map((yield* integrations.list()).map((integration) => [integration.id, integration]))
       const state = yield* forms
         .ask({
           sessionID,
@@ -134,22 +154,15 @@ const layer = Layer.effect(
             {
               key: "provider",
               title: "Provider",
-              description: "This becomes your default and can be changed later from Connect integration.",
+              description: "This becomes your default and can be changed later from Connect.",
               type: "string",
               required: true,
               custom: false,
               options: Array.from(providers.values())
-                .flatMap((provider) => {
-                  const info = infos.get(provider.integrationID)
-                  if (!info) return []
-                  const disconnected = provider.connection === "optional" ? "Keyless available" : "Connection required"
-                  return [{ info, description: info.connections.length ? "Connected" : disconnected }]
-                })
-                .toSorted((a, b) => a.info.name.localeCompare(b.info.name))
-                .map(({ info, description }) => ({
-                  value: info.id,
-                  label: info.name,
-                  description,
+                .toSorted((a, b) => a.name.localeCompare(b.name))
+                .map((provider) => ({
+                  value: provider.id,
+                  label: provider.name,
                 })),
             },
           ],
@@ -158,46 +171,22 @@ const layer = Layer.effect(
       if (state.status === "cancelled") return yield* new CancelledError()
       const answer = state.answer.provider
       if (typeof answer !== "string") return yield* new ProviderRequiredError()
-      return yield* requireProvider(providers, Integration.ID.make(answer))
-    })
-
-    const connect = Effect.fn("WebSearch.connect")(function* (
-      provider: Integration.WebSearchImplementation,
-      sessionID?: string,
-    ) {
-      const active = yield* integrations.connection.active(provider.integrationID)
-      if (active || provider.connection === "optional") return active
-      if (!sessionID) return yield* new ConnectionRequiredError({ providerID: provider.integrationID })
-      const state = yield* forms
-        .ask({
-          sessionID,
-          title: `Connect ${provider.integrationID}`,
-          metadata: { kind: "integration.connection" },
-          mode: "integration",
-          integrationID: provider.integrationID,
-        })
-        .pipe(Effect.orDie)
-      if (state.status === "cancelled") return yield* new CancelledError()
-      const connected = yield* integrations.connection.active(provider.integrationID)
-      if (!connected) return yield* new ConnectionRequiredError({ providerID: provider.integrationID })
-      return connected
+      return yield* requireProvider(providers, ID.make(answer))
     })
 
     const resolve = Effect.fn("WebSearch.resolve")(function* (input: QueryInput) {
-      const providers = new Map(
-        (yield* integrations.websearch.list()).map((provider) => [provider.integrationID, provider]),
-      )
+      const providers = state.get().providers
       if (input.providerID) return yield* requireProvider(providers, input.providerID)
       const configuredProviderID = Config.latest(yield* config.entries(), "websearch")?.provider
       if (configuredProviderID) return yield* requireProvider(providers, configuredProviderID)
       if (process.env.OPENCODE_WEBSEARCH_PROVIDER) {
-        return yield* requireProvider(providers, Integration.ID.make(process.env.OPENCODE_WEBSEARCH_PROVIDER))
+        return yield* requireProvider(providers, ID.make(process.env.OPENCODE_WEBSEARCH_PROVIDER))
       }
       if (truthy("OPENCODE_ENABLE_PARALLEL") || truthy("OPENCODE_EXPERIMENTAL_PARALLEL")) {
-        return yield* requireProvider(providers, Integration.ID.make("parallel"))
+        return yield* requireProvider(providers, ID.make("parallel"))
       }
       if (truthy("OPENCODE_EXPERIMENTAL") || truthy("OPENCODE_ENABLE_EXA") || truthy("OPENCODE_EXPERIMENTAL_EXA")) {
-        return yield* requireProvider(providers, Integration.ID.make("exa"))
+        return yield* requireProvider(providers, ID.make("exa"))
       }
       const providerID = yield* selected()
       const provider = providerID ? providers.get(providerID) : undefined
@@ -210,33 +199,32 @@ const layer = Layer.effect(
           const selectedProvider = current ? providers.get(current) : undefined
           if (selectedProvider) return selectedProvider
           const provider = yield* ask(providers, sessionID)
-          yield* connect(provider, sessionID)
-          yield* saveProvider(provider.integrationID)
+          yield* saveProvider(provider.id)
           return provider
         }),
       )
     })
 
     return Service.of({
+      register: (provider) => state.transform((draft) => draft.register(provider)),
+      list: Effect.fn("WebSearch.list")(function* () {
+        return Array.from(state.get().providers.values(), (provider) => ({ id: provider.id, name: provider.name })).toSorted(
+          (a, b) => a.name.localeCompare(b.name),
+        )
+      }),
       selected,
       select: Effect.fn("WebSearch.select")(function* (providerID) {
-        const provider = yield* integrations.websearch.get(providerID)
+        const provider = state.get().providers.get(providerID)
         if (!provider) return yield* new ProviderNotFoundError({ providerID })
         yield* saveProvider(providerID)
       }),
       query: Effect.fn("WebSearch.query")(function* (input) {
         const provider = yield* resolve(input)
-        const connection = yield* connect(provider, input.sessionID)
-        const credential = connection
-          ? yield* integrations.connection
-              .resolve(connection)
-              .pipe(Effect.mapError((cause) => new RequestError({ providerID: provider.integrationID, cause })))
-          : undefined
-        const output = yield* provider.execute(input, { credential, sessionID: input.sessionID }).pipe(
+        const output = yield* provider.execute({ query: input.query }, { sessionID: input.sessionID }).pipe(
           Effect.flatMap(decodeOutput),
-          Effect.mapError((cause) => new RequestError({ providerID: provider.integrationID, cause })),
+          Effect.mapError((cause) => new RequestError({ providerID: provider.id, cause })),
         )
-        return new Result({ providerID: provider.integrationID, ...output })
+        return new Result({ providerID: provider.id, ...output })
       }),
     })
   }),
@@ -245,5 +233,5 @@ const layer = Layer.effect(
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [Config.node, ConfigGlobal.node, EventV2.node, Form.node, Global.node, Integration.node],
+  deps: [Config.node, ConfigGlobal.node, EventV2.node, Form.node, Global.node],
 })

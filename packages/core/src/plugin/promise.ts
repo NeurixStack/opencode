@@ -114,6 +114,20 @@ export function fromPromise(plugin: PromisePlugin) {
             hook: (name, callback) =>
               register(host.tool.hook(name, (event) => Effect.promise(() => Promise.resolve(callback(event))))),
           },
+          websearch: {
+            register: (definition) =>
+              register(
+                host.websearch.register({
+                  id: definition.id,
+                  name: definition.name,
+                  execute: (input, execution) =>
+                    Effect.tryPromise({
+                      try: (signal) => definition.execute(input, { ...execution, signal }),
+                      catch: (cause) => cause,
+                    }),
+                }),
+              ),
+          },
           session: {
             create: (input) => run(host.session.create(input)),
             get: (input) => run(host.session.get(input)),
@@ -131,7 +145,7 @@ export function fromPromise(plugin: PromisePlugin) {
 }
 
 function adaptIntegration(definition: IntegrationDefinition) {
-  const { methods, websearch, ...definitionInfo } = definition
+  const { methods, ...definitionInfo } = definition
   return {
     ...definitionInfo,
     methods: methods?.map((method) => {
@@ -163,20 +177,5 @@ function adaptIntegration(definition: IntegrationDefinition) {
           : {}),
       }
     }),
-    ...(websearch
-      ? {
-          websearch: {
-            connection: websearch.connection,
-            execute: (
-              input: Parameters<typeof websearch.execute>[0],
-              execution: Omit<Parameters<typeof websearch.execute>[1], "signal">,
-            ) =>
-              Effect.tryPromise({
-                try: (signal) => websearch.execute(input, { ...execution, signal }),
-                catch: (cause) => cause,
-              }),
-          },
-        }
-      : {}),
   }
 }

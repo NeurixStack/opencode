@@ -3,7 +3,6 @@ export * as WebSearchTool from "./websearch"
 import type { Context as PluginContext } from "@opencode-ai/plugin/v2/effect/plugin"
 import { ToolFailure } from "@opencode-ai/llm"
 import { Effect, Schema } from "effect"
-import { Integration } from "../integration"
 import { PermissionV2 } from "../permission"
 import { WebSearch } from "../websearch"
 import { Tool } from "./tool"
@@ -20,7 +19,7 @@ export const Input = Schema.Struct({
 })
 
 const Output = Schema.Struct({
-  provider: Integration.ID,
+  provider: WebSearch.ID,
   text: Schema.String,
   metadata: Schema.optional(Schema.Json),
 })

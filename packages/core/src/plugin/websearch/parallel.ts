@@ -60,10 +60,15 @@ export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
         { type: "key", label: "API key (optional)" },
         { type: "env", names: ["PARALLEL_API_KEY"] },
       ],
-      websearch: {
-        connection: "optional",
-        execute: (input, context) =>
-          WebSearchMcp.call(
+    })
+    yield* ctx.websearch.register({
+      id: "parallel",
+      name: "Parallel",
+      execute: (input, context) =>
+        Effect.gen(function* () {
+          const connection = yield* ctx.integration.connection.active("parallel")
+          const credential = connection ? yield* ctx.integration.connection.resolve(connection) : undefined
+          return yield* WebSearchMcp.call(
             http,
             endpoint,
             "web_search",
@@ -75,7 +80,7 @@ export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
             },
             {
               "User-Agent": `opencode/${InstallationVersion}`,
-              ...(context.credential?.type === "key" ? { Authorization: `Bearer ${context.credential.key}` } : {}),
+              ...(credential?.type === "key" ? { Authorization: `Bearer ${credential.key}` } : {}),
             },
           ).pipe(
             Effect.map((result) => {
@@ -85,8 +90,8 @@ export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
                 ...(result ? { metadata: result.structuredContent } : {}),
               }
             }),
-          ),
-      },
+          )
+        }),
     })
   }),
 })

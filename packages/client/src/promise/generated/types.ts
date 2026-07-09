@@ -2412,7 +2412,6 @@ export type IntegrationListOutput = {
       | { readonly type: "key"; readonly label?: string }
       | { readonly type: "env"; readonly names: ReadonlyArray<string> }
     >
-    readonly websearch?: { readonly connection: "optional" | "required" }
     readonly connections: ReadonlyArray<
       | { readonly type: "credential"; readonly id: string; readonly label: string }
       | { readonly type: "env"; readonly name: string }
@@ -2465,7 +2464,6 @@ export type IntegrationGetOutput = {
       | { readonly type: "key"; readonly label?: string }
       | { readonly type: "env"; readonly names: ReadonlyArray<string> }
     >
-    readonly websearch?: { readonly connection: "optional" | "required" }
     readonly connections: ReadonlyArray<
       | { readonly type: "credential"; readonly id: string; readonly label: string }
       | { readonly type: "env"; readonly name: string }
@@ -2808,14 +2806,6 @@ export type FormRequestListOutput = {
         readonly mode: "url"
         readonly url: string
       }
-    | {
-        readonly id: string
-        readonly sessionID: string
-        readonly title: string
-        readonly metadata?: { readonly [x: string]: JsonValue }
-        readonly mode: "integration"
-        readonly integrationID: string
-      }
   >
 }
 
@@ -2927,14 +2917,6 @@ export type FormListOutput = {
         readonly metadata?: { readonly [x: string]: JsonValue }
         readonly mode: "url"
         readonly url: string
-      }
-    | {
-        readonly id: string
-        readonly sessionID: string
-        readonly title: string
-        readonly metadata?: { readonly [x: string]: JsonValue }
-        readonly mode: "integration"
-        readonly integrationID: string
       }
   >
 }["data"]
@@ -3632,14 +3614,6 @@ export type FormCreateOutput = {
         readonly mode: "url"
         readonly url: string
       }
-    | {
-        readonly id: string
-        readonly sessionID: string
-        readonly title: string
-        readonly metadata?: { readonly [x: string]: JsonValue }
-        readonly mode: "integration"
-        readonly integrationID: string
-      }
 }["data"]
 
 export type FormGetInput = {
@@ -3753,14 +3727,6 @@ export type FormGetOutput = {
         readonly metadata?: { readonly [x: string]: JsonValue }
         readonly mode: "url"
         readonly url: string
-      }
-    | {
-        readonly id: string
-        readonly sessionID: string
-        readonly title: string
-        readonly metadata?: { readonly [x: string]: JsonValue }
-        readonly mode: "integration"
-        readonly integrationID: string
       }
 }["data"]
 
@@ -5595,14 +5561,6 @@ export type EventSubscribeOutput =
               readonly mode: "url"
               readonly url: string
             }
-          | {
-              readonly id: string
-              readonly sessionID: string
-              readonly title: string
-              readonly metadata?: { readonly [x: string]: unknown }
-              readonly mode: "integration"
-              readonly integrationID: string
-            }
       }
     }
   | {
@@ -5624,6 +5582,14 @@ export type EventSubscribeOutput =
       readonly type: "form.cancelled"
       readonly location?: { readonly directory: string; readonly workspaceID?: string }
       readonly data: { readonly id: string; readonly sessionID: string }
+    }
+  | {
+      readonly id: string
+      readonly created: number
+      readonly metadata?: { readonly [x: string]: unknown }
+      readonly type: "websearch.updated"
+      readonly location?: { readonly directory: string; readonly workspaceID?: string }
+      readonly data: {}
     }
   | {
       readonly id: string
@@ -6388,13 +6354,28 @@ export type DebugLocationEvictInput = {
 
 export type DebugLocationEvictOutput = void
 
-export type WebsearchProviderGetInput = {
+export type WebsearchProviderListInput = {
   readonly location?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
   }["location"]
 }
 
-export type WebsearchProviderGetOutput = {
+export type WebsearchProviderListOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{ readonly id: string; readonly name: string }>
+}
+
+export type WebsearchProviderSelectedInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+  }["location"]
+}
+
+export type WebsearchProviderSelectedOutput = {
   readonly location: {
     readonly directory: string
     readonly workspaceID?: string

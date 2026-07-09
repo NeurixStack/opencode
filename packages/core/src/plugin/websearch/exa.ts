@@ -33,12 +33,17 @@ export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
         { type: "key", label: "API key (optional)" },
         { type: "env", names: ["EXA_API_KEY"] },
       ],
-      websearch: {
-        connection: "optional",
-        execute: (input, context) => {
+    })
+    yield* ctx.websearch.register({
+      id: "exa",
+      name: "Exa",
+      execute: (input) =>
+        Effect.gen(function* () {
+          const connection = yield* ctx.integration.connection.active("exa")
+          const credential = connection ? yield* ctx.integration.connection.resolve(connection) : undefined
           const url = new URL(endpoint)
-          if (context.credential?.type === "key") url.searchParams.set("exaApiKey", context.credential.key)
-          return WebSearchMcp.call(
+          if (credential?.type === "key") url.searchParams.set("exaApiKey", credential.key)
+          return yield* WebSearchMcp.call(
             http,
             url.toString(),
             "web_search_exa",
@@ -53,8 +58,7 @@ export const Plugin = define<HttpClient.HttpClient | Scope.Scope>({
               }
             }),
           )
-        },
-      },
+        }),
     })
   }),
 })

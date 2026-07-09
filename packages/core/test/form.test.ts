@@ -4,7 +4,6 @@ import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { Form } from "@opencode-ai/core/form"
-import { Integration } from "@opencode-ai/core/integration"
 import { SessionSchema } from "@opencode-ai/core/session/schema"
 import { testEffect } from "./lib/effect"
 
@@ -60,28 +59,6 @@ describe("Form", () => {
 
       yield* service.reply({ id: created.id, answer: { name: "Ava" } })
       expect(yield* service.state(created.id)).toEqual({ status: "answered", answer: { name: "Ava" } })
-    }),
-  )
-
-  it.effect("uses an empty reply to complete an integration form", () =>
-    Effect.gen(function* () {
-      const service = yield* Form.Service
-      const created = yield* service.create({
-        sessionID: "ses_test",
-        title: "Connect integration",
-        mode: "integration",
-        integrationID: Integration.ID.make("exa"),
-      })
-
-      const invalid = yield* service.reply({ id: created.id, answer: { connected: true } }).pipe(Effect.flip)
-      expect(invalid).toEqual(
-        new Form.InvalidAnswerError({
-          id: created.id,
-          message: "Integration forms must be answered with an empty answer",
-        }),
-      )
-      yield* service.reply({ id: created.id, answer: {} })
-      expect(yield* service.state(created.id)).toEqual({ status: "answered", answer: {} })
     }),
   )
 

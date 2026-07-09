@@ -6,6 +6,7 @@ import { Credential } from "@opencode-ai/core/credential"
 import { Integration } from "@opencode-ai/core/integration"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { WebSearch } from "@opencode-ai/core/websearch"
 import type {
   CredentialOAuth,
   IntegrationEnvMethod,
@@ -83,6 +84,9 @@ export function host(overrides: Overrides = {}): Plugin.Context {
     tool: overrides.tool ?? {
       transform: () => Effect.die("unused tool.transform"),
       hook: () => Effect.die("unused tool.hook"),
+    },
+    websearch: overrides.websearch ?? {
+      register: () => Effect.die("unused websearch.register"),
     },
     session: overrides.session ?? {
       create: () => Effect.die("unused session.create"),
@@ -236,6 +240,17 @@ export function integrationHost(integration: Integration.Interface): Plugin.Cont
   }
 }
 
+export function webSearchHost(websearch: WebSearch.Interface): Plugin.Context["websearch"] {
+  return {
+    register: (definition) =>
+      websearch.register({
+        id: WebSearch.ID.make(definition.id),
+        name: definition.name,
+        execute: definition.execute,
+      }),
+  }
+}
+
 function registerIntegration(draft: Integration.Draft, definition: IntegrationDefinition) {
   const integrationID = Integration.ID.make(definition.id)
   draft.update(integrationID, (integration) => (integration.name = definition.name))
@@ -259,12 +274,6 @@ function registerIntegration(draft: Integration.Draft, definition: IntegrationDe
       }),
     )
   }
-  if (!definition.websearch) return
-  draft.websearch.update({
-    integrationID,
-    connection: definition.websearch.connection,
-    execute: definition.websearch.execute,
-  })
 }
 
 function methodImplementation(input: IntegrationMethodRegistration): Integration.Implementation {

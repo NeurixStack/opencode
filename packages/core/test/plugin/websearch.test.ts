@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect } from "bun:test"
 import { Effect } from "effect"
-import { Credential } from "@opencode-ai/core/credential"
 import { Integration } from "@opencode-ai/core/integration"
+import { WebSearch } from "@opencode-ai/core/websearch"
 import { WebSearchExa } from "@opencode-ai/core/plugin/websearch/exa"
 import { WebSearchParallel } from "@opencode-ai/core/plugin/websearch/parallel"
-import { host, integrationHost } from "./host"
+import { host, integrationHost, webSearchHost } from "./host"
 import { requests, resetWebSearchFixture, webSearchIntegrationTest } from "./websearch-fixture"
 
 beforeEach(() => {
@@ -19,50 +19,54 @@ beforeEach(() => {
 
 const it = webSearchIntegrationTest
 
-describe("built-in web search integrations", () => {
-  it.effect("registers and disposes an atomic web search integration", () =>
+describe("built-in web search providers", () => {
+  it.effect("registers a provider without an integration", () =>
     Effect.gen(function* () {
       const integrations = yield* Integration.Service
-      const registration = yield* integrationHost(integrations).register({
+      const websearch = yield* WebSearch.Service
+      const registration = yield* webSearchHost(websearch).register({
         id: "test-websearch",
         name: "Test Web Search",
-        methods: [{ type: "key", label: "API key" }],
-        websearch: {
-          connection: "required",
-          execute: (input) => Effect.succeed({ text: input.query }),
-        },
+        execute: (input) => Effect.succeed({ text: input.query }),
       })
 
-      expect(yield* integrations.get(Integration.ID.make("test-websearch"))).toMatchObject({
+      expect(yield* integrations.get(Integration.ID.make("test-websearch"))).toBeUndefined()
+      expect(yield* websearch.list()).toContainEqual({
+        id: WebSearch.ID.make("test-websearch"),
         name: "Test Web Search",
-        methods: [{ type: "key", label: "API key" }],
-        websearch: { connection: "required" },
       })
       yield* registration.dispose
-      expect(yield* integrations.get(Integration.ID.make("test-websearch"))).toBeUndefined()
+      expect(yield* websearch.list()).not.toContainEqual({
+        id: WebSearch.ID.make("test-websearch"),
+        name: "Test Web Search",
+      })
     }),
   )
 
   it.effect("registers Exa with its MCP schema", () =>
     Effect.gen(function* () {
       const integrations = yield* Integration.Service
-      yield* WebSearchExa.Plugin.effect(host({ integration: integrationHost(integrations) }))
+      const websearch = yield* WebSearch.Service
+      yield* WebSearchExa.Plugin.effect(
+        host({ integration: integrationHost(integrations), websearch: webSearchHost(websearch) }),
+      )
 
       const info = yield* integrations.get(Integration.ID.make("exa"))
       expect(info).toMatchObject({
         id: "exa",
         name: "Exa",
         methods: [{ type: "key" }, { type: "env", names: ["EXA_API_KEY"] }],
-        websearch: { connection: "optional" },
       })
-      const provider = yield* integrations.websearch.get(Integration.ID.make("exa"))
-      if (!provider) return yield* Effect.die("Expected Exa web search provider")
+      yield* integrations.connection.key({ integrationID: Integration.ID.make("exa"), key: "exa secret" })
       expect(
-        yield* provider.execute(
-          { query: "effect typescript" },
-          { credential: Credential.Key.make({ type: "key", key: "exa secret" }) },
-        ),
-      ).toEqual({ text: "search results", metadata: { searchTime: 123 } })
+        yield* websearch.query({ query: "effect typescript", providerID: WebSearch.ID.make("exa") }),
+      ).toEqual(
+        new WebSearch.Result({
+          providerID: WebSearch.ID.make("exa"),
+          text: "search results",
+          metadata: { searchTime: 123 },
+        }),
+      )
       expect(requests).toEqual([
         {
           url: `${WebSearchExa.endpoint}?exaApiKey=exa+secret`,
@@ -107,34 +111,37 @@ describe("built-in web search integrations", () => {
         }),
       )
       const integrations = yield* Integration.Service
-      yield* WebSearchParallel.Plugin.effect(host({ integration: integrationHost(integrations) }))
-      const provider = yield* integrations.websearch.get(Integration.ID.make("parallel"))
-      if (!provider) return yield* Effect.die("Expected Parallel web search provider")
-
-      const output = yield* provider.execute(
-        { query: "effect layers" },
-        {
-          sessionID: "ses_parallel",
-          credential: Credential.Key.make({ type: "key", key: "parallel-secret" }),
-        },
+      const websearch = yield* WebSearch.Service
+      yield* WebSearchParallel.Plugin.effect(
+        host({ integration: integrationHost(integrations), websearch: webSearchHost(websearch) }),
       )
-      expect(output).toEqual({
-        text: "search results",
-        metadata: {
-          search_id: "search_1",
-          results: [
-            {
-              url: "https://effect.website",
-              title: "Effect",
-              publish_date: null,
-              excerpts: ["Effect documentation"],
-            },
-          ],
-          warnings: null,
-          usage: [{ name: "sku_search", count: 1 }],
-          session_id: "ses_parallel",
-        },
+      yield* integrations.connection.key({ integrationID: Integration.ID.make("parallel"), key: "parallel-secret" })
+
+      const output = yield* websearch.query({
+        query: "effect layers",
+        providerID: WebSearch.ID.make("parallel"),
+        sessionID: "ses_parallel",
       })
+      expect(output).toEqual(
+        new WebSearch.Result({
+          providerID: WebSearch.ID.make("parallel"),
+          text: "search results",
+          metadata: {
+            search_id: "search_1",
+            results: [
+              {
+                url: "https://effect.website",
+                title: "Effect",
+                publish_date: null,
+                excerpts: ["Effect documentation"],
+              },
+            ],
+            warnings: null,
+            usage: [{ name: "sku_search", count: 1 }],
+            session_id: "ses_parallel",
+          },
+        }),
+      )
       expect(requests[0]).toMatchObject({
         url: WebSearchParallel.endpoint,
         headers: { authorization: "Bearer parallel-secret" },
