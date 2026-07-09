@@ -25,6 +25,7 @@ const INTEGRATION_PRIORITY: Record<string, number> = {
 type ConnectMethod = Exclude<IntegrationInfo["methods"][number], { type: "env" }>
 type IntegrationAttempt = IntegrationConnectOauthOutput["data"]
 type OnIntegrationConnected = (providerID?: string) => void
+type WebSearchProvider = { id: string; name: string }
 
 export function integrationOptions(list: IntegrationInfo[]) {
   return list.toSorted(
@@ -59,27 +60,30 @@ export function DialogIntegration(
   const data = useData()
   const dialog = useDialog()
   const { theme } = useTheme()
-  const options = createMemo(() =>
-    integrationOptions(data.location.integration.list() ?? [])
-      .filter((integration) => props.integrationID === undefined || integration.id === props.integrationID)
-      .map((integration) => {
+  const options = createMemo(() => {
+    const providers = data.location.websearch.list() ?? []
+    const providersByID = new Map(providers.map((provider) => [provider.id, provider]))
+    const integrations = integrationOptions(data.location.integration.list() ?? []).filter(
+      (integration) => props.integrationID === undefined || integration.id === props.integrationID,
+    )
+    const integrationIDs = new Set(integrations.map((integration) => integration.id))
+    return [
+      ...integrations.map((integration) => {
         const methods = connectMethods(integration)
         const connected = integration.connections.length > 0
-        const websearch = integration.websearch
-        const selected = data.location.websearch.provider() === integration.id
+        const provider = providersByID.get(integration.id)
+        const selected = data.location.websearch.provider() === provider?.id
         const credentials = credentialConnections(integration)
-        const description = websearch?.connection === "optional" ? "API key optional" : undefined
-        const category = websearch ? "Web search" : undefined
         return {
           title: integration.name,
           value: integration.id,
-          description: description ?? (methods.length === 0 ? "Environment only" : undefined),
+          description: methods.length === 0 ? "Environment only" : undefined,
           footer:
             [connectionSummary(integration), selected ? "Web search default" : undefined]
               .filter((value) => value !== undefined && value.length > 0)
               .join(" · ") || undefined,
-          category: category ?? (integration.id in INTEGRATION_PRIORITY ? "Popular" : "Services"),
-          disabled: methods.length === 0 && !websearch,
+          category: provider ? "Web search" : integration.id in INTEGRATION_PRIORITY ? "Popular" : "Services",
+          disabled: methods.length === 0 && !provider,
           gutter: connected ? () => <text fg={theme.success}>✓</text> : undefined,
           onSelect: () => {
             if (props.connectionOnly) {
@@ -87,14 +91,24 @@ export function DialogIntegration(
                 ? manageConnections(integration, methods, dialog, props.onConnected)
                 : selectMethod(integration, methods, dialog, props.onConnected)
             }
-            if (websearch) return manageIntegration(integration, methods, websearch, dialog)
+            if (provider) return manageWebSearch(provider, dialog, integration, methods)
             return credentials.length
               ? manageConnections(integration, methods, dialog, props.onConnected)
               : selectMethod(integration, methods, dialog, props.onConnected)
           },
         }
       }),
-  )
+      ...providers
+        .filter((provider) => props.integrationID === undefined && !integrationIDs.has(provider.id))
+        .map((provider) => ({
+          title: provider.name,
+          value: provider.id,
+          footer: data.location.websearch.provider() === provider.id ? "Web search default" : undefined,
+          category: "Web search",
+          onSelect: () => manageWebSearch(provider, dialog),
+        })),
+    ]
+  })
 
   return (
     <DialogSelect
@@ -109,28 +123,30 @@ export function DialogIntegration(
   )
 }
 
-function manageIntegration(
-  integration: IntegrationInfo,
-  methods: ConnectMethod[],
-  websearch: NonNullable<IntegrationInfo["websearch"]>,
+function manageWebSearch(
+  provider: WebSearchProvider,
   dialog: ReturnType<typeof useDialog>,
+  integration?: IntegrationInfo,
+  methods: ConnectMethod[] = [],
 ) {
-  const connected = integration.connections.length > 0
   dialog.replace(() => {
     const data = useData()
     const sdk = useSDK()
     const toast = useToast()
-    const credentials = credentialConnections(integration)
-    const selected = createMemo(() => data.location.websearch.provider() === integration.id)
+    const credentials = integration ? credentialConnections(integration) : []
+    const selected = createMemo(() => data.location.websearch.provider() === provider.id)
     const selectWebSearch = () => {
       void sdk.api.websearch.provider
         .select({
-          providerID: integration.id,
+          providerID: provider.id,
           location: location(data),
         })
         .then(async () => {
-          await Promise.all([data.location.integration.refresh(), data.location.websearch.refresh()])
-          toast.show({ variant: "success", message: `${integration.name} is now the web search default` })
+          await Promise.all([
+            ...(integration ? [data.location.integration.refresh()] : []),
+            data.location.websearch.refresh(),
+          ])
+          toast.show({ variant: "success", message: `${provider.name} is now the web search default` })
           dialog.clear()
         })
         .catch(toast.error)
@@ -138,18 +154,15 @@ function manageIntegration(
 
     return (
       <DialogSelect
-        title={integration.name}
+        title={provider.name}
         options={[
           {
             title: selected() ? "Web search default" : "Use for web search",
             value: "websearch",
             disabled: selected(),
-            onSelect:
-              websearch.connection === "required" && !connected
-                ? () => selectMethod(integration, methods, dialog, selectWebSearch)
-                : selectWebSearch,
+            onSelect: selectWebSearch,
           },
-          ...(methods.length
+          ...(integration && methods.length
             ? [
                 {
                   title: credentials.length ? "Manage connections" : "Connect",

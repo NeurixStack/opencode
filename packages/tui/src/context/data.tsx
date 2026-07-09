@@ -7,7 +7,6 @@ import type {
   AgentInfo,
   CommandInfo,
   FormFormInfo,
-  FormIntegrationInfo,
   FormUrlInfo,
   IntegrationInfo,
   LocationRef,
@@ -39,7 +38,7 @@ const messageIDFromEvent = (eventID: string) => eventID.replace(/^evt_/, "msg_")
 // Global MCP elicitations temporarily use "global" instead of a real session ID, so the
 // server cannot recover their Location when settling them. Preserve the event Location
 // until MCP elicitations carry session ownership.
-export type FormInfo = (FormFormInfo | FormUrlInfo | FormIntegrationInfo) & { readonly location?: LocationRef }
+export type FormInfo = (FormFormInfo | FormUrlInfo) & { readonly location?: LocationRef }
 
 type LocationData = {
   agent?: AgentInfo[]
@@ -49,7 +48,8 @@ type LocationData = {
   model?: ModelInfo[]
   provider?: ProviderV2Info[]
   reference?: ReferenceInfo[]
-  websearchProvider?: string | null
+  websearch?: { id: string; name: string }[]
+  websearchSelected?: string | null
   // Currently running shell commands for this location, keyed by shell id. Entries are removed
   // once the command exits or is deleted, so this only ever holds in-flight shells.
   shell?: Record<string, Shell>
@@ -797,6 +797,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         case "config.updated":
           void result.location.websearch.refresh(event.location)
           break
+        case "websearch.updated":
+          void result.location.websearch.refresh(event.location)
+          break
         // Authenticating an MCP integration reconnects its server, which emits mcp.status.changed,
         // so the mcp list refreshes here rather than off integration.updated.
         case "mcp.status.changed":
@@ -1006,13 +1009,24 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           },
         },
         websearch: {
+          list(location?: LocationRef) {
+            return store.location[locationKey(location ?? defaultLocation())]?.websearch
+          },
           provider(location?: LocationRef) {
-            return store.location[locationKey(location ?? defaultLocation())]?.websearchProvider ?? undefined
+            return store.location[locationKey(location ?? defaultLocation())]?.websearchSelected ?? undefined
           },
           async refresh(ref?: LocationRef) {
-            const result = await sdk.api.websearch.provider.get({ location: locationQuery(ref ?? defaultLocation()) })
-            const key = locationKey(result.location)
-            setStore("location", key, { ...store.location[key], websearchProvider: result.data ?? null })
+            const location = { location: locationQuery(ref ?? defaultLocation()) }
+            const [providers, selected] = await Promise.all([
+              sdk.api.websearch.provider.list(location),
+              sdk.api.websearch.provider.selected(location),
+            ])
+            const key = locationKey(providers.location)
+            setStore("location", key, {
+              ...store.location[key],
+              websearch: mutable(providers.data),
+              websearchSelected: selected.data ?? null,
+            })
           },
         },
         skill: {

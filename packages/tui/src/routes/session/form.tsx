@@ -10,8 +10,6 @@ import { useSDK } from "../../context/sdk"
 import { SplitBorder } from "../../ui/border"
 import { useTuiConfig } from "../../config"
 import { useBindings, useOpencodeModeStack } from "../../keymap"
-import { DialogIntegration } from "../../component/dialog-integration"
-import { useDialog } from "../../ui/dialog"
 
 const FORM_MODE = "form"
 
@@ -144,49 +142,7 @@ function requestOptions(form: FormInfo) {
 
 export function FormPrompt(props: { form: FormInfo }) {
   if (props.form.mode === "url") return <UrlPrompt form={props.form} />
-  if (props.form.mode === "integration") return <IntegrationPrompt form={props.form} />
   return <FieldsPrompt form={props.form} />
-}
-
-function IntegrationPrompt(props: { form: FormInfo & { mode: "integration" } }) {
-  const sdk = useSDK()
-  const dialog = useDialog()
-  const { theme } = useTheme()
-  let settled = false
-
-  onMount(() => {
-    dialog.replace(
-      () => (
-        <DialogIntegration
-          integrationID={props.form.integrationID}
-          connectionOnly
-          onConnected={() => {
-            settled = true
-            dialog.clear()
-            void sdk.api.form.reply({ sessionID: props.form.sessionID, formID: props.form.id, answer: {} })
-          }}
-        />
-      ),
-      () => {
-        if (settled) return
-        void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id })
-      },
-    )
-  })
-
-  return (
-    <box
-      backgroundColor={theme.backgroundPanel}
-      border={["left"]}
-      borderColor={theme.accent}
-      customBorderChars={SplitBorder.customBorderChars}
-    >
-      <box gap={1} paddingLeft={2} paddingRight={3} paddingTop={1} paddingBottom={1}>
-        <text fg={theme.text}>{props.form.title ?? "Connect integration"}</text>
-        <text fg={theme.textMuted}>Complete the connection dialog to continue.</text>
-      </box>
-    </box>
-  )
 }
 
 function UrlPrompt(props: { form: FormInfo & { mode: "url" } }) {

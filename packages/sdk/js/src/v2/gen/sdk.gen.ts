@@ -461,8 +461,10 @@ import type {
   V2VcsDiffResponses,
   V2VcsStatusErrors,
   V2VcsStatusResponses,
-  V2WebsearchProviderGetErrors,
-  V2WebsearchProviderGetResponses,
+  V2WebsearchProviderListErrors,
+  V2WebsearchProviderListResponses,
+  V2WebsearchProviderSelectedErrors,
+  V2WebsearchProviderSelectedResponses,
   V2WebsearchProviderSelectErrors,
   V2WebsearchProviderSelectResponses,
   V2WebsearchQueryErrors,
@@ -8254,11 +8256,11 @@ export class Debug extends HeyApiClient {
 
 export class Provider3 extends HeyApiClient {
   /**
-   * Get default web search provider
+   * List web search providers
    *
-   * Return the globally selected web search provider.
+   * Return the registered web search providers.
    */
-  public get<ThrowOnError extends boolean = false>(
+  public list<ThrowOnError extends boolean = false>(
     parameters?: {
       location?: {
         directory?: string | null
@@ -8269,11 +8271,37 @@ export class Provider3 extends HeyApiClient {
   ) {
     const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "location" }] }])
     return (options?.client ?? this.client).get<
-      V2WebsearchProviderGetResponses,
-      V2WebsearchProviderGetErrors,
+      V2WebsearchProviderListResponses,
+      V2WebsearchProviderListErrors,
       ThrowOnError
     >({
       url: "/api/websearch/provider",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get selected web search provider
+   *
+   * Return the globally selected web search provider.
+   */
+  public selected<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string | null
+        workspace?: string | null
+      } | null
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "query", key: "location" }] }])
+    return (options?.client ?? this.client).get<
+      V2WebsearchProviderSelectedResponses,
+      V2WebsearchProviderSelectedErrors,
+      ThrowOnError
+    >({
+      url: "/api/websearch/provider/selected",
       ...options,
       ...params,
     })
@@ -8310,7 +8338,7 @@ export class Provider3 extends HeyApiClient {
       V2WebsearchProviderSelectErrors,
       ThrowOnError
     >({
-      url: "/api/websearch/provider",
+      url: "/api/websearch/provider/selected",
       ...options,
       ...params,
       headers: {
@@ -8326,7 +8354,7 @@ export class Websearch extends HeyApiClient {
   /**
    * Search the web
    *
-   * Run one web search through the selected integration. Specify a provider to override the configured default.
+   * Run one web search through the selected provider. Specify a provider to override the configured default.
    */
   public query<ThrowOnError extends boolean = false>(
     parameters?: {

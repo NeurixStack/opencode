@@ -87,6 +87,7 @@ export type Event =
   | EventFormCreated
   | EventFormReplied
   | EventFormCancelled
+  | EventWebsearchUpdated
   | EventLspUpdated
   | EventPermissionAsked
   | EventPermissionReplied
@@ -1408,7 +1409,7 @@ export type GlobalEvent = {
         id: string
         type: "form.created"
         properties: {
-          form: FormFormInfo | FormUrlInfo | FormIntegrationInfo
+          form: FormFormInfo | FormUrlInfo
         }
       }
     | {
@@ -1426,6 +1427,13 @@ export type GlobalEvent = {
         properties: {
           id: string
           sessionID: string
+        }
+      }
+    | {
+        id: string
+        type: "websearch.updated"
+        properties: {
+          [key: string]: unknown
         }
       }
     | {
@@ -3084,6 +3092,7 @@ export type V2Event =
   | FormCreated
   | FormReplied
   | FormCancelled
+  | WebsearchUpdated
   | LspUpdated
   | PermissionAsked
   | PermissionReplied
@@ -3561,15 +3570,6 @@ export type FormUrlInfo = {
   metadata?: FormMetadata
   mode: "url"
   url: string
-}
-
-export type FormIntegrationInfo = {
-  id: string
-  sessionID: string
-  title: string
-  metadata?: FormMetadata
-  mode: "integration"
-  integrationID: string
 }
 
 export type FormValue =
@@ -5723,10 +5723,6 @@ export type IntegrationEnvMethod = {
   names: Array<string>
 }
 
-export type IntegrationWebSearch = {
-  connection: "optional" | "required"
-}
-
 export type ConnectionCredentialInfo = {
   type: "credential"
   id: string
@@ -5744,7 +5740,6 @@ export type IntegrationInfo = {
   id: string
   name: string
   methods: Array<IntegrationMethod>
-  websearch?: IntegrationWebSearch
   connections: Array<ConnectionInfo>
 }
 
@@ -6573,7 +6568,7 @@ export type FormCreated = {
   type: "form.created"
   location?: LocationRef
   data: {
-    form: FormFormInfo | FormUrlInfo | FormIntegrationInfo
+    form: FormFormInfo | FormUrlInfo
   }
 }
 
@@ -6605,6 +6600,19 @@ export type FormCancelled = {
   data: {
     id: string
     sessionID: string
+  }
+}
+
+export type WebsearchUpdated = {
+  id: string
+  created: number
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "websearch.updated"
+  location?: LocationRef
+  data: {
+    [key: string]: unknown
   }
 }
 
@@ -7022,6 +7030,11 @@ export type ProjectCopyCopy = {
 }
 
 export type VcsMode = "working" | "branch"
+
+export type WebSearchProvider = {
+  id: string
+  name: string
+}
 
 export type WebSearchResult = {
   providerID: string
@@ -7851,7 +7864,7 @@ export type EventFormCreated = {
   id: string
   type: "form.created"
   properties: {
-    form: FormFormInfo | FormUrlInfo | FormIntegrationInfo
+    form: FormFormInfo | FormUrlInfo
   }
 }
 
@@ -7871,6 +7884,14 @@ export type EventFormCancelled = {
   properties: {
     id: string
     sessionID: string
+  }
+}
+
+export type EventWebsearchUpdated = {
+  id: string
+  type: "websearch.updated"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -8701,6 +8722,7 @@ export type V2EventV2 =
   | FormCreatedV2
   | FormRepliedV2
   | FormCancelledV2
+  | WebsearchUpdatedV2
   | SessionStatusV22
   | SessionIdleV2
   | TuiPromptAppendV2
@@ -9930,15 +9952,6 @@ export type FormUrlInfoV2 = {
   url: string
 }
 
-export type FormIntegrationInfoV2 = {
-  id: string
-  sessionID: string
-  title: string
-  metadata?: FormMetadata
-  mode: "integration"
-  integrationID: string
-}
-
 export type FormCreatePayloadV2 = {
   id?: string | null
   title: string
@@ -10674,15 +10687,6 @@ export type FormUrlInfo1 = {
   url: string
 }
 
-export type FormIntegrationInfo1 = {
-  id: string
-  sessionID: string
-  title: string
-  metadata?: FormMetadata1
-  mode: "integration"
-  integrationID: string
-}
-
 export type FormCreatedV2 = {
   id: string
   created: number
@@ -10692,7 +10696,7 @@ export type FormCreatedV2 = {
   type: "form.created"
   location?: LocationRefV2
   data: {
-    form: FormFormInfo1 | FormUrlInfo1 | FormIntegrationInfo1
+    form: FormFormInfo1 | FormUrlInfo1
   }
 }
 
@@ -10727,6 +10731,21 @@ export type FormCancelledV2 = {
     id: string
     sessionID: string
   }
+}
+
+export type WebsearchUpdatedV2 = {
+  id: string
+  created: number
+  metadata?: {
+    [key: string]: unknown
+  }
+  type: "websearch.updated"
+  location?: LocationRefV2
+  data:
+    | {
+        [key: string]: unknown
+      }
+    | Array<unknown>
 }
 
 export type SessionIdleV2 = {
@@ -17245,7 +17264,7 @@ export type V2FormRequestListResponses = {
    */
   200: {
     location: LocationInfoV2
-    data: Array<FormFormInfoV2 | FormUrlInfoV2 | FormIntegrationInfoV2>
+    data: Array<FormFormInfoV2 | FormUrlInfoV2>
   }
 }
 
@@ -17282,7 +17301,7 @@ export type V2SessionFormListResponses = {
    * Success
    */
   200: {
-    data: Array<FormFormInfoV2 | FormUrlInfoV2 | FormIntegrationInfoV2>
+    data: Array<FormFormInfoV2 | FormUrlInfoV2>
   }
 }
 
@@ -17323,7 +17342,7 @@ export type V2SessionFormCreateResponses = {
    * Success
    */
   200: {
-    data: FormFormInfoV2 | FormUrlInfoV2 | FormIntegrationInfoV2
+    data: FormFormInfoV2 | FormUrlInfoV2
   }
 }
 
@@ -17361,7 +17380,7 @@ export type V2SessionFormGetResponses = {
    * Success
    */
   200: {
-    data: FormFormInfoV2 | FormUrlInfoV2 | FormIntegrationInfoV2
+    data: FormFormInfoV2 | FormUrlInfoV2
   }
 }
 
@@ -18968,7 +18987,7 @@ export type V2DebugLocationListResponses = {
 
 export type V2DebugLocationListResponse = V2DebugLocationListResponses[keyof V2DebugLocationListResponses]
 
-export type V2WebsearchProviderGetData = {
+export type V2WebsearchProviderListData = {
   body?: never
   path?: never
   query?: {
@@ -18980,7 +18999,48 @@ export type V2WebsearchProviderGetData = {
   url: "/api/websearch/provider"
 }
 
-export type V2WebsearchProviderGetErrors = {
+export type V2WebsearchProviderListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestErrorV2
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * ServiceUnavailableError
+   */
+  503: ServiceUnavailableErrorV2
+}
+
+export type V2WebsearchProviderListError = V2WebsearchProviderListErrors[keyof V2WebsearchProviderListErrors]
+
+export type V2WebsearchProviderListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfoV2
+    data: Array<WebSearchProvider>
+  }
+}
+
+export type V2WebsearchProviderListResponse = V2WebsearchProviderListResponses[keyof V2WebsearchProviderListResponses]
+
+export type V2WebsearchProviderSelectedData = {
+  body?: never
+  path?: never
+  query?: {
+    location?: {
+      directory?: string | null
+      workspace?: string | null
+    } | null
+  }
+  url: "/api/websearch/provider/selected"
+}
+
+export type V2WebsearchProviderSelectedErrors = {
   /**
    * InvalidRequestError
    */
@@ -18991,9 +19051,10 @@ export type V2WebsearchProviderGetErrors = {
   401: UnauthorizedError
 }
 
-export type V2WebsearchProviderGetError = V2WebsearchProviderGetErrors[keyof V2WebsearchProviderGetErrors]
+export type V2WebsearchProviderSelectedError =
+  V2WebsearchProviderSelectedErrors[keyof V2WebsearchProviderSelectedErrors]
 
-export type V2WebsearchProviderGetResponses = {
+export type V2WebsearchProviderSelectedResponses = {
   /**
    * Success
    */
@@ -19003,7 +19064,8 @@ export type V2WebsearchProviderGetResponses = {
   }
 }
 
-export type V2WebsearchProviderGetResponse = V2WebsearchProviderGetResponses[keyof V2WebsearchProviderGetResponses]
+export type V2WebsearchProviderSelectedResponse =
+  V2WebsearchProviderSelectedResponses[keyof V2WebsearchProviderSelectedResponses]
 
 export type V2WebsearchProviderSelectData = {
   body: {
@@ -19016,7 +19078,7 @@ export type V2WebsearchProviderSelectData = {
       workspace?: string | null
     } | null
   }
-  url: "/api/websearch/provider"
+  url: "/api/websearch/provider/selected"
 }
 
 export type V2WebsearchProviderSelectErrors = {
