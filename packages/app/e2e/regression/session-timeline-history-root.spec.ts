@@ -17,12 +17,14 @@ import { mockOpenCodeServer } from "../utils/mock-server"
 import { installSseTransport } from "../utils/sse-transport"
 import { expectSessionTitle } from "../utils/waits"
 
-const assistants = Array.from({ length: 20 }, (_, index) =>
+const initialPageSize = 20
+const historyPageSize = 200
+const assistants = Array.from({ length: initialPageSize + 1 }, (_, index) =>
   assistantMessage([textPart(`prt_history_root_${index}`, `Assistant response ${index}`)], {
     id: `msg_${String(index + 1001).padStart(4, "0")}_history_root_assistant`,
     parentID: userID,
     created: 1700000001000 + index * 1_000,
-    completed: index < 19,
+    completed: index < initialPageSize,
   }),
 )
 const messages = [userMessage(), ...assistants]
@@ -102,13 +104,28 @@ for (const scenario of scenarios) {
       },
     })
     await page.addInitScript(() => {
+      const visibleParts = () => {
+        const virtual = document.querySelector<HTMLElement>("[data-timeline-virtual-content]")
+        const viewport = virtual?.closest<HTMLElement>(".scroll-view__viewport")
+        const view = viewport?.getBoundingClientRect()
+        if (!viewport || !view) return []
+        return [...viewport.querySelectorAll<HTMLElement>("[data-timeline-part-id]")]
+          .filter((part) => {
+            const rect = part.getBoundingClientRect()
+            return rect.width > 0 && rect.height > 0 && rect.bottom > view.top && rect.top < view.bottom
+          })
+          .flatMap((part) => (part.dataset.timelinePartId ? [part.dataset.timelinePartId] : []))
+      }
       const state = {
         armed: false,
-        captured: false,
         hidden: false,
         visibleParts: [] as string[],
         samples: 0,
         stop: false,
+        arm() {
+          state.visibleParts = visibleParts()
+          state.armed = true
+        },
       }
       ;(window as Window & { __historyRootProbe?: typeof state }).__historyRootProbe = state
       const sample = () => {
@@ -117,7 +134,7 @@ for (const scenario of scenarios) {
           const viewport = virtual?.closest<HTMLElement>(".scroll-view__viewport")
           const view = viewport?.getBoundingClientRect()
           const visible = (partID: string) => {
-            const part = viewport?.querySelector<HTMLElement>(`[data-timeline-part-id="${partID}"]`)
+            const part = viewport?.querySelector<HTMLElement>(`[data-timeline-part-id="${CSS.escape(partID)}"]`)
             const rect = part?.getBoundingClientRect()
             return (
               !!rect &&
@@ -127,12 +144,6 @@ for (const scenario of scenarios) {
               rect.bottom > view.top &&
               rect.top < view.bottom
             )
-          }
-          if (!state.captured && viewport) {
-            state.visibleParts = [...viewport.querySelectorAll<HTMLElement>("[data-timeline-part-id]")]
-              .map((part) => part.dataset.timelinePartId)
-              .filter((partID): partID is string => !!partID && visible(partID))
-            state.captured = true
           }
           if (
             !virtual ||
@@ -158,25 +169,27 @@ for (const scenario of scenarios) {
       "messages:start:latest",
       "messages:end:latest",
       `message:${userID}`,
-      `messages:start:${messages.at(-20)!.info.id}`,
+      `messages:start:${messages.at(-initialPageSize)!.info.id}`,
     ])
+    await expect(page.locator('[data-timeline-part-id^="prt_history_root_"]')).toHaveCount(initialPageSize)
     await page.evaluate(() => {
       ;(
         window as Window & {
-          __historyRootProbe?: { armed: boolean }
+          __historyRootProbe?: { arm(): void }
         }
-      ).__historyRootProbe!.armed = true
+      ).__historyRootProbe!.arm()
     })
     await waitForProbeSamples(page, 0)
     expect(await visibleContentHidden(page)).toBe(false)
     const beforeHistory = await probeSamples(page)
     history.resolve()
-    await expect(page.locator('[data-timeline-part-id^="prt_history_root_"]')).toHaveCount(20)
+    await expect(page.locator('[data-timeline-part-id^="prt_history_root_"]')).toHaveCount(assistants.length)
+    await expect.poll(() => requests.filter((request) => request.phase === "end").length).toBe(2)
     await expect(page.getByRole("button", { name: "Stop" })).toBeVisible()
     await waitForProbeSamples(page, beforeHistory)
     expect(pages).toEqual([
-      { before: undefined, limit: 20 },
-      { before: messages.at(-20)!.info.id, limit: 200 },
+      { before: undefined, limit: initialPageSize },
+      { before: messages.at(-initialPageSize)!.info.id, limit: historyPageSize },
     ])
     expect(roots).toEqual([{ sessionID, messageID: userID }])
 
