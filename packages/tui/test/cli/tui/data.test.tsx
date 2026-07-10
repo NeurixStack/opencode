@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import { expect, test } from "bun:test"
 import { testRender } from "@opentui/solid"
-import type { V2Event } from "@opencode-ai/sdk/v2"
+import type { OpenCodeEvent } from "@opencode-ai/client/promise"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { EventV2 } from "@opencode-ai/core/event"
 import { onMount } from "solid-js"
@@ -12,6 +12,14 @@ import { createSessionRows, type SessionRow } from "../../../src/routes/session/
 import { createApi, createClient, createEventStream, createFetch, directory, json } from "../../fixture/tui-sdk"
 import { TestTuiContexts } from "../../fixture/tui-environment"
 
+const formFields = [{ key: "authorization", type: "external", url: "https://example.com" }] satisfies [
+  {
+    key: string
+    type: "external"
+    url: string
+  },
+]
+
 async function wait(fn: () => boolean, timeout = 2000) {
   const start = Date.now()
   while (!fn()) {
@@ -20,7 +28,7 @@ async function wait(fn: () => boolean, timeout = 2000) {
   }
 }
 
-function emitEvent(events: ReturnType<typeof createEventStream>, event: V2Event) {
+function emitEvent(events: ReturnType<typeof createEventStream>, event: OpenCodeEvent) {
   events.emit({ ...event, location: { directory } })
 }
 
@@ -1510,7 +1518,7 @@ test("adds, dismisses, and refreshes form requests", async () => {
   const calls = createFetch((url) => {
     if (url.pathname !== "/api/session/ses_1/form") return
     return json({
-      data: [{ id: "frm_remote", sessionID: "ses_1", title: "Input requested", mode: "form", fields: [] }],
+      data: [{ id: "frm_remote", sessionID: "ses_1", title: "Input requested", fields: formFields }],
     })
   }, events)
   let data!: ReturnType<typeof useData>
@@ -1540,13 +1548,13 @@ test("adds, dismisses, and refreshes form requests", async () => {
       id: "evt_form_created_1",
       created: 0,
       type: "form.created",
-      data: { form: { id: "frm_1", sessionID: "ses_1", title: "Input requested", mode: "form", fields: [] } },
+      data: { form: { id: "frm_1", sessionID: "ses_1", title: "Input requested", fields: formFields } },
     })
     emitEvent(events, {
       id: "evt_form_created_duplicate",
       created: 1,
       type: "form.created",
-      data: { form: { id: "frm_1", sessionID: "ses_1", title: "Input requested", mode: "form", fields: [] } },
+      data: { form: { id: "frm_1", sessionID: "ses_1", title: "Input requested", fields: formFields } },
     })
     await wait(() => data.session.form.list("ses_1")?.length === 1)
 
@@ -1562,7 +1570,7 @@ test("adds, dismisses, and refreshes form requests", async () => {
       id: "evt_form_created_2",
       created: 3,
       type: "form.created",
-      data: { form: { id: "frm_2", sessionID: "ses_1", title: "Input requested", mode: "form", fields: [] } },
+      data: { form: { id: "frm_2", sessionID: "ses_1", title: "Input requested", fields: formFields } },
     })
     emitEvent(events, {
       id: "evt_form_cancelled_2",
@@ -1612,7 +1620,7 @@ test("tracks global forms by location", async () => {
       location: other,
       type: "form.created",
       data: {
-        form: { id: "frm_other", sessionID: "global", title: "Input requested", mode: "form", fields: [] },
+        form: { id: "frm_other", sessionID: "global", title: "Input requested", fields: formFields },
       },
     })
 
@@ -1625,7 +1633,7 @@ test("tracks global forms by location", async () => {
       location: { directory },
       type: "form.created",
       data: {
-        form: { id: "frm_default", sessionID: "global", title: "Input requested", mode: "form", fields: [] },
+        form: { id: "frm_default", sessionID: "global", title: "Input requested", fields: formFields },
       },
     })
     await wait(() => data.session.form.list("global", { directory })?.length === 1)
@@ -1664,8 +1672,7 @@ test("refreshes global forms for the requested location", async () => {
           id: requestedDirectory === other.directory ? "frm_other" : "frm_default",
           sessionID: "global",
           title: "Input requested",
-          mode: "form",
-          fields: [],
+          fields: formFields,
         },
       ],
     })
@@ -1743,8 +1750,7 @@ test("refreshes global forms once per loaded location after reconnect", async ()
           id: `frm_${requestedDirectory === other.directory ? "other" : "default"}_${count}`,
           sessionID: "global",
           title: "Input requested",
-          mode: "form",
-          fields: [],
+          fields: formFields,
         },
       ],
     })
@@ -1803,13 +1809,12 @@ test("refreshes global forms once per loaded location after reconnect", async ()
 test("reconciles all pending form requests when the event stream reconnects", async () => {
   const events = createEventStream()
   let requests = [
-    { id: "frm_old", sessionID: "ses_old", title: "Input requested", mode: "form" as const, fields: [] },
+    { id: "frm_old", sessionID: "ses_old", title: "Input requested", fields: formFields },
     {
       id: "frm_keep",
       sessionID: "ses_keep",
       title: "Input requested",
-      mode: "url" as const,
-      url: "https://example.com",
+      fields: [{ key: "authorization", type: "external" as const, url: "https://example.com" }],
     },
   ]
   let calls = 0
@@ -1841,7 +1846,7 @@ test("reconciles all pending form requests when the event stream reconnects", as
     await wait(() => data.session.form.list("ses_old")?.[0]?.id === "frm_old")
     expect(data.session.form.list("ses_keep")?.[0]?.id).toBe("frm_keep")
 
-    requests = [{ id: "frm_new", sessionID: "ses_new", title: "Input requested", mode: "form" as const, fields: [] }]
+    requests = [{ id: "frm_new", sessionID: "ses_new", title: "Input requested", fields: formFields }]
     events.disconnect()
 
     await wait(() => calls === 2 && data.session.form.list("ses_new")?.[0]?.id === "frm_new")
@@ -2124,10 +2129,10 @@ test("projects live instruction updates with their message ID", async () => {
       id: "evt_instructions_1",
       created: 0,
       type: "session.instructions.updated",
-      durable: durable("session-1"),
+      durable: durable("session-1", 0, 2),
       data: {
         sessionID: "session-1",
-        text: "Updated instructions",
+        delta: { "core/date": "0".repeat(64) },
       },
     })
 
@@ -2135,7 +2140,7 @@ test("projects live instruction updates with their message ID", async () => {
     expect(sync.session.message.list("session-1")?.[0]).toMatchObject({
       id: SessionMessage.ID.fromEvent(EventV2.ID.make("evt_instructions_1")),
       type: "system",
-      text: "Updated instructions",
+      text: "Instructions updated: core/date",
       time: { created: 0 },
     })
   } finally {

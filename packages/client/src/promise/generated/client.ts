@@ -48,6 +48,8 @@ import type {
   SessionRevertCommitOutput,
   SessionContextInput,
   SessionContextOutput,
+  SessionPendingListInput,
+  SessionPendingListOutput,
   SessionInstructionsEntryListInput,
   SessionInstructionsEntryListOutput,
   SessionInstructionsEntryPutInput,
@@ -666,6 +668,19 @@ export function make(options: ClientOptions) {
           },
           requestOptions,
         ).then((value) => value.data),
+      pending: {
+        list: (input: SessionPendingListInput, requestOptions?: RequestOptions) =>
+          request<{ readonly data: SessionPendingListOutput }>(
+            {
+              method: "GET",
+              path: `/api/session/${encodeURIComponent(input.sessionID)}/pending`,
+              successStatus: 200,
+              declaredStatuses: [404, 400, 401],
+              empty: false,
+            },
+            requestOptions,
+          ).then((value) => value.data),
+      },
       instructions: {
         entry: {
           list: (input: SessionInstructionsEntryListInput, requestOptions?: RequestOptions) =>
@@ -686,7 +701,7 @@ export function make(options: ClientOptions) {
                 path: `/api/session/${encodeURIComponent(input.sessionID)}/instructions/entries/${encodeURIComponent(input.key)}`,
                 body: { value: input["value"] },
                 successStatus: 204,
-                declaredStatuses: [404, 400, 401],
+                declaredStatuses: [404, 413, 400, 401],
                 empty: true,
               },
               requestOptions,
@@ -1041,14 +1056,7 @@ export function make(options: ClientOptions) {
           {
             method: "POST",
             path: `/api/session/${encodeURIComponent(input.sessionID)}/form`,
-            body: {
-              id: input["id"],
-              title: input["title"],
-              metadata: input["metadata"],
-              mode: input["mode"],
-              fields: input["fields"],
-              url: input["url"],
-            },
+            body: { id: input["id"], title: input["title"], metadata: input["metadata"], fields: input["fields"] },
             successStatus: 200,
             declaredStatuses: [404, 409, 400, 401],
             empty: false,

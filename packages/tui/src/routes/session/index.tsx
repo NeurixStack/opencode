@@ -268,15 +268,13 @@ export function Session() {
         navigate({ type: "home" })
         return
       }
-      void data.session.form
-        .refresh("global", info.location)
-        .catch((error) =>
-          toast.show({
-            message: `Failed to refresh global forms: ${errorMessage(error)}`,
-            variant: "error",
-            duration: 5000,
-          }),
-        )
+      void data.session.form.refresh("global", info.location).catch((error) =>
+        toast.show({
+          message: `Failed to refresh global forms: ${errorMessage(error)}`,
+          variant: "error",
+          duration: 5000,
+        }),
+      )
       project.workspace.set(info.location.workspaceID)
       editor.reconnect(info.location.directory)
       if (route.sessionID === sessionID && scroll) scroll.scrollBy(100_000)
@@ -761,12 +759,7 @@ export function Session() {
           const sessionData = session()
           if (!sessionData) return
 
-          const options = await DialogExportOptions.show(
-            dialog,
-            showThinking(),
-            showDetails(),
-            showAssistantMetadata(),
-          )
+          const options = await DialogExportOptions.show(dialog, showThinking(), showDetails(), showAssistantMetadata())
 
           if (options === null) return
 
@@ -1312,7 +1305,7 @@ function SessionSwitchMessageV2(props: { message: SessionMessageInfo }) {
 function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
   const { theme } = useTheme()
   const text = () => {
-    if (props.message.type === "system") return "Instructions updated"
+    if (props.message.type === "system") return props.message.text
     if (props.message.type === "synthetic") return props.message.description ?? ""
     return ""
   }
@@ -2042,8 +2035,7 @@ function InlineTool(props: {
     if (permission()) return theme.warning
     if (failed()) return theme.error
     if (hover() && props.onClick) return theme.text
-    if (props.complete) return theme.textMuted
-    return theme.text
+    return theme.textMuted
   })
 
   return (
@@ -2103,13 +2095,7 @@ export function InlineToolRow(props: {
         <Match when={true}>
           <Show
             fallback={
-              <text
-                paddingLeft={3}
-                fg={props.color}
-                attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
-              >
-                ~ {props.pending}
-              </text>
+              <Spinner color={props.color}>{props.pending}</Spinner>
             }
             when={props.complete || props.failed}
           >
