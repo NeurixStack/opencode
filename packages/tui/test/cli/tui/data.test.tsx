@@ -1315,15 +1315,18 @@ test("refreshes references after updates", async () => {
 test("keeps shell state scoped to location", async () => {
   const events = createEventStream()
   const other = "/tmp/opencode/other"
+  let otherRequests = 0
+  let otherRunning = true
   const calls = createFetch((url) => {
     if (url.pathname !== "/api/shell") return
     const requestDirectory = url.searchParams.get("location[directory]")
+    if (requestDirectory === other) otherRequests++
     return json({
       location: {
         directory: requestDirectory ?? directory,
         project: { id: "proj_test", directory: requestDirectory ?? directory },
       },
-      data: [
+      data: requestDirectory === other && !otherRunning ? [] : [
         {
           id: requestDirectory === other ? "sh_other" : "sh_default",
           status: "running",
@@ -1383,6 +1386,11 @@ test("keeps shell state scoped to location", async () => {
     })
     await wait(() => data.shell.list({ directory: other }).some((shell) => shell.id === "sh_live_other"))
     expect(data.shell.list().map((shell) => shell.id)).toEqual(["sh_default"])
+
+    otherRunning = false
+    events.disconnect()
+    await wait(() => otherRequests === 2, 4000)
+    await wait(() => data.shell.list({ directory: other }).length === 0)
   } finally {
     app.renderer.destroy()
   }

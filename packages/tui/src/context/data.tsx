@@ -50,6 +50,7 @@ type LocationData = {
   reference?: ReferenceInfo[]
   // Currently running shell commands for this location, keyed by shell id. Entries are removed
   // once the command exits or is deleted, so this only ever holds in-flight shells.
+  shellLocation?: LocationRef
   shell?: Record<string, Shell>
   skill?: SkillInfo[]
 }
@@ -754,6 +755,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         case "shell.created":
           setStore("location", locationKey(event.location ?? defaultLocation()), (data) => ({
             ...data,
+            shellLocation: event.location ?? defaultLocation(),
             shell: { ...data?.shell, [event.data.info.id]: event.data.info },
           }))
           break
@@ -901,6 +903,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           const key = locationKey(result.location)
           setStore("location", key, {
             ...store.location[key],
+            shellLocation: { directory: result.location.directory, workspaceID: result.location.workspaceID },
             shell: Object.fromEntries(result.data.map((info) => [info.id, info])),
           })
         },
@@ -1066,12 +1069,19 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             ),
           )
           const refreshed = await Promise.allSettled(
-            Array.from(locations)
-              .filter(([location]) => location !== key)
-              .map(([, location]) => result.session.form.refresh("global", location)),
+            [
+              ...Array.from(locations)
+                .filter(([location]) => location !== key)
+                .map(([, location]) => result.session.form.refresh("global", location)),
+              ...Object.values(store.location).flatMap((data) =>
+                data.shellLocation && data.shell && locationKey(data.shellLocation) !== key
+                  ? [result.shell.refresh(data.shellLocation)]
+                  : [],
+              ),
+            ],
           )
           for (const failure of refreshed.filter((item) => item.status === "rejected"))
-            console.error("Failed to refresh global forms", failure.reason)
+            console.error("Failed to refresh location data", failure.reason)
         })
         .finally(() => {
           bootstrapping = undefined
