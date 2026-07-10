@@ -104,6 +104,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     const [defaultLocation, setDefaultLocation] = createSignal<LocationRef>({
       directory: process.cwd(),
     })
+    let defaultLocationReady = false
     const messageIndex = new Map<string, Map<string, number>>()
     let bootstrapping: Promise<void> | undefined
     let connected = false
@@ -233,6 +234,16 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     }
 
     function handleEvent(event: OpenCodeEvent) {
+      if (
+        defaultLocationReady &&
+        event.type.startsWith("session.") &&
+        "sessionID" in event.data &&
+        typeof event.data.sessionID === "string" &&
+        !store.session.info[event.data.sessionID] &&
+        event.location &&
+        locationKey(event.location) !== locationKey(defaultLocation())
+      )
+        return
       switch (event.type) {
         case "session.created":
           void result.session.refresh(event.data.sessionID)
@@ -912,7 +923,10 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           const location = await sdk.api.location.get({ location: locationQuery(ref ?? defaultLocation()) })
           const key = locationKey(location)
           if (!store.location[key]) setStore("location", key, {})
-          if (!ref) setDefaultLocation({ directory: location.directory, workspaceID: location.workspaceID })
+          if (!ref) {
+            setDefaultLocation({ directory: location.directory, workspaceID: location.workspaceID })
+            defaultLocationReady = true
+          }
         },
         agent: {
           list(location?: LocationRef) {

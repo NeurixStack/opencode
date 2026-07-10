@@ -112,7 +112,7 @@ function Probe(props: {
 }
 
 describe("useEvent", () => {
-  test("logs only durable events", async () => {
+  test("does not log individual events", async () => {
     const logs: Array<{ message: string; tags: Readonly<Record<string, unknown>> }> = []
     const { app, emit, seen } = await mount(undefined, (_level, message, tags) => {
       if (message === "event") logs.push({ message, tags })
@@ -131,14 +131,9 @@ describe("useEvent", () => {
     try {
       emit(vcs("main"))
       emit(durable)
-      await wait(() => seen.length === 2 && logs.length === 1)
+      await wait(() => seen.length === 2)
 
-      expect(logs).toEqual([
-        {
-          message: "event",
-          tags: { component: "sdk", type: "session.renamed", aggregateID: "ses_test", seq: 1 },
-        },
-      ])
+      expect(logs).toEqual([])
     } finally {
       app.renderer.destroy()
     }

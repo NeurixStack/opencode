@@ -92,12 +92,6 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
               const event = await iterator.next()
               if (abort.signal.aborted || controller.signal.aborted) return
               if (event.done) return new Error("Event stream disconnected")
-              if ("durable" in event.value)
-                log.info("event", {
-                  type: event.value.type,
-                  aggregateID: event.value.durable.aggregateID,
-                  seq: event.value.durable.seq,
-                })
               events.emit(event.value.type, event.value)
             }
           })()

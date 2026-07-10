@@ -122,6 +122,59 @@ test("refreshes resources into reactive getters", async () => {
   }
 })
 
+test("does not materialize messages for unknown sessions in other locations", async () => {
+  const events = createEventStream()
+  const sessionID = "ses_unloaded"
+  const calls = createFetch((url) => {
+    if (url.pathname === `/api/session/${sessionID}/message`) return json({ data: [], cursor: {} })
+  }, events)
+  let data!: ReturnType<typeof useData>
+
+  function Probe() {
+    data = useData()
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  const started = (id: string, seq: number): OpenCodeEvent => ({
+    id: `evt_${id}`,
+    created: seq,
+    type: "session.step.started",
+    durable: durable(sessionID, seq),
+    data: {
+      sessionID,
+      assistantMessageID: id,
+      agent: "build",
+      model: { providerID: "provider", id: "model" },
+    },
+  })
+
+  try {
+    await wait(() => data.location.default().directory === directory)
+    events.emit({ ...started("msg_ignored", 1), location: { directory: "/tmp/other" } })
+    await Bun.sleep(20)
+    expect(data.session.message.ids(sessionID)).toEqual([])
+
+    await data.session.message.refresh(sessionID)
+    emitEvent(events, started("msg_loaded", 2))
+    await wait(() => data.session.message.ids(sessionID).length === 1)
+    expect(data.session.message.ids(sessionID)).toEqual(["msg_loaded"])
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
 test("applies absolute usage events to session info", async () => {
   const events = createEventStream()
   const sessionID = "ses_usage_refresh"
