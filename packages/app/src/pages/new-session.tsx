@@ -1,13 +1,10 @@
 import { Show, createEffect, createMemo, createResource, createSignal, onCleanup, untrack } from "solid-js"
 import { createStore } from "solid-js/store"
-import { Portal } from "solid-js/web"
 import { useSearchParams } from "@solidjs/router"
-import { createMediaQuery } from "@solid-primitives/media"
 import { Icon as IconV2 } from "@opencode-ai/ui/v2/icon"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { NewSessionDesignView } from "@/components/session"
 import { PromptInput } from "@/components/prompt-input"
-import { StatusPopoverV2 } from "@/components/status-popover"
 import {
   PromptProjectAddButton,
   PromptProjectSelector,
@@ -25,7 +22,6 @@ import { useSessionKey } from "@/pages/session/session-layout"
 import { useComposerCommands } from "@/pages/session/use-composer-commands"
 import { NEW_SESSION_CONTENT_WIDTH } from "@/pages/session/new-session-layout"
 import { PromptWorkspaceSelector } from "@/components/prompt-workspace-selector"
-import { useTitlebarRightMount } from "@/components/titlebar"
 import { useCommand } from "@/context/command"
 import { useProviders } from "@/hooks/use-providers"
 import { useSettingsDialog } from "@/components/settings-dialog"
@@ -55,7 +51,6 @@ export default function NewSessionPage() {
   const providers = useProviders(() => sdk().directory)
   const openProviderSettings = useSettingsDialog("providers")
   const route = useSessionKey()
-  const isDesktop = createMediaQuery("(min-width: 768px)")
   const [searchParams, setSearchParams] = useSearchParams<{ draftId?: string; prompt?: string }>()
   const local = useLocal()
   const model = createPromptModelSelection({ agent: local.agent.current })
@@ -87,7 +82,6 @@ export default function NewSessionPage() {
   ])
 
   const [store, setStore] = createStore<{ worktree?: string }>({})
-  const rightMount = useTitlebarRightMount()
 
   const showWorkspaceBar = createMemo(() => workspaceBarEnabled && sync().project?.vcs === "git")
   const newSessionWorktree = createMemo(() => {
@@ -127,17 +121,6 @@ export default function NewSessionPage() {
 
   return (
     <div class="relative size-full overflow-hidden flex flex-col">
-      <Show when={rightMount()}>
-        {(mount) => (
-          <Portal mount={mount()}>
-            <Show when={isDesktop() && settings.general.newLayoutDesigns()}>
-              <TooltipV2 placement="bottom" value={language.t("status.popover.tools.trigger")}>
-                <StatusPopoverV2 />
-              </TooltipV2>
-            </Show>
-          </Portal>
-        )}
-      </Show>
       <div class="flex-1 min-h-0 flex flex-col gap-2 p-2">
         <div class="@container relative flex flex-col min-h-0 h-full flex-1">
           <div class="flex-1 min-h-0 overflow-hidden rounded-[10px]">
