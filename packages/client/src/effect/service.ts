@@ -38,6 +38,28 @@ export type StartOptions = Options & {
   readonly onStart?: (reason: StartReason) => void
 }
 
+export type Status =
+  | { readonly status: "stopped" }
+  | {
+      readonly status: "running"
+      readonly url: string
+      readonly pid: number
+      readonly version?: string
+      readonly compatible: boolean
+    }
+
+export const status = Effect.fn("service.status")(function* (options: Options = {}) {
+  const found = yield* discoverLocal({ ...options, version: undefined })
+  if (found === undefined) return { status: "stopped" } as const
+  return {
+    status: "running",
+    url: found.endpoint.url,
+    pid: found.info.pid,
+    version: found.info.version,
+    compatible: options.version === undefined || found.info.version === options.version,
+  } satisfies Status
+})
+
 // Read-only lookup: registration file plus health check and version gate.
 // Never spawns; escalation to start() is the caller's policy.
 export const discover = Effect.fn("service.discover")(function* (options: Options = {}) {

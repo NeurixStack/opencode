@@ -4,6 +4,7 @@ import { Database } from "@opencode-ai/core/database/database"
 import { EventV2 } from "@opencode-ai/core/event"
 import { EventTable } from "@opencode-ai/core/event/sql"
 import { Global } from "@opencode-ai/core/global"
+import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -31,6 +32,60 @@ test("local channel stores service config with the local service filename", asyn
     })
     expect(await Bun.file(path.join(root, "config", "service.json")).exists()).toBe(false)
   } finally {
+    await fs.rm(root, { recursive: true, force: true })
+  }
+})
+
+test("service status reports a healthy version-mismatched server", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "opencode-service-status-"))
+  const version = "0.0.0-older"
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(request) {
+      if (new URL(request.url).pathname !== "/api/health") return new Response("Not found", { status: 404 })
+      return Response.json({ healthy: true, version, pid: process.pid })
+    },
+  })
+  const env = {
+    ...process.env,
+    HOME: root,
+    OPENCODE_TEST_HOME: root,
+    XDG_CACHE_HOME: path.join(root, "cache"),
+    XDG_CONFIG_HOME: path.join(root, "config"),
+    XDG_DATA_HOME: path.join(root, "data"),
+    XDG_STATE_HOME: path.join(root, "state"),
+  }
+
+  try {
+    const registration = path.join(root, "state", "opencode", "service-local.json")
+    await fs.mkdir(path.dirname(registration), { recursive: true })
+    await Bun.write(
+      registration,
+      JSON.stringify({ id: "older-service", version, url: server.url.toString(), pid: process.pid }),
+    )
+    const child = Bun.spawn([process.execPath, path.join(import.meta.dir, "../src/index.ts"), "service", "status"], {
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+
+    expect(exitCode, stderr).toBe(0)
+    expect(JSON.parse(stdout)).toEqual({
+      status: "running",
+      url: server.url.toString(),
+      pid: process.pid,
+      version,
+      compatible: false,
+      clientVersion: InstallationVersion,
+    })
+  } finally {
+    server.stop(true)
     await fs.rm(root, { recursive: true, force: true })
   }
 })
