@@ -197,7 +197,7 @@ const layer = Layer.effect(
               start: location.directory,
               stop: location.project.directory,
             })
-          .pipe(Effect.orDie)
+            .pipe(Effect.orDie)
 
       // We load certain files from a few other folders in the ecosystem
       const claude = [
@@ -235,7 +235,7 @@ const layer = Layer.effect(
       const supplementary = yield* Effect.forEach(directories, loadDirectory).pipe(Effect.orDie)
       return {
         entries: [...claude, ...agents, ...(supplementary[0] ?? []), ...direct, ...supplementary.slice(1).flat()],
-        directories: [...directories, ...claude.map((entry) => entry.path), ...agents.map((entry) => entry.path)],
+        directories,
         files: directPaths,
       }
     })

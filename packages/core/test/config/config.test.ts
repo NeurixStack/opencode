@@ -934,4 +934,54 @@ describe("Config", () => {
       }),
     ),
   )
+
+  it.live("discovers ecosystem skill directories without watching them as config", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const global = path.join(tmp.path, "global")
+          const project = path.join(tmp.path, "project")
+          const globalAgents = path.join(global, "home", ".agents")
+          const globalClaude = path.join(global, "home", ".claude")
+          const projectAgents = path.join(project, ".agents")
+          const projectClaude = path.join(project, ".claude")
+          yield* Effect.promise(() =>
+            Promise.all(
+              [global, project, globalAgents, globalClaude, projectAgents, projectClaude].map((directory) =>
+                fs.mkdir(directory, { recursive: true }),
+              ),
+            ),
+          )
+          const targets: Watcher.WatchInput[] = []
+          const watcher = Layer.succeed(
+            Watcher.Service,
+            Watcher.Service.of({
+              subscribe: (input) => {
+                targets.push(input)
+                return Stream.empty
+              },
+            }),
+          )
+
+          return yield* Effect.gen(function* () {
+            const config = yield* Config.Service
+            const entries = yield* config.entries()
+
+            expect(entries.filter((entry) => entry.type === "agents").map((entry) => entry.path)).toEqual([
+              AbsolutePath.make(globalAgents),
+              AbsolutePath.make(projectAgents),
+            ])
+            expect(entries.filter((entry) => entry.type === "claude").map((entry) => entry.path)).toEqual([
+              AbsolutePath.make(globalClaude),
+              AbsolutePath.make(projectClaude),
+            ])
+            expect(targets).toEqual([{ path: AbsolutePath.make(global), type: "directory" }])
+          }).pipe(Effect.provide(testLayer(project, global, project, undefined, watcher)))
+        }),
+      ),
+    ),
+  )
 })
