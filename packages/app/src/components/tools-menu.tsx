@@ -2,7 +2,7 @@ import { ButtonV2 } from "@opencode-ai/ui/v2/button-v2"
 import { Icon } from "@opencode-ai/ui/v2/icon"
 import { SegmentedControlItemV2, SegmentedControlV2 } from "@opencode-ai/ui/v2/segmented-control-v2"
 import { Switch } from "@opencode-ai/ui/v2/switch-v2"
-import { For, Show, type JSXElement } from "solid-js"
+import { For, Index, Show, type JSXElement } from "solid-js"
 import { createStore } from "solid-js/store"
 
 export type ToolsMenuTab = "mcp" | "lsp" | "plugins"
@@ -75,51 +75,51 @@ export function ToolsMenu(props: ToolsMenuProps) {
           fallback={<ToolsEmpty title={props.empty.mcp} description={props.labels.mcpDescription} />}
         >
           <ToolsList description={props.labels.mcpDescription}>
-            <For each={props.mcp}>
+            <Index each={props.mcp}>
               {(item) => (
                 <div class="flex h-8 items-center gap-2 px-2">
-                  <StatusDot status={item.status} />
+                  <StatusDot status={item().status} />
                   <span class="min-w-0 flex-1 truncate text-[13px] font-[440] leading-4 tracking-[-0.04px] text-v2-text-text-base">
-                    {item.name}
+                    {item().name}
                   </span>
                   <Show
-                    when={item.status === "needs_auth"}
+                    when={item().status === "needs_auth"}
                     fallback={
                       <>
-                        <Show when={item.status === "needs_client_registration"}>
+                        <Show when={item().status === "needs_client_registration"}>
                           <span
                             class="max-w-40 truncate text-[11px] font-[440] leading-4 tracking-[0.05px] text-v2-text-text-faint"
-                            title={item.error}
+                            title={item().error}
                           >
-                            {item.error ?? props.labels.failed}
+                            {item().error ?? props.labels.failed}
                           </span>
                         </Show>
-                        <Show when={item.status !== "needs_client_registration"}>
-                          <Show when={item.status === "disabled" || item.status === "failed"}>
+                        <Show when={item().status !== "needs_client_registration"}>
+                          <Show when={item().status === "disabled" || item().status === "failed"}>
                             <span class="text-[11px] font-[440] capitalize leading-4 tracking-[0.05px] text-v2-text-text-faint">
-                              {item.status === "disabled" ? props.labels.disabled : props.labels.failed}
+                              {item().status === "disabled" ? props.labels.disabled : props.labels.failed}
                             </span>
                           </Show>
                           <Switch
-                            checked={item.status === "connected"}
-                            disabled={item.loading}
+                            checked={item().status === "connected"}
+                            disabled={item().loading}
                             hideLabel
-                            onChange={item.onToggle}
-                            readOnly={item.pending}
+                            onChange={item().onToggle}
+                            readOnly={item().pending}
                           >
-                            {item.name}
+                            {item().name}
                           </Switch>
                         </Show>
                       </>
                     }
                   >
-                    <ButtonV2 size="small" variant="outline" disabled={item.pending} onClick={item.onToggle}>
+                    <ButtonV2 size="small" variant="outline" disabled={item().pending} onClick={item().onToggle}>
                       {props.labels.reauthenticate}
                     </ButtonV2>
                   </Show>
                 </div>
               )}
-            </For>
+            </Index>
           </ToolsList>
         </Show>
       </Show>
