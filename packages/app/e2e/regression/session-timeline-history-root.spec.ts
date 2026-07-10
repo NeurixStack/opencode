@@ -17,12 +17,12 @@ import { mockOpenCodeServer } from "../utils/mock-server"
 import { installSseTransport } from "../utils/sse-transport"
 import { expectSessionTitle } from "../utils/waits"
 
-const assistants = Array.from({ length: 14 }, (_, index) =>
+const assistants = Array.from({ length: 20 }, (_, index) =>
   assistantMessage([textPart(`prt_history_root_${index}`, `Assistant response ${index}`)], {
     id: `msg_${String(index + 1001).padStart(4, "0")}_history_root_assistant`,
     parentID: userID,
     created: 1700000001000 + index * 1_000,
-    completed: index < 13,
+    completed: index < 19,
   }),
 )
 const messages = [userMessage(), ...assistants]
@@ -46,7 +46,7 @@ const scenarios = [
 test.use({ viewport: { width: 646, height: 1385 } })
 
 for (const scenario of scenarios) {
-  test(`keeps the latest user turn visible through ${scenario.name}`, async ({ page }) => {
+  test(`keeps visible timeline content visible through ${scenario.name}`, async ({ page }) => {
     const requests: { before?: string; phase: "start" | "end" }[] = []
     const pages: { before?: string; limit: number }[] = []
     const roots: { sessionID: string; messageID: string }[] = []
@@ -101,36 +101,51 @@ for (const scenario of scenarios) {
         }
       },
     })
-    await page.addInitScript(
-      ({ userPartID, lastPartID }) => {
-        const state = { armed: false, hidden: false, samples: 0, stop: false }
-        ;(window as Window & { __historyRootProbe?: typeof state }).__historyRootProbe = state
-        const sample = () => {
-          if (state.armed) {
-            const virtual = document.querySelector<HTMLElement>("[data-timeline-virtual-content]")
-            const viewport = virtual?.closest<HTMLElement>(".scroll-view__viewport")
-            const view = viewport?.getBoundingClientRect()
-            const visible = (partID: string) => {
-              const part = viewport?.querySelector<HTMLElement>(`[data-timeline-part-id="${partID}"]`)
-              const rect = part?.getBoundingClientRect()
-              return (
-                !!rect &&
-                !!view &&
-                rect.width > 0 &&
-                rect.height > 0 &&
-                rect.bottom > view.top &&
-                rect.top < view.bottom
-              )
-            }
-            if (!virtual || !visible(userPartID) || !visible(lastPartID)) state.hidden = true
-            state.samples++
+    await page.addInitScript(() => {
+      const state = {
+        armed: false,
+        captured: false,
+        hidden: false,
+        visibleParts: [] as string[],
+        samples: 0,
+        stop: false,
+      }
+      ;(window as Window & { __historyRootProbe?: typeof state }).__historyRootProbe = state
+      const sample = () => {
+        if (state.armed) {
+          const virtual = document.querySelector<HTMLElement>("[data-timeline-virtual-content]")
+          const viewport = virtual?.closest<HTMLElement>(".scroll-view__viewport")
+          const view = viewport?.getBoundingClientRect()
+          const visible = (partID: string) => {
+            const part = viewport?.querySelector<HTMLElement>(`[data-timeline-part-id="${partID}"]`)
+            const rect = part?.getBoundingClientRect()
+            return (
+              !!rect &&
+              !!view &&
+              rect.width > 0 &&
+              rect.height > 0 &&
+              rect.bottom > view.top &&
+              rect.top < view.bottom
+            )
           }
-          if (!state.stop) requestAnimationFrame(() => setTimeout(sample, 0))
+          if (!state.captured && viewport) {
+            state.visibleParts = [...viewport.querySelectorAll<HTMLElement>("[data-timeline-part-id]")]
+              .map((part) => part.dataset.timelinePartId)
+              .filter((partID): partID is string => !!partID && visible(partID))
+            state.captured = true
+          }
+          if (
+            !virtual ||
+            state.visibleParts.length === 0 ||
+            state.visibleParts.some((partID) => !visible(partID))
+          )
+            state.hidden = true
+          state.samples++
         }
-        requestAnimationFrame(() => setTimeout(sample, 0))
-      },
-      { userPartID, lastPartID },
-    )
+        if (!state.stop) requestAnimationFrame(() => setTimeout(sample, 0))
+      }
+      requestAnimationFrame(() => setTimeout(sample, 0))
+    })
 
     await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
     await transport.waitForConnection()
@@ -143,7 +158,7 @@ for (const scenario of scenarios) {
       "messages:start:latest",
       "messages:end:latest",
       `message:${userID}`,
-      `messages:start:${messages.at(-2)!.info.id}`,
+      `messages:start:${messages.at(-20)!.info.id}`,
     ])
     await page.evaluate(() => {
       ;(
@@ -153,13 +168,16 @@ for (const scenario of scenarios) {
       ).__historyRootProbe!.armed = true
     })
     await waitForProbeSamples(page, 0)
-    expect(await historyRootHidden(page)).toBe(false)
+    expect(await visibleContentHidden(page)).toBe(false)
     const beforeHistory = await probeSamples(page)
     history.resolve()
-    await expect(page.locator('[data-timeline-part-id^="prt_history_root_"]')).toHaveCount(14)
+    await expect(page.locator('[data-timeline-part-id^="prt_history_root_"]')).toHaveCount(20)
     await expect(page.getByRole("button", { name: "Stop" })).toBeVisible()
     await waitForProbeSamples(page, beforeHistory)
-    expect(pages[0]).toEqual({ before: undefined, limit: 2 })
+    expect(pages).toEqual([
+      { before: undefined, limit: 20 },
+      { before: messages.at(-20)!.info.id, limit: 200 },
+    ])
     expect(roots).toEqual([{ sessionID, messageID: userID }])
 
     const message = messageUpdated(scenario.info)
@@ -213,7 +231,7 @@ async function waitForProbeSamples(page: Page, after: number) {
   )
 }
 
-function historyRootHidden(page: Page) {
+function visibleContentHidden(page: Page) {
   return page.evaluate(
     () => (window as Window & { __historyRootProbe?: { hidden: boolean } }).__historyRootProbe!.hidden,
   )
