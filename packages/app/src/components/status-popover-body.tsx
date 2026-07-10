@@ -321,7 +321,8 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
           name,
           status: mcpStatus(name),
           error: mcpError(name),
-          pending: !mcpStatus(name) || (toggleMcp.isPending && toggleMcp.variables === name),
+          loading: !mcpStatus(name),
+          pending: toggleMcp.isPending && toggleMcp.variables === name,
           onToggle: () => {
             if (toggleMcp.isPending) return
             toggleMcp.mutate(name)

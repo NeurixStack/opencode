@@ -31,6 +31,7 @@ export type ToolsMenuProps = {
     name: string
     status?: ToolsMenuStatus
     error?: string
+    loading?: boolean
     pending?: boolean
     onToggle?: () => void
   }>
@@ -101,9 +102,10 @@ export function ToolsMenu(props: ToolsMenuProps) {
                           </Show>
                           <Switch
                             checked={item.status === "connected"}
-                            disabled={item.pending || !item.status}
+                            disabled={item.loading}
                             hideLabel
                             onChange={item.onToggle}
+                            readOnly={item.pending}
                           >
                             {item.name}
                           </Switch>
