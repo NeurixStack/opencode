@@ -806,6 +806,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "Показывать кнопку терминала в строке заголовка приложения",
   "settings.general.row.showStatus.title": "Состояние сервера",
   "settings.general.row.showStatus.description": "Показывать кнопку состояния сервера в строке заголовка",
+  "settings.general.row.showTools.description": "Показывать кнопку инструментов в строке заголовка",
   "settings.general.row.mobileTitlebarBottom.title": "Нижняя навигация",
   "settings.general.row.mobileTitlebarBottom.description":
     "На мобильных устройствах размещать строку заголовка и вкладки сессии внизу экрана",

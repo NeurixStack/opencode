@@ -377,8 +377,8 @@ export const SettingsGeneralV2: Component<{
         </SettingsRowV2>
 
         <SettingsRowV2
-          title={language.t("settings.general.row.showStatus.title")}
-          description={language.t("settings.general.row.showStatus.description")}
+          title={language.t("status.popover.tools.trigger")}
+          description={language.t("settings.general.row.showTools.description")}
         >
           <div data-action="settings-show-status">
             <Switch

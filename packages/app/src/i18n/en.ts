@@ -894,6 +894,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "Show the terminal button in the desktop title bar",
   "settings.general.row.showStatus.title": "Server status",
   "settings.general.row.showStatus.description": "Show the server status button in the title bar",
+  "settings.general.row.showTools.description": "Show the tools button in the title bar",
   "settings.general.row.mobileTitlebarBottom.title": "Bottom navigation",
   "settings.general.row.mobileTitlebarBottom.description":
     "Place the title bar and session tabs at the bottom of the screen on mobile",

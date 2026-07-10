@@ -797,6 +797,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "แสดงปุ่มเทอร์มินัลในแถบชื่อเรื่องเดสก์ท็อป",
   "settings.general.row.showStatus.title": "สถานะเซิร์ฟเวอร์",
   "settings.general.row.showStatus.description": "แสดงปุ่มสถานะเซิร์ฟเวอร์ในแถบชื่อเรื่อง",
+  "settings.general.row.showTools.description": "แสดงปุ่มเครื่องมือในแถบชื่อเรื่อง",
   "settings.general.row.mobileTitlebarBottom.title": "การนำทางด้านล่าง",
   "settings.general.row.mobileTitlebarBottom.description":
     "วางแถบชื่อเรื่องและแท็บเซสชันไว้ด้านล่างของหน้าจอบนอุปกรณ์เคลื่อนที่",

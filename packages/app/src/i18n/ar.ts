@@ -730,6 +730,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "إظهار زر المحطة الطرفية في شريط عنوان سطح المكتب",
   "settings.general.row.showStatus.title": "حالة الخادم",
   "settings.general.row.showStatus.description": "إظهار زر حالة الخادم في شريط العنوان",
+  "settings.general.row.showTools.description": "إظهار زر الأدوات في شريط العنوان",
   "settings.general.row.mobileTitlebarBottom.title": "التنقل السفلي",
   "settings.general.row.mobileTitlebarBottom.description":
     "وضع شريط العنوان وعلامات تبويب الجلسات أسفل الشاشة على الأجهزة المحمولة",

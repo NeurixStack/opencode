@@ -741,6 +741,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "Pokaż przycisk terminala na pasku tytułu aplikacji komputerowej",
   "settings.general.row.showStatus.title": "Status serwera",
   "settings.general.row.showStatus.description": "Pokaż przycisk statusu serwera na pasku tytułu",
+  "settings.general.row.showTools.description": "Pokaż przycisk narzędzi na pasku tytułu",
   "settings.general.row.mobileTitlebarBottom.title": "Dolna nawigacja",
   "settings.general.row.mobileTitlebarBottom.description":
     "Umieść pasek tytułu i karty sesji u dołu ekranu na urządzeniach mobilnych",

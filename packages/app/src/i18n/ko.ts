@@ -1003,6 +1003,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "데스크톱 제목 표시줄에 터미널 버튼 표시",
   "settings.general.row.showStatus.title": "서버 상태",
   "settings.general.row.showStatus.description": "제목 표시줄에 서버 상태 버튼 표시",
+  "settings.general.row.showTools.description": "제목 표시줄에 도구 버튼 표시",
   "settings.general.row.mobileTitlebarBottom.title": "하단 탐색",
   "settings.general.row.mobileTitlebarBottom.description": "모바일에서 제목 표시줄과 세션 탭을 화면 하단에 배치",
   "settings.general.row.showCustomAgents.title": "사용자 지정 에이전트",

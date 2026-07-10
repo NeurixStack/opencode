@@ -1098,6 +1098,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "Vis terminalknappen på tittellinjen i skrivebordsappen",
   "settings.general.row.showStatus.title": "Serverstatus",
   "settings.general.row.showStatus.description": "Vis serverstatusknappen på tittellinjen",
+  "settings.general.row.showTools.description": "Vis verktøyknappen på tittellinjen",
   "settings.general.row.mobileTitlebarBottom.title": "Navigasjon nederst",
   "settings.general.row.mobileTitlebarBottom.description":
     "Plasser tittellinjen og sesjonsfanene nederst på mobilskjermen",

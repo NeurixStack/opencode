@@ -236,7 +236,7 @@ export function SessionHeader() {
     messageAgentColor(params.id ? sync().data.message[params.id] : undefined, sync().data.agent),
   )
   const v2ActionsState = createMemo<SessionHeaderV2ActionsState>(() => ({
-    toolsVisible: isDesktop(),
+    toolsVisible: isDesktop() && status(),
     statusLabel: language.t("status.popover.tools.trigger"),
     reviewLabel: language.t("command.review.toggle"),
     reviewKeybind: reviewTooltipKeybind(command),

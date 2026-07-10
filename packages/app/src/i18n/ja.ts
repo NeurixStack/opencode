@@ -736,6 +736,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "デスクトップのタイトルバーにターミナルボタンを表示します",
   "settings.general.row.showStatus.title": "サーバーステータス",
   "settings.general.row.showStatus.description": "タイトルバーにサーバーステータスボタンを表示します",
+  "settings.general.row.showTools.description": "タイトルバーにツールボタンを表示します",
   "settings.general.row.mobileTitlebarBottom.title": "下部ナビゲーション",
   "settings.general.row.mobileTitlebarBottom.description":
     "モバイルではタイトルバーとセッションタブを画面下部に配置します",

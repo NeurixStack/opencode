@@ -897,6 +897,7 @@ export const dict = {
   "settings.general.row.showTerminal.description": "Показувати кнопку термінала в заголовку робочого столу",
   "settings.general.row.showStatus.title": "Статус сервера",
   "settings.general.row.showStatus.description": "Показувати кнопку статусу сервера в заголовку",
+  "settings.general.row.showTools.description": "Показувати кнопку інструментів у заголовку",
   "settings.general.row.mobileTitlebarBottom.title": "Нижня навігація",
   "settings.general.row.mobileTitlebarBottom.description":
     "Розмістити заголовок і вкладки сесії внизу екрана на мобільних пристроях",
