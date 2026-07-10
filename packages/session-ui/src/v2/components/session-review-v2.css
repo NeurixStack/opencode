@@ -156,6 +156,7 @@
 }
 
 [data-component="session-review-v2"] .session-review-v2-toolbar-group--start {
+  gap: 12px;
   min-width: 0;
 }
 
@@ -164,7 +165,6 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding-right: 8px;
 }
 
 [data-component="session-review-v2"] [data-slot="session-review-v2-toolbar-title"] {
