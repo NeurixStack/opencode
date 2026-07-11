@@ -879,18 +879,12 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           async refresh(sessionID: string) {
             const pending = new Set(store.session.input[sessionID] ?? [])
             const messages = (await sdk.api.message.list({ sessionID, limit: 200, order: "desc" })).data.toReversed()
-            const projected = new Set(messages.map((message) => message.id))
-            const next = [
-              ...messages,
-              ...(store.session.message[sessionID] ?? []).filter(
-                (message) =>
-                  (message.type === "user" || message.type === "synthetic") &&
-                  (pending.has(message.id) || store.session.input[sessionID]?.includes(message.id)) &&
-                  !projected.has(message.id),
-              ),
-            ]
-            messageIndex.set(sessionID, new Map(next.map((message, index) => [message.id, index])))
-            setStore("session", "message", sessionID, reconcile(next))
+            const index = new Map(messages.map((message, index) => [message.id, index]))
+            store.session.message[sessionID]
+              ?.filter((message) => pending.has(message.id))
+              .forEach((item) => message.append(messages, index, item))
+            messageIndex.set(sessionID, index)
+            setStore("session", "message", sessionID, reconcile(messages))
           },
         },
         permission: {

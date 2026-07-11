@@ -2121,16 +2121,16 @@ test("settles pending tools when a live failure arrives", async () => {
   }
 })
 
-test("renders admitted prompts immediately and tracks them until promoted", async () => {
+test("preserves admitted prompts when hydration races with promotion", async () => {
   const events = createEventStream()
   const sessionID = "session-1"
   const messageID = "msg_user_1"
+  const requested = Promise.withResolvers<void>()
+  const response = Promise.withResolvers<Response>()
   const calls = createFetch((url) => {
-    if (url.pathname === `/api/session/${sessionID}/message`)
-      return json({
-        data: [{ id: messageID, type: "user", text: "hello", time: { created: 0 } }],
-        cursor: {},
-      })
+    if (url.pathname !== `/api/session/${sessionID}/message`) return
+    requested.resolve()
+    return response.promise
   }, events)
   let sync!: ReturnType<typeof useData>
   let ready!: () => void
@@ -2177,12 +2177,11 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
     expect(admitted?.metadata).toBeUndefined()
     expect(sync.session.input.list(sessionID)).toEqual([messageID])
 
-    await sync.session.message.refresh(sessionID)
-    expect(sync.session.message.list(sessionID)?.[0]?.metadata).toBeUndefined()
-
+    const refresh = sync.session.message.refresh(sessionID)
+    await requested.promise
     emitEvent(events, {
       id: "evt_prompted_1",
-      created: 0,
+      created: 1,
       type: "session.input.promoted",
       durable: durable(sessionID, 1),
       data: {
@@ -2194,6 +2193,9 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
     await wait(() => received.at(-1) === "session.input.promoted")
     expect(received.slice(-2)).toEqual(["session.input.admitted", "session.input.promoted"])
     unsubscribe()
+    response.resolve(json({ data: [], cursor: {} }))
+    await refresh
+
     const message = sync.session.message.list(sessionID)?.[0]
     expect(message?.type).toBe("user")
     if (message?.type !== "user") return
@@ -2205,86 +2207,6 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
     expect(sync.session.message.get(sessionID, messageID)).toBe(message)
     expect(sync.session.message.get(sessionID, "missing")).toBeUndefined()
     expect(received).toHaveLength(3)
-  } finally {
-    app.renderer.destroy()
-  }
-})
-
-test("preserves an admitted prompt when hydration races with promotion", async () => {
-  const events = createEventStream()
-  const sessionID = "session-hydration-race"
-  const messageID = "msg_initial_user"
-  let resolveMessages!: (response: Response) => void
-  let requestMessages!: () => void
-  const requested = new Promise<void>((resolve) => {
-    requestMessages = resolve
-  })
-  const calls = createFetch((url) => {
-    if (url.pathname !== `/api/session/${sessionID}/message`) return
-    requestMessages()
-    return new Promise<Response>((resolve) => {
-      resolveMessages = resolve
-    })
-  }, events)
-  let data!: ReturnType<typeof useData>
-  let ready!: () => void
-  const mounted = new Promise<void>((resolve) => {
-    ready = resolve
-  })
-
-  function Probe() {
-    data = useData()
-    onMount(ready)
-    return <box />
-  }
-
-  const app = await testRender(() => (
-    <TestTuiContexts>
-      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
-        <ProjectProvider>
-          <DataProvider>
-            <Probe />
-          </DataProvider>
-        </ProjectProvider>
-      </SDKProvider>
-    </TestTuiContexts>
-  ))
-
-  try {
-    await mounted
-    emitEvent(events, {
-      id: "evt_initial_admitted",
-      created: 1,
-      type: "session.input.admitted",
-      durable: durable(sessionID),
-      data: {
-        sessionID,
-        inputID: messageID,
-        input: { type: "user", data: { text: "Initial prompt" }, delivery: "steer" },
-      },
-    })
-    await wait(() => data.session.message.get(sessionID, messageID)?.type === "user")
-
-    const refresh = data.session.message.refresh(sessionID)
-    await requested
-    emitEvent(events, {
-      id: "evt_initial_promoted",
-      created: 2,
-      type: "session.input.promoted",
-      durable: durable(sessionID, 1),
-      data: { sessionID, inputID: messageID },
-    })
-    await wait(() => data.session.input.list(sessionID).length === 0)
-
-    resolveMessages(json({ data: [], cursor: {} }))
-    await refresh
-
-    expect(data.session.message.get(sessionID, messageID)).toMatchObject({
-      id: messageID,
-      type: "user",
-      text: "Initial prompt",
-      time: { created: 2 },
-    })
   } finally {
     app.renderer.destroy()
   }
