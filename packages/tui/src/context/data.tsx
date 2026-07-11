@@ -1,7 +1,7 @@
 // Client data layer: apply server events and cache API reads into a Solid store.
-// Prefer straightforward projection. Do not add generation counters, stale-response
-// merges, live/history overlays, or other race machinery here—last write wins.
-// Reconnect may re-bootstrap; that is enough. UI and the server own ordering concerns.
+// Prefer straightforward projection. API reads replace cached state, except admitted
+// inputs survive history refresh until the server projects them. Do not add generation
+// counters or live/history overlays here. UI and the server own ordering concerns.
 
 import type {
   AgentInfo,
@@ -877,9 +877,20 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return position === undefined ? undefined : messages?.[position]
           },
           async refresh(sessionID: string) {
+            const pending = new Set(store.session.input[sessionID] ?? [])
             const messages = (await sdk.api.message.list({ sessionID, limit: 200, order: "desc" })).data.toReversed()
-            messageIndex.set(sessionID, new Map(messages.map((message, index) => [message.id, index])))
-            setStore("session", "message", sessionID, reconcile(messages))
+            const projected = new Set(messages.map((message) => message.id))
+            const next = [
+              ...messages,
+              ...(store.session.message[sessionID] ?? []).filter(
+                (message) =>
+                  (message.type === "user" || message.type === "synthetic") &&
+                  (pending.has(message.id) || store.session.input[sessionID]?.includes(message.id)) &&
+                  !projected.has(message.id),
+              ),
+            ]
+            messageIndex.set(sessionID, new Map(next.map((message, index) => [message.id, index])))
+            setStore("session", "message", sessionID, reconcile(next))
           },
         },
         permission: {

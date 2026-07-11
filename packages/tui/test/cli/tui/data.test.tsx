@@ -2210,6 +2210,86 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
   }
 })
 
+test("preserves an admitted prompt when hydration races with promotion", async () => {
+  const events = createEventStream()
+  const sessionID = "session-hydration-race"
+  const messageID = "msg_initial_user"
+  let resolveMessages!: (response: Response) => void
+  let requestMessages!: () => void
+  const requested = new Promise<void>((resolve) => {
+    requestMessages = resolve
+  })
+  const calls = createFetch((url) => {
+    if (url.pathname !== `/api/session/${sessionID}/message`) return
+    requestMessages()
+    return new Promise<Response>((resolve) => {
+      resolveMessages = resolve
+    })
+  }, events)
+  let data!: ReturnType<typeof useData>
+  let ready!: () => void
+  const mounted = new Promise<void>((resolve) => {
+    ready = resolve
+  })
+
+  function Probe() {
+    data = useData()
+    onMount(ready)
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    await mounted
+    emitEvent(events, {
+      id: "evt_initial_admitted",
+      created: 1,
+      type: "session.input.admitted",
+      durable: durable(sessionID),
+      data: {
+        sessionID,
+        inputID: messageID,
+        input: { type: "user", data: { text: "Initial prompt" }, delivery: "steer" },
+      },
+    })
+    await wait(() => data.session.message.get(sessionID, messageID)?.type === "user")
+
+    const refresh = data.session.message.refresh(sessionID)
+    await requested
+    emitEvent(events, {
+      id: "evt_initial_promoted",
+      created: 2,
+      type: "session.input.promoted",
+      durable: durable(sessionID, 1),
+      data: { sessionID, inputID: messageID },
+    })
+    await wait(() => data.session.input.list(sessionID).length === 0)
+
+    resolveMessages(json({ data: [], cursor: {} }))
+    await refresh
+
+    expect(data.session.message.get(sessionID, messageID)).toMatchObject({
+      id: messageID,
+      type: "user",
+      text: "Initial prompt",
+      time: { created: 2 },
+    })
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
 test("projects live instruction updates with their message ID", async () => {
   const events = createEventStream()
   const calls = createFetch(undefined, events)
