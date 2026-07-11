@@ -52,6 +52,10 @@ export function createSessionRows(sessionID: Accessor<string>) {
     )
   }
 
+  function replaceRows() {
+    setRows(reconcile(reduce(), { key: "id" }))
+  }
+
   createEffect(() => {
     const pending = pendingPermissions()
     setRows(
@@ -63,11 +67,10 @@ export function createSessionRows(sessionID: Accessor<string>) {
 
   createEffect(
     on(sessionID, (id) => {
-      setRows(reconcile(reduce(), { key: "id" }))
+      replaceRows()
       void data.session.message.refresh(id).then(
         () => {
-          if (sessionID() !== id) return
-          setRows(reconcile(reduce(), { key: "id" }))
+          if (sessionID() === id) replaceRows()
         },
         () => undefined,
       )
@@ -77,39 +80,35 @@ export function createSessionRows(sessionID: Accessor<string>) {
   // Re-reduce when the revert boundary changes (stage/clear/commit).
   createEffect(
     on(revertBoundary, () => {
-      setRows(reconcile(reduce(), { key: "id" }))
+      replaceRows()
     }),
   )
 
   createEffect(
     on(
-      () => data.session.timeline.compactions(sessionID()),
-      () => setRows(reconcile(reduce(), { key: "id" })),
-    ),
-  )
-
-  createEffect(
-    on(
       () =>
-        data.session.timeline.list(sessionID()).flatMap((message) =>
-          message.type === "user" || message.type === "synthetic"
-            ? [
-                {
-                  id: message.id,
-                  created: message.time.created,
-                  input: data.session.input.has(sessionID(), message.id),
-                },
-              ]
-            : message.type === "compaction"
+        [
+          ...data.session.timeline.list(sessionID()).flatMap((message) =>
+            message.type === "user" || message.type === "synthetic"
               ? [
                   {
                     id: message.id,
                     created: message.time.created,
+                    input: data.session.input.has(sessionID(), message.id),
                   },
                 ]
-              : [],
-        ),
-      () => setRows(reconcile(reduce(), { key: "id" })),
+              : message.type === "compaction"
+                ? [
+                    {
+                      id: message.id,
+                      created: message.time.created,
+                    },
+                  ]
+                : [],
+          ),
+          ...data.session.timeline.compactions(sessionID()).map((id) => ({ id, pending: true })),
+        ],
+      replaceRows,
     ),
   )
 

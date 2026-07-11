@@ -1,61 +1,38 @@
 import type { SessionMessageInfo, SessionPendingInfo } from "@opencode-ai/sdk/v2"
 
-export type SessionPendingWork =
+export type SessionTimelineWork =
   | {
-      kind: "message"
+      kind: "input"
       id: string
-      phase: "pending" | "promoted"
       admittedSeq: number
-      promotedSeq?: number
       delivery: "steer" | "queue"
+      message: SessionMessageInfo
+    }
+  | {
+      kind: "promoted"
+      id: string
+      promotedSeq: number
       message?: SessionMessageInfo
     }
   | {
       kind: "compaction"
       id: string
-      phase: "pending"
       admittedSeq: number
     }
 
+export type SessionAdmittedWork = Exclude<SessionTimelineWork, { kind: "promoted" }>
+
 export type SessionTimelineOperation =
-  | { type: "admitted"; work: SessionPendingWork }
+  | { type: "admitted"; work: SessionAdmittedWork }
   | { type: "promoted"; inputID: string; promotedSeq: number; created: number }
   | { type: "removed"; inputID: string }
   | { type: "reverted"; to: string }
 
-export function fromAdmission(input: {
-  id: string
-  admittedSeq: number
-  timeCreated: number
-  input:
-    | { type: "user"; data: Extract<SessionPendingInfo, { type: "user" }>["data"]; delivery: "steer" | "queue" }
-    | {
-        type: "synthetic"
-        data: Extract<SessionPendingInfo, { type: "synthetic" }>["data"]
-        delivery: "steer" | "queue"
-      }
-}): SessionPendingWork {
-  return {
-    kind: "message",
-    id: input.id,
-    phase: "pending",
-    admittedSeq: input.admittedSeq,
-    delivery: input.input.delivery,
-    message: {
-      id: input.id,
-      type: input.input.type,
-      ...input.input.data,
-      time: { created: input.timeCreated },
-    },
-  }
-}
-
-export function fromPending(item: SessionPendingInfo): SessionPendingWork {
+export function fromPending(item: SessionPendingInfo): SessionAdmittedWork {
   if (item.type === "user")
     return {
-      kind: "message",
+      kind: "input",
       id: item.id,
-      phase: "pending",
       admittedSeq: item.admittedSeq,
       delivery: item.delivery,
       message: {
@@ -67,9 +44,8 @@ export function fromPending(item: SessionPendingInfo): SessionPendingWork {
     }
   if (item.type === "synthetic")
     return {
-      kind: "message",
+      kind: "input",
       id: item.id,
-      phase: "pending",
       admittedSeq: item.admittedSeq,
       delivery: item.delivery,
       message: {
@@ -82,13 +58,12 @@ export function fromPending(item: SessionPendingInfo): SessionPendingWork {
   return {
     kind: "compaction",
     id: item.id,
-    phase: "pending",
     admittedSeq: item.admittedSeq,
   }
 }
 
 export function applyTimelineOperations(
-  pending: SessionPendingWork[],
+  pending: SessionTimelineWork[],
   operations: SessionTimelineOperation[],
   projectedIDs = new Set<string>(),
 ) {
@@ -113,22 +88,18 @@ export function applyTimelineOperations(
       }
       result.set(
         operation.work.id,
-        existing?.kind === "message" && existing.phase === "promoted"
-          ? { ...operation.work, phase: "promoted", promotedSeq: existing.promotedSeq }
+        existing?.kind === "promoted"
+          ? { ...existing, message: existing.message ?? operation.work.message }
           : (existing ?? operation.work),
       )
       return
     }
     const existing = result.get(operation.inputID)
     result.set(operation.inputID, {
-      ...(existing?.kind === "message" ? existing : undefined),
-      kind: "message",
+      kind: "promoted",
       id: operation.inputID,
-      phase: "promoted",
-      admittedSeq: existing?.admittedSeq ?? operation.promotedSeq,
       promotedSeq: operation.promotedSeq,
-      delivery: existing?.kind === "message" ? existing.delivery : "steer",
-      message: existing?.kind === "message" && existing.message
+      message: existing?.kind === "input"
         ? {
             ...existing.message,
             time: { ...existing.message.time, created: operation.created },
@@ -139,32 +110,29 @@ export function applyTimelineOperations(
   return orderInputs([...result.values()])
 }
 
-export function visibleMessages(projected: SessionMessageInfo[], pending: SessionPendingWork[]) {
+export function visibleMessages(projected: SessionMessageInfo[], pending: SessionTimelineWork[]) {
   if (pending.length === 0) return projected
   const ids = new Set(projected.map((message) => message.id))
   return [
     ...projected,
-    ...pending.flatMap((work) => (work.kind === "message" && !ids.has(work.id) && work.message ? [work.message] : [])),
+    ...pending.flatMap((work) =>
+      work.kind !== "compaction" && !ids.has(work.id) && work.message ? [work.message] : [],
+    ),
   ]
 }
 
-export function pendingCompactions(pending: SessionPendingWork[]) {
+export function pendingCompactions(pending: SessionTimelineWork[]) {
   return pending.flatMap((work) => (work.kind === "compaction" ? [work.id] : []))
 }
 
-function orderInputs(pending: SessionPendingWork[]) {
-  const bucket = (work: SessionPendingWork) => {
-    if (work.kind === "message" && work.phase === "promoted") return 0
+function orderInputs(pending: SessionTimelineWork[]) {
+  const bucket = (work: SessionTimelineWork) => {
+    if (work.kind === "promoted") return 0
     if (work.kind === "compaction") return 1
     if (work.delivery === "steer") return 2
     return 3
   }
-  return pending.toSorted(
-    (a, b) =>
-      bucket(a) - bucket(b) ||
-      (a.kind === "message" && a.phase === "promoted" && b.kind === "message"
-        ? (a.promotedSeq ?? a.admittedSeq) - (b.promotedSeq ?? b.admittedSeq)
-        : 0) ||
-      a.admittedSeq - b.admittedSeq,
-  )
+  const sequence = (work: SessionTimelineWork) =>
+    work.kind === "promoted" ? work.promotedSeq : work.admittedSeq
+  return pending.toSorted((a, b) => bucket(a) - bucket(b) || sequence(a) - sequence(b))
 }

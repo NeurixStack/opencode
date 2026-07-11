@@ -5,7 +5,7 @@ import {
   fromPending,
   pendingCompactions,
   visibleMessages,
-  type SessionPendingWork,
+  type SessionAdmittedWork,
 } from "../../src/context/session-timeline"
 
 test("orders promoted work, compaction, steers, then queued inputs", () => {
@@ -37,7 +37,7 @@ test("does not let late admission downgrade a promotion", () => {
     { type: "admitted", work: input },
   ])
 
-  expect(result).toMatchObject([{ id: input.id, phase: "promoted", promotedSeq: 2 }])
+  expect(result).toMatchObject([{ id: input.id, kind: "promoted", promotedSeq: 2 }])
 })
 
 test("retains promotion state until a later admission provides content", () => {
@@ -47,7 +47,7 @@ test("retains promotion state until a later admission provides content", () => {
     { type: "admitted", work: input },
   ])
 
-  expect(result).toMatchObject([{ id: input.id, phase: "promoted", promotedSeq: 2, message: { text: "input" } }])
+  expect(result).toMatchObject([{ id: input.id, kind: "promoted", promotedSeq: 2, message: { text: "input" } }])
 })
 
 test("applies committed reverts after a stale pending snapshot", () => {
@@ -69,7 +69,7 @@ test("projected messages replace pending and promoted representations", () => {
   expect(visibleMessages(projected, [pending("input", 1, "steer")])).toEqual(projected)
 })
 
-function pending(id: string, admittedSeq: number, delivery: "steer" | "queue"): SessionPendingWork {
+function pending(id: string, admittedSeq: number, delivery: "steer" | "queue"): SessionAdmittedWork {
   return fromPending({
     admittedSeq,
     id,
