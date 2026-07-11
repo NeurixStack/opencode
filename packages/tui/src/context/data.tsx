@@ -83,6 +83,16 @@ function locationQuery(ref?: LocationRef) {
   return ref ? { directory: ref.directory, workspace: ref.workspaceID } : undefined
 }
 
+// Apply local admissions and promotions that arrived while the server snapshot was loading.
+function reconcilePendingInputs(baseline: string[], current: string[], server: string[]) {
+  const result = new Set(server)
+  const before = new Set(baseline)
+  const now = new Set(current)
+  baseline.filter((id) => !now.has(id)).forEach((id) => result.delete(id))
+  current.filter((id) => !before.has(id)).forEach((id) => result.add(id))
+  return [...result]
+}
+
 export const { use: useData, provider: DataProvider } = createSimpleContext({
   name: "Data",
   init: () => {
@@ -903,26 +913,30 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return position === undefined ? undefined : messages?.[position]
           },
           async refresh(sessionID: string) {
-            const inputsBeforeRefresh = new Set(store.session.input[sessionID] ?? [])
+            const localInputs = store.session.input[sessionID] ?? []
             const [projected, pending] = await Promise.all([
               sdk.api.message.list({ sessionID, limit: 200, order: "desc" }),
               sdk.api.session.pending.list({ sessionID }),
             ])
-            const messages = projected.data.toReversed()
-            const projectedIDs = new Set(messages.map((message) => message.id))
-            const pendingMessages = pending.filter((item) => !projectedIDs.has(item.id)).map(message.fromPending)
-            const next = [...messages, ...pendingMessages]
-            messageIndex.set(sessionID, new Map(next.map((message, index) => [message.id, index])))
-            const inputsAfterRefresh = new Set(store.session.input[sessionID] ?? [])
+            const pendingMessages = pending.map(message.fromPending)
+            const next = projected.data.toReversed()
+            const index = new Map(next.map((message, index) => [message.id, index]))
+            const localInputIDs = new Set(localInputs)
+            store.session.message[sessionID]
+              ?.filter((message) => localInputIDs.has(message.id))
+              .forEach((item) => message.append(next, index, item))
+            pendingMessages.forEach((item) => message.append(next, index, item))
+            messageIndex.set(sessionID, index)
             setStore(
               "session",
               "input",
               sessionID,
-              pendingMessages.flatMap((message) =>
-                (message.type === "user" || message.type === "synthetic") &&
-                (!inputsBeforeRefresh.has(message.id) || inputsAfterRefresh.has(message.id))
-                  ? [message.id]
-                  : [],
+              reconcilePendingInputs(
+                localInputs,
+                store.session.input[sessionID] ?? [],
+                pendingMessages.flatMap((message) =>
+                  message.type === "user" || message.type === "synthetic" ? [message.id] : [],
+                ),
               ),
             )
             setStore("session", "message", sessionID, reconcile(next))
