@@ -3,8 +3,9 @@ import type { SessionMessageInfo, SessionPendingInfo } from "@opencode-ai/sdk/v2
 import {
   applyTimelineOperations,
   fromPending,
+  pendingCompactions,
   visibleMessages,
-  type SessionTimelineInput,
+  type SessionPendingWork,
 } from "../../src/context/session-timeline"
 
 test("orders promoted work, compaction, steers, then queued inputs", () => {
@@ -20,19 +21,20 @@ test("orders promoted work, compaction, steers, then queued inputs", () => {
   ])
 
   expect(result.map((input) => input.id)).toEqual(["steer-2", "compaction", "steer-1", "queue"])
+  expect(pendingCompactions(result)).toEqual(["compaction"])
 })
 
 test("replays an admission after the pending snapshot", () => {
   const input = pending("late", 2, "steer")
-  expect(applyTimelineOperations([], [{ type: "admitted", input }])).toEqual([input])
+  expect(applyTimelineOperations([], [{ type: "admitted", work: input }])).toEqual([input])
 })
 
 test("does not let late admission downgrade a promotion", () => {
   const input = pending("input", 1, "steer")
   const result = applyTimelineOperations([], [
-    { type: "admitted", input },
+    { type: "admitted", work: input },
     { type: "promoted", inputID: input.id, promotedSeq: 2, created: 2 },
-    { type: "admitted", input },
+    { type: "admitted", work: input },
   ])
 
   expect(result).toMatchObject([{ id: input.id, phase: "promoted", promotedSeq: 2 }])
@@ -42,7 +44,7 @@ test("retains promotion state until a later admission provides content", () => {
   const input = pending("input", 1, "steer")
   const result = applyTimelineOperations([], [
     { type: "promoted", inputID: input.id, promotedSeq: 2, created: 2 },
-    { type: "admitted", input },
+    { type: "admitted", work: input },
   ])
 
   expect(result).toMatchObject([{ id: input.id, phase: "promoted", promotedSeq: 2, message: { text: "input" } }])
@@ -67,7 +69,7 @@ test("projected messages replace pending and promoted representations", () => {
   expect(visibleMessages(projected, [pending("input", 1, "steer")])).toEqual(projected)
 })
 
-function pending(id: string, admittedSeq: number, delivery: "steer" | "queue"): SessionTimelineInput {
+function pending(id: string, admittedSeq: number, delivery: "steer" | "queue"): SessionPendingWork {
   return fromPending({
     admittedSeq,
     id,

@@ -37,9 +37,9 @@ export function createSessionRows(sessionID: Accessor<string>) {
     rows.splice(
       position === -1 ? rows.length : position,
       0,
-      ...data.session.compaction
-        .list(sessionID())
-        .map((inputID): SessionRow => ({ id: `compaction-queued:${inputID}`, type: "compaction-queued", inputID })),
+      ...data.session.timeline
+        .compactions(sessionID())
+        .map((inputID): SessionRow => ({ id: inputID, type: "compaction-queued", inputID })),
     )
     return rows
   }
@@ -83,7 +83,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
 
   createEffect(
     on(
-      () => data.session.compaction.list(sessionID()).map((inputID) => inputID),
+      () => data.session.timeline.compactions(sessionID()),
       () => setRows(reconcile(reduce(), { key: "id" })),
     ),
   )

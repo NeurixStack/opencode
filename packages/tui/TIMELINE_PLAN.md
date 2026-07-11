@@ -28,23 +28,31 @@ This plan incorporates reviews of Solid identity, hydration concurrency, Session
 Keep the existing projected/live message cache. Add a lifecycle overlay containing only pending or locally promoted work.
 
 ```ts
-type TimelineInput = {
-  id: string
-  phase: "pending" | "promoted"
-  admittedSeq: number
-  delivery?: "steer" | "queue"
-  message?: SessionMessageInfo
-}
+type SessionPendingWork =
+  | {
+      kind: "message"
+      id: string
+      phase: "pending" | "promoted"
+      admittedSeq: number
+      delivery: "steer" | "queue"
+      message?: SessionMessageInfo
+    }
+  | {
+      kind: "compaction"
+      id: string
+      phase: "pending"
+      admittedSeq: number
+    }
 
 type Data = {
   session: {
     message: Record<string, SessionMessageInfo[]>
-    input: Record<string, TimelineInput[]>
+    pending: Record<string, SessionPendingWork[]>
   }
 }
 ```
 
-The overlay keeps pending content, phase, delivery, and ordering metadata together. It replaces the current parallel representation where content is inserted into `session.message` while only its ID is stored in `session.input`.
+The overlay keeps every kind of pending Session work together with its phase and ordering metadata. It replaces both the parallel message-plus-ID representation and the separate queued-compaction store.
 
 Projected messages remain available through the existing projected cache. A small visible-timeline surface composes projected messages with the overlay for rendering:
 
@@ -99,7 +107,7 @@ Only input topology operations are journaled:
 
 ```ts
 type TimelineOperation =
-  | { type: "admitted"; input: TimelineInput }
+  | { type: "admitted"; work: SessionPendingWork }
   | { type: "promoted"; inputID: string; promotedSeq: number; created: number }
   | { type: "reverted"; to: string }
 ```
@@ -144,7 +152,7 @@ Visible ordering is derived rather than encoded by array mutation:
 
 This anticipates normal runner eligibility. Steers are consumed before queues, while compaction blocks both. A legitimate queue/steer interleaving selected by the runner is represented by durable promotion order once promoted.
 
-Compaction remains on its existing message lifecycle in the first implementation unless pending compaction coverage can be added without conflating its different event model with ordinary input admission.
+Queued compaction remains a distinct overlay variant because it has no message payload or delivery mode. Starting compaction removes that pending variant and projects a running compaction message with the same stable input ID.
 
 ## Solid Identity
 

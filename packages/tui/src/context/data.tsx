@@ -33,8 +33,9 @@ import {
   applyTimelineOperations,
   fromAdmission,
   fromPending,
+  pendingCompactions,
   visibleMessages,
-  type SessionTimelineInput,
+  type SessionPendingWork,
   type SessionTimelineOperation,
 } from "./session-timeline"
 
@@ -70,8 +71,7 @@ type Data = {
     family: Record<string, string[]>
     status: Record<string, DataSessionStatus>
     message: Record<string, SessionMessageInfo[]>
-    input: Record<string, SessionTimelineInput[]>
-    compaction: Record<string, string[]>
+    pending: Record<string, SessionPendingWork[]>
     permission: Record<string, PermissionV2Request[]>
     // Pending forms keyed by owner: a session ID or the temporary "global" elicitation sentinel.
     form: Record<string, FormWithLocation[]>
@@ -99,8 +99,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         family: {},
         status: {},
         message: {},
-        input: {},
-        compaction: {},
+        pending: {},
         permission: {},
         form: {},
       },
@@ -129,21 +128,6 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       setStore("session", "status", sessionID, status)
     }
 
-    function addCompaction(sessionID: string, inputID: string) {
-      if (store.session.compaction[sessionID]?.includes(inputID)) return
-      setStore("session", "compaction", sessionID, [...(store.session.compaction[sessionID] ?? []), inputID])
-    }
-
-    function removeCompaction(sessionID: string, inputID?: string) {
-      if (!inputID || !store.session.compaction[sessionID]?.includes(inputID)) return
-      setStore(
-        "session",
-        "compaction",
-        sessionID,
-        store.session.compaction[sessionID].filter((id) => id !== inputID),
-      )
-    }
-
     function applyTimelineOperation(sessionID: string, operation: SessionTimelineOperation) {
       const refresh = timelineRefreshes.get(sessionID)
       if (
@@ -153,11 +137,11 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         refresh.operations.push(operation)
       setStore(
         "session",
-        "input",
+        "pending",
         sessionID,
         reconcile(
           applyTimelineOperations(
-            store.session.input[sessionID] ?? [],
+            store.session.pending[sessionID] ?? [],
             [operation],
             new Set((store.session.message[sessionID] ?? []).map((message) => message.id)),
           ),
@@ -276,8 +260,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           delete draft.info[sessionID]
           delete draft.status[sessionID]
           delete draft.message[sessionID]
-          delete draft.input[sessionID]
-          delete draft.compaction[sessionID]
+          delete draft.pending[sessionID]
           delete draft.permission[sessionID]
           delete draft.form[sessionID]
           for (const [rootID, family] of Object.entries(draft.family)) {
@@ -384,9 +367,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
               })
               setStore(
                 "session",
-                "input",
+                "pending",
                 event.data.sessionID,
-                (inputs) => inputs?.filter((input) => input.id !== item.id) ?? [],
+                (pending) => pending?.filter((work) => work.id !== item.id) ?? [],
               )
             })
             .catch(() => undefined)
@@ -395,7 +378,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         case "session.input.admitted": {
           applyTimelineOperation(event.data.sessionID, {
             type: "admitted",
-            input: fromAdmission({
+            work: fromAdmission({
               id: event.data.inputID,
               admittedSeq: event.durable.seq,
               timeCreated: event.created,
@@ -662,19 +645,30 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           setSessionStatus(event.data.sessionID, "running")
           break
         case "session.compaction.admitted":
-          addCompaction(event.data.sessionID, event.data.inputID)
+          applyTimelineOperation(event.data.sessionID, {
+            type: "admitted",
+            work: {
+              kind: "compaction",
+              id: event.data.inputID,
+              phase: "pending",
+              admittedSeq: event.durable.seq,
+            },
+          })
           break
         case "session.compaction.started":
-          removeCompaction(event.data.sessionID, event.data.inputID)
-          message.update(event.data.sessionID, (draft, index) => {
-            message.append(draft, index, {
-              id: event.data.inputID ?? messageIDFromEvent(event.id),
-              type: "compaction",
-              status: "running",
-              reason: event.data.reason,
-              summary: "",
-              recent: event.data.recent ?? "",
-              time: { created: event.created },
+          batch(() => {
+            if (event.data.inputID)
+              applyTimelineOperation(event.data.sessionID, { type: "removed", inputID: event.data.inputID })
+            message.update(event.data.sessionID, (draft, index) => {
+              message.append(draft, index, {
+                id: event.data.inputID ?? messageIDFromEvent(event.id),
+                type: "compaction",
+                status: "running",
+                reason: event.data.reason,
+                summary: "",
+                recent: event.data.recent ?? "",
+                time: { created: event.created },
+              })
             })
           })
           break
@@ -741,27 +735,30 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           })
           break
         case "session.compaction.failed":
-          removeCompaction(event.data.sessionID, event.data.inputID)
-          message.update(event.data.sessionID, (draft, index) => {
-            const position = draft.findLastIndex((item) => item.type === "compaction" && item.status === "running")
-            const current = draft[position]
-            const failed: Extract<SessionMessageInfo, { type: "compaction"; status: "failed" }> = {
-              id: current?.id ?? event.data.inputID ?? messageIDFromEvent(event.id),
-              type: "compaction",
-              status: "failed",
-              reason: event.data.reason ?? "manual",
-              error: event.data.error ?? {
-                type: "compaction.failed",
-                message: "Compaction failed before recording an error",
-              },
-              metadata: current?.type === "compaction" ? current.metadata : event.metadata,
-              time: current?.type === "compaction" ? current.time : { created: event.created },
-            }
-            if (current?.type === "compaction") {
-              draft[position] = failed
-              return
-            }
-            message.append(draft, index, failed)
+          batch(() => {
+            if (event.data.inputID)
+              applyTimelineOperation(event.data.sessionID, { type: "removed", inputID: event.data.inputID })
+            message.update(event.data.sessionID, (draft, index) => {
+              const position = draft.findLastIndex((item) => item.type === "compaction" && item.status === "running")
+              const current = draft[position]
+              const failed: Extract<SessionMessageInfo, { type: "compaction"; status: "failed" }> = {
+                id: current?.id ?? event.data.inputID ?? messageIDFromEvent(event.id),
+                type: "compaction",
+                status: "failed",
+                reason: event.data.reason ?? "manual",
+                error: event.data.error ?? {
+                  type: "compaction.failed",
+                  message: "Compaction failed before recording an error",
+                },
+                metadata: current?.type === "compaction" ? current.metadata : event.metadata,
+                time: current?.type === "compaction" ? current.time : { created: event.created },
+              }
+              if (current?.type === "compaction") {
+                draft[position] = failed
+                return
+              }
+              message.append(draft, index, failed)
+            })
           })
           break
         case "permission.v2.asked":
@@ -869,21 +866,15 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             }
             messages[position] = message
           })
-        const inputs = applyTimelineOperations(
-          pending.filter((input) => input.type !== "compaction").map(fromPending),
+        const pendingWork = applyTimelineOperations(
+          pending.map(fromPending),
           operations,
           new Set(messages.map((message) => message.id)),
         )
         batch(() => {
           messageIndex.set(sessionID, messagePositions)
           setStore("session", "message", sessionID, reconcile(messages, { key: "id" }))
-          setStore("session", "input", sessionID, reconcile(inputs, { key: "id" }))
-          setStore(
-            "session",
-            "compaction",
-            sessionID,
-            reconcile(pending.filter((input) => input.type === "compaction").map((input) => input.id)),
-          )
+          setStore("session", "pending", sessionID, reconcile(pendingWork, { key: "id" }))
           timelineHydrated.add(sessionID)
         })
       })()
@@ -896,14 +887,15 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     }
 
     function timelineList(sessionID: string) {
-      return visibleMessages(store.session.message[sessionID] ?? [], store.session.input[sessionID] ?? [])
+      return visibleMessages(store.session.message[sessionID] ?? [], store.session.pending[sessionID] ?? [])
     }
 
     function timelineGet(sessionID: string, messageID: string) {
       const messages = store.session.message[sessionID]
       const position = messageIndex.get(sessionID)?.get(messageID)
       if (position !== undefined) return messages?.[position]
-      return store.session.input[sessionID]?.find((input) => input.id === messageID)?.message
+      const work = store.session.pending[sessionID]?.find((work) => work.id === messageID)
+      return work?.kind === "message" ? work.message : undefined
     }
 
     const result = {
@@ -936,29 +928,15 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         },
         input: {
           list(sessionID: string) {
-            return (store.session.input[sessionID] ?? [])
-              .filter((input) => input.phase === "pending" && input.message?.type !== "compaction")
-              .map((input) => input.id)
+            return (store.session.pending[sessionID] ?? [])
+              .filter((work) => work.kind === "message" && work.phase === "pending")
+              .map((work) => work.id)
           },
           has(sessionID: string, inputID: string) {
-            return store.session.input[sessionID]?.some((input) => input.id === inputID && input.phase === "pending") ?? false
-          },
-        },
-        compaction: {
-          list(sessionID: string) {
-            return store.session.compaction[sessionID] ?? []
-          },
-          async refresh(sessionID: string) {
-            if (!store.session.compaction[sessionID]) setStore("session", "compaction", sessionID, [])
-            setStore(
-              "session",
-              "compaction",
-              sessionID,
-              reconcile(
-                (await sdk.api.session.pending.list({ sessionID }))
-                  .filter((item) => item.type === "compaction")
-                  .map((item) => item.id),
-              ),
+            return (
+              store.session.pending[sessionID]?.some(
+                (work) => work.kind === "message" && work.id === inputID && work.phase === "pending",
+              ) ?? false
             )
           },
         },
@@ -988,6 +966,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           },
           get(sessionID: string, messageID: string) {
             return timelineGet(sessionID, messageID)
+          },
+          compactions(sessionID: string) {
+            return pendingCompactions(store.session.pending[sessionID] ?? [])
           },
         },
         permission: {
@@ -1248,8 +1229,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           const sessions = connected
             ? new Set([
                 ...Object.keys(store.session.message),
-                ...Object.keys(store.session.input),
-                ...Object.keys(store.session.compaction),
+                ...Object.keys(store.session.pending),
                 ...timelineRefreshes.keys(),
               ])
             : []

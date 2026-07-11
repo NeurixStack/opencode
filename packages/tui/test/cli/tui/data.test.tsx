@@ -1086,7 +1086,7 @@ test("tracks session status from active sessions and execution events", async ()
       durable: durable("session-manual", 1),
       data: { sessionID: "session-manual", inputID: "message-compaction" },
     })
-    await wait(() => data.session.compaction.list("session-manual").includes("message-compaction"))
+    await wait(() => data.session.timeline.compactions("session-manual").includes("message-compaction"))
     emitEvent(events, {
       id: "evt_manual_compaction_started",
       created: 1,
@@ -1104,7 +1104,7 @@ test("tracks session status from active sessions and execution events", async ()
       const message = data.session.message.get("session-manual", "message-compaction")
       return message?.type === "compaction" && message.status === "running" && message.summary === "Streamed summary"
     })
-    expect(data.session.compaction.list("session-manual")).toEqual([])
+    expect(data.session.timeline.compactions("session-manual")).toEqual([])
     const compactionRow = manualRows.find(
       (row) => row.type === "message" && row.messageID === "message-compaction",
     )
@@ -1223,24 +1223,25 @@ test("restores queued compaction from durable pending input", async () => {
   ))
 
   try {
-    await wait(() => data.session.compaction.list(sessionID).length === 2)
-    expect(data.session.compaction.list(sessionID)).toEqual([
+    await wait(() => data.session.timeline.compactions(sessionID).length === 2)
+    expect(data.session.timeline.compactions(sessionID)).toEqual([
       "message-compaction-queued",
       "message-compaction-later",
     ])
     await wait(() => rows.filter((row) => row.type === "compaction-queued").length === 2)
     expect(rows.filter((row) => row.type === "compaction-queued")).toEqual([
       {
-        id: "compaction-queued:message-compaction-queued",
+        id: "message-compaction-queued",
         type: "compaction-queued",
         inputID: "message-compaction-queued",
       },
       {
-        id: "compaction-queued:message-compaction-later",
+        id: "message-compaction-later",
         type: "compaction-queued",
         inputID: "message-compaction-later",
       },
     ])
+    const queuedRow = rows.find((row) => row.id === "message-compaction-queued")
 
     emitEvent(events, {
       id: "evt_compaction_started",
@@ -1254,8 +1255,10 @@ test("restores queued compaction from durable pending input", async () => {
         inputID: "message-compaction-queued",
       },
     })
-    await wait(() => data.session.compaction.list(sessionID).length === 1)
-    expect(data.session.compaction.list(sessionID)).toEqual(["message-compaction-later"])
+    await wait(() => data.session.timeline.compactions(sessionID).length === 1)
+    expect(data.session.timeline.compactions(sessionID)).toEqual(["message-compaction-later"])
+    await wait(() => rows.some((row) => row.type === "message" && row.messageID === "message-compaction-queued"))
+    expect(rows.find((row) => row.id === "message-compaction-queued")).toBe(queuedRow)
 
     emitEvent(events, {
       id: "evt_compaction_ended",
@@ -1264,7 +1267,7 @@ test("restores queued compaction from durable pending input", async () => {
       durable: durable(sessionID, 5),
       data: { sessionID, reason: "manual", text: "Summary", recent: "" },
     })
-    expect(data.session.compaction.list(sessionID)).toEqual(["message-compaction-later"])
+    expect(data.session.timeline.compactions(sessionID)).toEqual(["message-compaction-later"])
 
     pending = []
     emitEvent(events, {
@@ -1272,7 +1275,7 @@ test("restores queued compaction from durable pending input", async () => {
       type: "server.connected",
       data: {},
     })
-    await wait(() => data.session.compaction.list(sessionID).length === 0)
+    await wait(() => data.session.timeline.compactions(sessionID).length === 0)
   } finally {
     app.renderer.destroy()
   }
