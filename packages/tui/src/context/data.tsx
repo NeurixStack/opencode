@@ -21,6 +21,7 @@ import type {
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionInfo,
+  SessionPendingInfo,
   Shell,
   SkillInfo,
 } from "@opencode-ai/sdk/v2"
@@ -160,6 +161,31 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       compaction(messages: SessionMessageInfo[]) {
         const item = messages.findLast((item) => item.type === "compaction" && item.status === "running")
         return item?.type === "compaction" ? item : undefined
+      },
+      fromPending(item: SessionPendingInfo): SessionMessageInfo {
+        if (item.type === "user")
+          return {
+            id: item.id,
+            type: "user",
+            ...item.data,
+            time: { created: item.timeCreated },
+          }
+        if (item.type === "synthetic")
+          return {
+            id: item.id,
+            type: "synthetic",
+            ...item.data,
+            time: { created: item.timeCreated },
+          }
+        return {
+          id: item.id,
+          type: "compaction",
+          status: "running",
+          reason: "manual",
+          summary: "",
+          recent: "",
+          time: { created: item.timeCreated },
+        }
       },
       latestTool(assistant: SessionMessageAssistant | undefined, callID?: string) {
         return assistant?.content.findLast(
@@ -877,14 +903,29 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             return position === undefined ? undefined : messages?.[position]
           },
           async refresh(sessionID: string) {
-            const pending = new Set(store.session.input[sessionID] ?? [])
-            const messages = (await sdk.api.message.list({ sessionID, limit: 200, order: "desc" })).data.toReversed()
-            const index = new Map(messages.map((message, index) => [message.id, index]))
-            store.session.message[sessionID]
-              ?.filter((message) => pending.has(message.id))
-              .forEach((item) => message.append(messages, index, item))
-            messageIndex.set(sessionID, index)
-            setStore("session", "message", sessionID, reconcile(messages))
+            const inputsBeforeRefresh = new Set(store.session.input[sessionID] ?? [])
+            const [projected, pending] = await Promise.all([
+              sdk.api.message.list({ sessionID, limit: 200, order: "desc" }),
+              sdk.api.session.pending.list({ sessionID }),
+            ])
+            const messages = projected.data.toReversed()
+            const projectedIDs = new Set(messages.map((message) => message.id))
+            const pendingMessages = pending.filter((item) => !projectedIDs.has(item.id)).map(message.fromPending)
+            const next = [...messages, ...pendingMessages]
+            messageIndex.set(sessionID, new Map(next.map((message, index) => [message.id, index])))
+            const inputsAfterRefresh = new Set(store.session.input[sessionID] ?? [])
+            setStore(
+              "session",
+              "input",
+              sessionID,
+              pendingMessages.flatMap((message) =>
+                (message.type === "user" || message.type === "synthetic") &&
+                (!inputsBeforeRefresh.has(message.id) || inputsAfterRefresh.has(message.id))
+                  ? [message.id]
+                  : [],
+              ),
+            )
+            setStore("session", "message", sessionID, reconcile(next))
           },
         },
         permission: {

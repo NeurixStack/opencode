@@ -2125,9 +2125,33 @@ test("preserves admitted prompts when hydration races with promotion", async () 
   const events = createEventStream()
   const sessionID = "session-1"
   const messageID = "msg_user_1"
+  const queuedID = "msg_user_2"
   const requested = Promise.withResolvers<void>()
   const response = Promise.withResolvers<Response>()
   const calls = createFetch((url) => {
+    if (url.pathname === `/api/session/${sessionID}/pending`)
+      return json({
+        data: [
+          {
+            admittedSeq: 0,
+            id: messageID,
+            sessionID,
+            timeCreated: 0,
+            type: "user",
+            data: { text: "hello" },
+            delivery: "steer",
+          },
+          {
+            admittedSeq: 1,
+            id: queuedID,
+            sessionID,
+            timeCreated: 1,
+            type: "user",
+            data: { text: "queued" },
+            delivery: "queue",
+          },
+        ],
+      })
     if (url.pathname !== `/api/session/${sessionID}/message`) return
     requested.resolve()
     return response.promise
@@ -2196,13 +2220,14 @@ test("preserves admitted prompts when hydration races with promotion", async () 
     response.resolve(json({ data: [], cursor: {} }))
     await refresh
 
-    const message = sync.session.message.list(sessionID)?.[0]
+    const message = sync.session.message.get(sessionID, messageID)
     expect(message?.type).toBe("user")
     if (message?.type !== "user") return
     expect(message).toMatchObject({ id: messageID, text: "hello" })
     expect(message.metadata).toBeUndefined()
-    expect(sync.session.input.list(sessionID)).toEqual([])
-    expect(sync.session.message.ids(sessionID)).toEqual([messageID])
+    expect(sync.session.input.list(sessionID)).toEqual([queuedID])
+    expect(sync.session.message.ids(sessionID)).toEqual([messageID, queuedID])
+    expect(sync.session.message.get(sessionID, queuedID)).toMatchObject({ id: queuedID, text: "queued" })
     expect(sync.session.message.ids("missing")).toEqual([])
     expect(sync.session.message.get(sessionID, messageID)).toBe(message)
     expect(sync.session.message.get(sessionID, "missing")).toBeUndefined()
