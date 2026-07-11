@@ -160,12 +160,7 @@ export function Session() {
   const { theme } = useTheme()
   const promptRef = usePromptRef()
   const session = createMemo(() => data.session.get(route.sessionID))
-  const messageIDs = createMemo(() => data.session.message.ids(route.sessionID))
-  const sessionMessages = () =>
-    messageIDs().flatMap((id) => {
-      const message = data.session.message.get(route.sessionID, id)
-      return message ? [message] : []
-    })
+  const sessionMessages = createMemo(() => data.session.timeline.list(route.sessionID))
   const location = createMemo(() => session()?.location)
 
   createEffect(() => {
@@ -962,7 +957,7 @@ export function Session() {
                   {(row) => (
                     <SessionRowView
                       row={row}
-                      message={(messageID) => data.session.message.get(route.sessionID, messageID)}
+                      message={(messageID) => data.session.timeline.get(route.sessionID, messageID)}
                     />
                   )}
                 </For>
@@ -1053,7 +1048,7 @@ export function Session() {
 
 function SessionRowView(props: { row: SessionRow; message: (messageID: string) => SessionMessageInfo | undefined }) {
   return (
-    <box marginTop={1} flexShrink={0}>
+    <box id={props.row.id} marginTop={1} flexShrink={0}>
       <Switch>
         <Match when={props.row.type === "message" ? props.row : undefined}>
           {(row) => (
@@ -1516,7 +1511,6 @@ function UserMessage(props: { message: SessionMessageUser }) {
   return (
     <Show when={props.message.text.trim() || files().length}>
       <box
-        id={props.message.id}
         border={["left"]}
         borderColor={queued() ? theme.border : color()}
         customBorderChars={SplitBorder.customBorderChars}

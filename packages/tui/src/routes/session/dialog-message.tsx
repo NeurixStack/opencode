@@ -12,7 +12,7 @@ export function DialogMessage(props: { messageID: string; sessionID: string }) {
   const clipboard = useClipboard()
   const toast = useToast()
   const sdk = useSDK()
-  const message = createMemo(() => data.session.message.get(props.sessionID, props.messageID))
+  const message = createMemo(() => data.session.timeline.get(props.sessionID, props.messageID))
 
   return (
     <DialogSelect

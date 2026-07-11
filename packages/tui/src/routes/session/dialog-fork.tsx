@@ -25,7 +25,7 @@ export function DialogFork(props: { sessionID: string; messageID?: string; onMov
       return undefined
     })
     if (!result) return dialog.clear()
-    const message = messageID ? data.session.message.get(props.sessionID, messageID) : undefined
+    const message = messageID ? data.session.timeline.get(props.sessionID, messageID) : undefined
     route.navigate({
       sessionID: result.id,
       type: "session",
@@ -59,7 +59,7 @@ export function DialogFork(props: { sessionID: string; messageID?: string; onMov
       value: undefined,
       onSelect: () => fork(),
     },
-    ...data.session.message
+    ...data.session.timeline
       .list(props.sessionID)
       .filter((message) => message.type === "user")
       .toReversed()

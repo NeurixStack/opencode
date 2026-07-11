@@ -21,7 +21,6 @@ import type {
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionInfo,
-  SessionPendingInfo,
   Shell,
   SkillInfo,
 } from "@opencode-ai/sdk/v2"
@@ -29,7 +28,15 @@ import type { OpenCodeEvent } from "@opencode-ai/client/promise"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { createSimpleContext } from "./helper"
 import { useSDK } from "./sdk"
-import { createSignal, onCleanup } from "solid-js"
+import { batch, createSignal, onCleanup } from "solid-js"
+import {
+  applyTimelineOperations,
+  fromAdmission,
+  fromPending,
+  visibleMessages,
+  type SessionTimelineInput,
+  type SessionTimelineOperation,
+} from "./session-timeline"
 
 export type DataSessionStatus = "idle" | "running"
 
@@ -63,7 +70,7 @@ type Data = {
     family: Record<string, string[]>
     status: Record<string, DataSessionStatus>
     message: Record<string, SessionMessageInfo[]>
-    input: Record<string, string[]>
+    input: Record<string, SessionTimelineInput[]>
     compaction: Record<string, string[]>
     permission: Record<string, PermissionV2Request[]>
     // Pending forms keyed by owner: a session ID or the temporary "global" elicitation sentinel.
@@ -81,16 +88,6 @@ function locationKey(location: LocationRef) {
 
 function locationQuery(ref?: LocationRef) {
   return ref ? { directory: ref.directory, workspace: ref.workspaceID } : undefined
-}
-
-// Apply local admissions and promotions that arrived while the server snapshot was loading.
-function reconcilePendingInputs(baseline: string[], current: string[], server: string[]) {
-  const result = new Set(server)
-  const before = new Set(baseline)
-  const now = new Set(current)
-  baseline.filter((id) => !now.has(id)).forEach((id) => result.delete(id))
-  current.filter((id) => !before.has(id)).forEach((id) => result.add(id))
-  return [...result]
 }
 
 export const { use: useData, provider: DataProvider } = createSimpleContext({
@@ -118,8 +115,15 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       directory: process.cwd(),
     })
     const messageIndex = new Map<string, Map<string, number>>()
+    const timelineHydrated = new Set<string>()
+    const sessionGenerations = new Map<string, number>()
+    const timelineRefreshes = new Map<
+      string,
+      { epoch: number; generation: number; operations: SessionTimelineOperation[]; promise: Promise<void> }
+    >()
     let bootstrapping: Promise<void> | undefined
     let connected = false
+    let connectionEpoch = 0
 
     function setSessionStatus(sessionID: string, status: DataSessionStatus) {
       setStore("session", "status", sessionID, status)
@@ -137,6 +141,28 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         "compaction",
         sessionID,
         store.session.compaction[sessionID].filter((id) => id !== inputID),
+      )
+    }
+
+    function applyTimelineOperation(sessionID: string, operation: SessionTimelineOperation) {
+      const refresh = timelineRefreshes.get(sessionID)
+      if (
+        refresh?.epoch === connectionEpoch &&
+        refresh.generation === (sessionGenerations.get(sessionID) ?? 0)
+      )
+        refresh.operations.push(operation)
+      setStore(
+        "session",
+        "input",
+        sessionID,
+        reconcile(
+          applyTimelineOperations(
+            store.session.input[sessionID] ?? [],
+            [operation],
+            new Set((store.session.message[sessionID] ?? []).map((message) => message.id)),
+          ),
+          { key: "id" },
+        ),
       )
     }
 
@@ -171,31 +197,6 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       compaction(messages: SessionMessageInfo[]) {
         const item = messages.findLast((item) => item.type === "compaction" && item.status === "running")
         return item?.type === "compaction" ? item : undefined
-      },
-      fromPending(item: SessionPendingInfo): SessionMessageInfo {
-        if (item.type === "user")
-          return {
-            id: item.id,
-            type: "user",
-            ...item.data,
-            time: { created: item.timeCreated },
-          }
-        if (item.type === "synthetic")
-          return {
-            id: item.id,
-            type: "synthetic",
-            ...item.data,
-            time: { created: item.timeCreated },
-          }
-        return {
-          id: item.id,
-          type: "compaction",
-          status: "running",
-          reason: "manual",
-          summary: "",
-          recent: "",
-          time: { created: item.timeCreated },
-        }
       },
       latestTool(assistant: SessionMessageAssistant | undefined, callID?: string) {
         return assistant?.content.findLast(
@@ -266,7 +267,9 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     }
 
     function removeSession(sessionID: string) {
+      sessionGenerations.set(sessionID, (sessionGenerations.get(sessionID) ?? 0) + 1)
       messageIndex.delete(sessionID)
+      timelineHydrated.delete(sessionID)
       setStore(
         "session",
         produce((draft) => {
@@ -362,51 +365,45 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           }
           break
         case "session.input.promoted": {
-          message.update(event.data.sessionID, (draft, index) => {
-            const position = index.get(event.data.inputID)
-            if (position === undefined) return
-            const existing = draft[position]
-            if (!existing || !store.session.input[event.data.sessionID]?.includes(event.data.inputID)) return
-            existing.time.created = event.created
-            draft.splice(position, 1)
-            draft.push(existing)
-            index.clear()
-            draft.forEach((message, indexValue) => index.set(message.id, indexValue))
+          applyTimelineOperation(event.data.sessionID, {
+            type: "promoted",
+            inputID: event.data.inputID,
+            promotedSeq: event.durable.seq,
+            created: event.created,
           })
-          setStore(
-            "session",
-            "input",
-            event.data.sessionID,
-            (store.session.input[event.data.sessionID] ?? []).filter((id) => id !== event.data.inputID),
-          )
+          const epoch = connectionEpoch
+          const generation = sessionGenerations.get(event.data.sessionID) ?? 0
+          void sdk.api.session
+            .message({ sessionID: event.data.sessionID, messageID: event.data.inputID })
+            .then((item) => {
+              if (epoch !== connectionEpoch || generation !== (sessionGenerations.get(event.data.sessionID) ?? 0)) return
+              message.update(event.data.sessionID, (draft, index) => {
+                const position = index.get(item.id)
+                if (position === undefined) return message.append(draft, index, item)
+                draft[position] = item
+              })
+              setStore(
+                "session",
+                "input",
+                event.data.sessionID,
+                (inputs) => inputs?.filter((input) => input.id !== item.id) ?? [],
+              )
+            })
+            .catch(() => undefined)
           break
         }
-        case "session.input.admitted":
-          if (!store.session.input[event.data.sessionID]?.includes(event.data.inputID))
-            setStore("session", "input", event.data.sessionID, [
-              ...(store.session.input[event.data.sessionID] ?? []),
-              event.data.inputID,
-            ])
-          message.update(event.data.sessionID, (draft, index) => {
-            message.append(
-              draft,
-              index,
-              event.data.input.type === "user"
-                ? {
-                    id: event.data.inputID,
-                    type: "user",
-                    ...event.data.input.data,
-                    time: { created: event.created },
-                  }
-                : {
-                    id: event.data.inputID,
-                    type: "synthetic",
-                    ...event.data.input.data,
-                    time: { created: event.created },
-                  },
-            )
+        case "session.input.admitted": {
+          applyTimelineOperation(event.data.sessionID, {
+            type: "admitted",
+            input: fromAdmission({
+              id: event.data.inputID,
+              admittedSeq: event.durable.seq,
+              timeCreated: event.created,
+              input: event.data.input,
+            }),
           })
           break
+        }
         case "session.instructions.updated":
           message.update(event.data.sessionID, (draft, index) => {
             message.append(draft, index, {
@@ -699,15 +696,14 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             setStore("session", "info", event.data.sessionID, "revert", undefined)
           break
         case "session.revert.committed":
+          sessionGenerations.set(
+            event.data.sessionID,
+            (sessionGenerations.get(event.data.sessionID) ?? 0) + 1,
+          )
           if (store.session.info[event.data.sessionID]) {
             setStore("session", "info", event.data.sessionID, "revert", undefined)
           }
-          setStore(
-            "session",
-            "input",
-            event.data.sessionID,
-            (store.session.input[event.data.sessionID] ?? []).filter((id) => id < event.data.to),
-          )
+          applyTimelineOperation(event.data.sessionID, { type: "reverted", to: event.data.to })
           message.update(event.data.sessionID, (draft, index) => {
             const position = draft.findIndex((item) => item.id >= event.data.to)
             if (position === -1) return
@@ -842,6 +838,74 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       }
     }
 
+    function refreshTimeline(sessionID: string): Promise<void> {
+      const existing = timelineRefreshes.get(sessionID)
+      const generation = sessionGenerations.get(sessionID) ?? 0
+      if (existing?.epoch === connectionEpoch && existing.generation === generation) return existing.promise
+
+      const epoch = connectionEpoch
+      const operations: SessionTimelineOperation[] = []
+      const baseline = new Set(
+        timelineHydrated.has(sessionID) ? (store.session.message[sessionID] ?? []).map((message) => message.id) : [],
+      )
+      const promise = (async () => {
+        const pending = await sdk.api.session.pending.list({ sessionID })
+        if (generation !== (sessionGenerations.get(sessionID) ?? 0)) return
+        if (epoch !== connectionEpoch) return refreshTimeline(sessionID)
+        const projected = await sdk.api.message.list({ sessionID, limit: 200, order: "desc" })
+        if (generation !== (sessionGenerations.get(sessionID) ?? 0)) return
+        if (epoch !== connectionEpoch) return refreshTimeline(sessionID)
+
+        const messages: SessionMessageInfo[] = projected.data.toReversed()
+        const messagePositions = new Map(messages.map((message, index) => [message.id, index]))
+        store.session.message[sessionID]
+          ?.filter((message) => !baseline.has(message.id))
+          .forEach((message) => {
+            const position = messagePositions.get(message.id)
+            if (position === undefined) {
+              messagePositions.set(message.id, messages.length)
+              messages.push(message)
+              return
+            }
+            messages[position] = message
+          })
+        const inputs = applyTimelineOperations(
+          pending.filter((input) => input.type !== "compaction").map(fromPending),
+          operations,
+          new Set(messages.map((message) => message.id)),
+        )
+        batch(() => {
+          messageIndex.set(sessionID, messagePositions)
+          setStore("session", "message", sessionID, reconcile(messages, { key: "id" }))
+          setStore("session", "input", sessionID, reconcile(inputs, { key: "id" }))
+          setStore(
+            "session",
+            "compaction",
+            sessionID,
+            reconcile(pending.filter((input) => input.type === "compaction").map((input) => input.id)),
+          )
+          timelineHydrated.add(sessionID)
+        })
+      })()
+      timelineRefreshes.set(sessionID, { epoch, generation, operations, promise })
+      const cleanup = () => {
+        if (timelineRefreshes.get(sessionID)?.promise === promise) timelineRefreshes.delete(sessionID)
+      }
+      void promise.then(cleanup, cleanup)
+      return promise
+    }
+
+    function timelineList(sessionID: string) {
+      return visibleMessages(store.session.message[sessionID] ?? [], store.session.input[sessionID] ?? [])
+    }
+
+    function timelineGet(sessionID: string, messageID: string) {
+      const messages = store.session.message[sessionID]
+      const position = messageIndex.get(sessionID)?.get(messageID)
+      if (position !== undefined) return messages?.[position]
+      return store.session.input[sessionID]?.find((input) => input.id === messageID)?.message
+    }
+
     const result = {
       on: sdk.event.on,
       listen: sdk.event.listen,
@@ -872,10 +936,12 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
         },
         input: {
           list(sessionID: string) {
-            return store.session.input[sessionID] ?? []
+            return (store.session.input[sessionID] ?? [])
+              .filter((input) => input.phase === "pending" && input.message?.type !== "compaction")
+              .map((input) => input.id)
           },
           has(sessionID: string, inputID: string) {
-            return store.session.input[sessionID]?.includes(inputID) ?? false
+            return store.session.input[sessionID]?.some((input) => input.id === inputID && input.phase === "pending") ?? false
           },
         },
         compaction: {
@@ -912,34 +978,16 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             const position = messageIndex.get(sessionID)?.get(messageID)
             return position === undefined ? undefined : messages?.[position]
           },
-          async refresh(sessionID: string) {
-            const localInputs = store.session.input[sessionID] ?? []
-            const [projected, pending] = await Promise.all([
-              sdk.api.message.list({ sessionID, limit: 200, order: "desc" }),
-              sdk.api.session.pending.list({ sessionID }),
-            ])
-            const pendingMessages = pending.map(message.fromPending)
-            const next = projected.data.toReversed()
-            const index = new Map(next.map((message, index) => [message.id, index]))
-            const localInputIDs = new Set(localInputs)
-            store.session.message[sessionID]
-              ?.filter((message) => localInputIDs.has(message.id))
-              .forEach((item) => message.append(next, index, item))
-            pendingMessages.forEach((item) => message.append(next, index, item))
-            messageIndex.set(sessionID, index)
-            setStore(
-              "session",
-              "input",
-              sessionID,
-              reconcilePendingInputs(
-                localInputs,
-                store.session.input[sessionID] ?? [],
-                pendingMessages.flatMap((message) =>
-                  message.type === "user" || message.type === "synthetic" ? [message.id] : [],
-                ),
-              ),
-            )
-            setStore("session", "message", sessionID, reconcile(next))
+          refresh(sessionID: string) {
+            return refreshTimeline(sessionID)
+          },
+        },
+        timeline: {
+          list(sessionID: string) {
+            return timelineList(sessionID)
+          },
+          get(sessionID: string, messageID: string) {
+            return timelineGet(sessionID, messageID)
           },
         },
         permission: {
@@ -1196,15 +1244,18 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
     onCleanup(
       sdk.event.listen(({ details }) => {
         if (details.type === "server.connected") {
-          const messages = connected ? Object.keys(store.session.message) : []
-          const compactions = connected ? Object.keys(store.session.compaction) : []
+          connectionEpoch += 1
+          const sessions = connected
+            ? new Set([
+                ...Object.keys(store.session.message),
+                ...Object.keys(store.session.input),
+                ...Object.keys(store.session.compaction),
+                ...timelineRefreshes.keys(),
+              ])
+            : []
           connected = true
           refreshActive()
-          void Promise.allSettled([
-            bootstrap(),
-            ...messages.map(result.session.message.refresh),
-            ...compactions.map(result.session.compaction.refresh),
-          ])
+          void Promise.allSettled([bootstrap(), ...Array.from(sessions).map(result.session.message.refresh)])
           return
         }
         handleEvent(details)

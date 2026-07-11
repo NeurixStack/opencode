@@ -9,17 +9,18 @@ export type PartRef = {
 }
 
 export type SessionRow =
-  | { type: "message"; messageID: string }
-  | { type: "compaction-queued"; inputID: string }
-  | { type: "part"; ref: PartRef }
+  | { id: string; type: "message"; messageID: string }
+  | { id: string; type: "compaction-queued"; inputID: string }
+  | { id: string; type: "part"; ref: PartRef }
   | {
+      id: string
       type: "group"
       kind: "exploration"
       refs: PartRef[]
       pending: PartRef[]
       completed: boolean
     }
-  | { type: "assistant-footer"; messageID: string }
+  | { id: string; type: "assistant-footer"; messageID: string }
 
 export function createSessionRows(sessionID: Accessor<string>) {
   const data = useData()
@@ -27,7 +28,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
   const revertBoundary = () => data.session.get(sessionID())?.revert?.messageID
 
   function reduce() {
-    const messages = data.session.message.list(sessionID())
+    const messages = data.session.timeline.list(sessionID())
     const inputs = new Set(data.session.input.list(sessionID()))
     const boundary = revertBoundary()
     const rows = reduceSessionRows(boundary ? messages.filter((message) => message.id < boundary) : messages, inputs)
@@ -38,7 +39,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
       0,
       ...data.session.compaction
         .list(sessionID())
-        .map((inputID): SessionRow => ({ type: "compaction-queued", inputID })),
+        .map((inputID): SessionRow => ({ id: `compaction-queued:${inputID}`, type: "compaction-queued", inputID })),
     )
     return rows
   }
@@ -62,12 +63,11 @@ export function createSessionRows(sessionID: Accessor<string>) {
 
   createEffect(
     on(sessionID, (id) => {
-      setRows(reconcile(reduce()))
-      void data.session.compaction.refresh(id).catch(() => undefined)
+      setRows(reconcile(reduce(), { key: "id" }))
       void data.session.message.refresh(id).then(
         () => {
           if (sessionID() !== id) return
-          setRows(reconcile(reduce()))
+          setRows(reconcile(reduce(), { key: "id" }))
         },
         () => undefined,
       )
@@ -77,21 +77,21 @@ export function createSessionRows(sessionID: Accessor<string>) {
   // Re-reduce when the revert boundary changes (stage/clear/commit).
   createEffect(
     on(revertBoundary, () => {
-      setRows(reconcile(reduce()))
+      setRows(reconcile(reduce(), { key: "id" }))
     }),
   )
 
   createEffect(
     on(
       () => data.session.compaction.list(sessionID()).map((inputID) => inputID),
-      () => setRows(reconcile(reduce())),
+      () => setRows(reconcile(reduce(), { key: "id" })),
     ),
   )
 
   createEffect(
     on(
       () =>
-        data.session.message.list(sessionID()).flatMap((message) =>
+        data.session.timeline.list(sessionID()).flatMap((message) =>
           message.type === "user" || message.type === "synthetic"
             ? [
                 {
@@ -109,7 +109,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
                 ]
               : [],
         ),
-      () => setRows(reconcile(reduce())),
+      () => setRows(reconcile(reduce(), { key: "id" })),
     ),
   )
 
@@ -118,11 +118,11 @@ export function createSessionRows(sessionID: Accessor<string>) {
       produce((draft) => {
         if (draft.some((row) => row.type === "message" && row.messageID === messageID)) return
         const pending = isPending(messageID)
-        const message = data.session.message.get(sessionID(), messageID)
+        const message = data.session.timeline.get(sessionID(), messageID)
         const index =
           message?.type === "compaction" && pending ? queuedStart(draft) : pending ? draft.length : queuedStart(draft)
         if (!pending) completePrevious(draft, index)
-        draft.splice(index, 0, { type: "message", messageID })
+        draft.splice(index, 0, { id: messageID, type: "message", messageID })
       }),
     )
 
@@ -139,6 +139,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
           }
           completePrevious(draft, index)
           draft.splice(index, 0, {
+            id: rowID(ref),
             type: "group",
             kind: "exploration",
             refs: [ref],
@@ -148,7 +149,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
           return
         }
         completePrevious(draft, index)
-        draft.splice(index, 0, { type: "part", ref })
+        draft.splice(index, 0, { id: rowID(ref), type: "part", ref })
       }),
     )
 
@@ -158,7 +159,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
         if (draft.some((row) => row.type === "assistant-footer" && row.messageID === messageID)) return
         const index = queuedStart(draft)
         completePrevious(draft, index)
-        draft.splice(index, 0, { type: "assistant-footer", messageID })
+        draft.splice(index, 0, { id: `assistant-footer:${messageID}`, type: "assistant-footer", messageID })
       }),
     )
 
@@ -171,7 +172,7 @@ export function createSessionRows(sessionID: Accessor<string>) {
     )
 
   const isPending = (messageID: string) => {
-    const message = data.session.message.get(sessionID(), messageID)
+    const message = data.session.timeline.get(sessionID(), messageID)
     if (message?.type === "user" || message?.type === "synthetic") return data.session.input.has(sessionID(), messageID)
     return message?.type === "compaction" && message.status === "running"
   }
@@ -261,7 +262,7 @@ export function reduceSessionRows(messages: SessionMessageInfo[], inputs = new S
     if (message.type !== "assistant") {
       if (message.type === "synthetic" && !message.description?.trim()) return rows
       if (!pending.has(message.id)) completePrevious(rows)
-      rows.push({ type: "message", messageID: message.id })
+      rows.push({ id: message.id, type: "message", messageID: message.id })
       return rows
     }
     const ordinals = { text: 0, reasoning: 0 }
@@ -272,7 +273,7 @@ export function reduceSessionRows(messages: SessionMessageInfo[], inputs = new S
     })
     if ((message.finish && !["tool-calls", "unknown"].includes(message.finish)) || message.error || message.retry) {
       completePrevious(rows)
-      rows.push({ type: "assistant-footer", messageID: message.id })
+      rows.push({ id: `assistant-footer:${message.id}`, type: "assistant-footer", messageID: message.id })
     }
     return rows
   }, [])
@@ -296,12 +297,16 @@ function append(rows: SessionRow[], ref: PartRef, part: SessionMessageAssistant[
         return
       }
       completePrevious(rows)
-      rows.push({ type: "group", kind: "exploration", refs: [ref], pending: [], completed: false })
+      rows.push({ id: rowID(ref), type: "group", kind: "exploration", refs: [ref], pending: [], completed: false })
       return
     }
   }
   completePrevious(rows)
-  rows.push({ type: "part", ref })
+  rows.push({ id: rowID(ref), type: "part", ref })
+}
+
+function rowID(ref: PartRef) {
+  return `part:${ref.messageID}:${ref.partID}`
 }
 
 function completePrevious(rows: SessionRow[], index = rows.length) {

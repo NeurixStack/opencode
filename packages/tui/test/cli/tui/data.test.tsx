@@ -647,7 +647,7 @@ test("completes exploration when a queued prompt is promoted", async () => {
       data: { sessionID, inputID: "message-user" },
     })
     await wait(() => rows.find((row) => row.type === "group")?.completed === true)
-    expect(rows.at(-1)).toEqual({ type: "message", messageID: "message-user" })
+    expect(rows.at(-1)).toMatchObject({ id: "message-user", type: "message", messageID: "message-user" })
   } finally {
     app.renderer.destroy()
   }
@@ -656,8 +656,27 @@ test("completes exploration when a queued prompt is promoted", async () => {
 test("removes committed revert messages from local state", async () => {
   const events = createEventStream()
   const sessionID = "session-revert"
+  const messageResponse = Promise.withResolvers<Response>()
+  const messageRequested = Promise.withResolvers<void>()
+  let hydrating = false
   const calls = createFetch((url) => {
-    if (url.pathname === `/api/session/${sessionID}/message`) return json({ data: [], cursor: {} })
+    if (url.pathname === `/api/session/${sessionID}/pending` && hydrating)
+      return json({
+        data: ["msg_001", "msg_002", "msg_003"].map((id, admittedSeq) => ({
+          admittedSeq,
+          id,
+          sessionID,
+          timeCreated: admittedSeq,
+          type: "user",
+          data: { text: id },
+          delivery: "steer",
+        })),
+      })
+    if (url.pathname === `/api/session/${sessionID}/message`) {
+      if (!hydrating) return json({ data: [], cursor: {} })
+      messageRequested.resolve()
+      return messageResponse.promise
+    }
   }, events)
   let data!: ReturnType<typeof useData>
 
@@ -688,7 +707,10 @@ test("removes committed revert messages from local state", async () => {
         data: { sessionID, inputID, input: { type: "user", data: { text: inputID }, delivery: "steer" } },
       })
     }
-    await wait(() => data.session.message.ids(sessionID).length === 3)
+    await wait(() => data.session.timeline.list(sessionID).length === 3)
+    hydrating = true
+    const refresh = data.session.message.refresh(sessionID)
+    await messageRequested.promise
 
     emitEvent(events, {
       id: EventV2.ID.create(),
@@ -697,11 +719,21 @@ test("removes committed revert messages from local state", async () => {
       durable: durable(sessionID, 3),
       data: { sessionID, to: "msg_002" },
     })
+    messageResponse.resolve(
+      json({
+        data: [
+          { id: "msg_003", type: "user", text: "msg_003", time: { created: 2 } },
+          { id: "msg_002", type: "user", text: "msg_002", time: { created: 1 } },
+        ],
+        cursor: {},
+      }),
+    )
+    await refresh
 
-    await wait(() => data.session.message.ids(sessionID).length === 1)
-    expect(data.session.message.ids(sessionID)).toEqual(["msg_001"])
-    expect(data.session.message.get(sessionID, "msg_002")).toBeUndefined()
-    expect(data.session.message.get(sessionID, "msg_003")).toBeUndefined()
+    await wait(() => data.session.timeline.list(sessionID).length === 1)
+    expect(data.session.timeline.list(sessionID).map((message) => message.id)).toEqual(["msg_001"])
+    expect(data.session.timeline.get(sessionID, "msg_002")).toBeUndefined()
+    expect(data.session.timeline.get(sessionID, "msg_003")).toBeUndefined()
   } finally {
     app.renderer.destroy()
   }
@@ -1088,7 +1120,7 @@ test("tracks session status from active sessions and execution events", async ()
       return message?.type === "compaction" && message.status === "completed"
     })
     expect(manualRows.filter((row) => row.type === "message")).toEqual([
-      { type: "message", messageID: "message-compaction" },
+      { id: "message-compaction", type: "message", messageID: "message-compaction" },
     ])
     expect(manualRows.find((row) => row.type === "message" && row.messageID === "message-compaction")).toBe(
       compactionRow,
@@ -1198,8 +1230,16 @@ test("restores queued compaction from durable pending input", async () => {
     ])
     await wait(() => rows.filter((row) => row.type === "compaction-queued").length === 2)
     expect(rows.filter((row) => row.type === "compaction-queued")).toEqual([
-      { type: "compaction-queued", inputID: "message-compaction-queued" },
-      { type: "compaction-queued", inputID: "message-compaction-later" },
+      {
+        id: "compaction-queued:message-compaction-queued",
+        type: "compaction-queued",
+        inputID: "message-compaction-queued",
+      },
+      {
+        id: "compaction-queued:message-compaction-later",
+        type: "compaction-queued",
+        inputID: "message-compaction-later",
+      },
     ])
 
     emitEvent(events, {
@@ -2195,8 +2235,8 @@ test("preserves admitted prompts when hydration races with promotion", async () 
         input: { type: "user", data: { text: "hello" }, delivery: "steer" },
       },
     })
-    await wait(() => sync.session.message.list(sessionID)?.length === 1)
-    const admitted = sync.session.message.list(sessionID)?.[0]
+    await wait(() => sync.session.timeline.list(sessionID).length === 1)
+    const admitted = sync.session.timeline.list(sessionID)[0]
     expect(admitted).toMatchObject({ id: messageID, type: "user", text: "hello" })
     expect(admitted?.metadata).toBeUndefined()
     expect(sync.session.input.list(sessionID)).toEqual([messageID])
@@ -2220,18 +2260,160 @@ test("preserves admitted prompts when hydration races with promotion", async () 
     response.resolve(json({ data: [], cursor: {} }))
     await refresh
 
-    const message = sync.session.message.get(sessionID, messageID)
+    const message = sync.session.timeline.get(sessionID, messageID)
     expect(message?.type).toBe("user")
     if (message?.type !== "user") return
     expect(message).toMatchObject({ id: messageID, text: "hello" })
     expect(message.metadata).toBeUndefined()
     expect(sync.session.input.list(sessionID)).toEqual([queuedID])
-    expect(sync.session.message.ids(sessionID)).toEqual([messageID, queuedID])
-    expect(sync.session.message.get(sessionID, queuedID)).toMatchObject({ id: queuedID, text: "queued" })
-    expect(sync.session.message.ids("missing")).toEqual([])
-    expect(sync.session.message.get(sessionID, messageID)).toBe(message)
-    expect(sync.session.message.get(sessionID, "missing")).toBeUndefined()
+    expect(sync.session.timeline.list(sessionID).map((message) => message.id)).toEqual([messageID, queuedID])
+    expect(sync.session.timeline.get(sessionID, queuedID)).toMatchObject({ id: queuedID, text: "queued" })
+    expect(sync.session.timeline.list("missing")).toEqual([])
+    expect(sync.session.timeline.get(sessionID, messageID)).toBe(message)
+    expect(sync.session.timeline.get(sessionID, "missing")).toBeUndefined()
     expect(received).toHaveLength(3)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("journals admissions after the pending snapshot and joins concurrent refreshes", async () => {
+  const events = createEventStream()
+  const sessionID = "session-journal"
+  const messageID = "msg_late"
+  const pendingResponse = Promise.withResolvers<Response>()
+  const messageResponse = Promise.withResolvers<Response>()
+  const messageRequested = Promise.withResolvers<void>()
+  let pendingCalls = 0
+  let messageCalls = 0
+  const calls = createFetch((url) => {
+    if (url.pathname === `/api/session/${sessionID}/pending`) {
+      pendingCalls += 1
+      return pendingResponse.promise
+    }
+    if (url.pathname === `/api/session/${sessionID}/message`) {
+      messageCalls += 1
+      messageRequested.resolve()
+      return messageResponse.promise
+    }
+  }, events)
+  let data!: ReturnType<typeof useData>
+  let sdk!: ReturnType<typeof useSDK>
+
+  function Probe() {
+    data = useData()
+    sdk = useSDK()
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    await wait(() => sdk.connection.status() === "connected")
+    const first = data.session.message.refresh(sessionID)
+    const second = data.session.message.refresh(sessionID)
+    expect(second).toBe(first)
+    expect(pendingCalls).toBe(1)
+    expect(messageCalls).toBe(0)
+
+    pendingResponse.resolve(json({ data: [] }))
+    await messageRequested.promise
+    emitEvent(events, {
+      id: "evt_late_admission",
+      created: 1,
+      type: "session.input.admitted",
+      durable: durable(sessionID),
+      data: {
+        sessionID,
+        inputID: messageID,
+        input: { type: "user", data: { text: "late" }, delivery: "steer" },
+      },
+    })
+    messageResponse.resolve(json({ data: [], cursor: {} }))
+    await Promise.all([first, second])
+
+    expect(messageCalls).toBe(1)
+    expect(data.session.timeline.list(sessionID).map((message) => message.id)).toEqual([messageID])
+    expect(data.session.timeline.get(sessionID, messageID)).toMatchObject({ text: "late" })
+    expect(data.session.input.list(sessionID)).toEqual([messageID])
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("refreshes overlay-only sessions after reconnect", async () => {
+  const events = createEventStream()
+  const sessionID = "session-overlay"
+  const messageID = "msg_overlay"
+  let pendingCalls = 0
+  const calls = createFetch((url) => {
+    if (url.pathname === `/api/session/${sessionID}/pending`) {
+      pendingCalls += 1
+      return json({
+        data: [
+          {
+            admittedSeq: 0,
+            id: messageID,
+            sessionID,
+            timeCreated: 0,
+            type: "user",
+            data: { text: "overlay" },
+            delivery: "steer",
+          },
+        ],
+      })
+    }
+    if (url.pathname === `/api/session/${sessionID}/message`) return json({ data: [], cursor: {} })
+  }, events)
+  let data!: ReturnType<typeof useData>
+  let sdk!: ReturnType<typeof useSDK>
+
+  function Probe() {
+    data = useData()
+    sdk = useSDK()
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    await wait(() => sdk.connection.status() === "connected")
+    emitEvent(events, {
+      id: "evt_overlay_admitted",
+      created: 0,
+      type: "session.input.admitted",
+      durable: durable(sessionID),
+      data: {
+        sessionID,
+        inputID: messageID,
+        input: { type: "user", data: { text: "overlay" }, delivery: "steer" },
+      },
+    })
+    await wait(() => data.session.timeline.list(sessionID).some((message) => message.id === messageID))
+
+    emitEvent(events, { id: "evt_reconnected", type: "server.connected", data: {} })
+    await wait(() => pendingCalls === 1)
+    expect(data.session.timeline.list(sessionID).map((message) => message.id)).toEqual([messageID])
   } finally {
     app.renderer.destroy()
   }
