@@ -21,6 +21,7 @@ import type {
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionInfo,
+  SessionMessageUser,
   Shell,
   SkillInfo,
 } from "@opencode-ai/sdk/v2"
@@ -105,6 +106,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
       directory: process.cwd(),
     })
     const messageIndex = new Map<string, Map<string, number>>()
+    const optimisticInput = new Map<string, Set<string>>()
     let bootstrapping: Promise<void> | undefined
     let connected = false
 
@@ -214,6 +216,7 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
 
     function removeSession(sessionID: string) {
       messageIndex.delete(sessionID)
+      optimisticInput.delete(sessionID)
       setStore(
         "session",
         produce((draft) => {
@@ -327,32 +330,35 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           )
           break
         }
-        case "session.input.admitted":
+        case "session.input.admitted": {
+          const inputs = optimisticInput.get(event.data.sessionID)
+          if (inputs?.delete(event.data.inputID) && inputs.size === 0) optimisticInput.delete(event.data.sessionID)
           if (!store.session.input[event.data.sessionID]?.includes(event.data.inputID))
             setStore("session", "input", event.data.sessionID, [
               ...(store.session.input[event.data.sessionID] ?? []),
               event.data.inputID,
             ])
           message.update(event.data.sessionID, (draft, index) => {
-            message.append(
-              draft,
-              index,
+            const item =
               event.data.input.type === "user"
                 ? {
                     id: event.data.inputID,
-                    type: "user",
+                    type: "user" as const,
                     ...event.data.input.data,
                     time: { created: event.created },
                   }
                 : {
                     id: event.data.inputID,
-                    type: "synthetic",
+                    type: "synthetic" as const,
                     ...event.data.input.data,
                     time: { created: event.created },
-                  },
-            )
+                  }
+            const position = index.get(event.data.inputID)
+            if (position === undefined) return message.append(draft, index, item)
+            draft[position] = item
           })
           break
+        }
         case "session.instructions.updated":
           message.update(event.data.sessionID, (draft, index) => {
             message.append(draft, index, {
@@ -814,6 +820,30 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
           return store.session.status[sessionID] ?? "idle"
         },
         input: {
+          optimistic(sessionID: string, item: SessionMessageUser) {
+            const inputs = optimisticInput.get(sessionID) ?? new Set<string>()
+            inputs.add(item.id)
+            optimisticInput.set(sessionID, inputs)
+            if (!store.session.input[sessionID]?.includes(item.id))
+              setStore("session", "input", sessionID, [...(store.session.input[sessionID] ?? []), item.id])
+            message.update(sessionID, (draft, index) => message.append(draft, index, item))
+          },
+          rollback(sessionID: string, inputID: string) {
+            const inputs = optimisticInput.get(sessionID)
+            if (!inputs?.delete(inputID)) return
+            if (inputs.size === 0) optimisticInput.delete(sessionID)
+            setStore(
+              "session",
+              produce((draft) => {
+                draft.input[sessionID] = (draft.input[sessionID] ?? []).filter((id) => id !== inputID)
+                const messages = draft.message[sessionID]
+                const position = messageIndex.get(sessionID)?.get(inputID)
+                if (!messages || position === undefined) return
+                messages.splice(position, 1)
+                messageIndex.set(sessionID, new Map(messages.map((item, index) => [item.id, index])))
+              }),
+            )
+          },
           list(sessionID: string) {
             return store.session.input[sessionID] ?? []
           },

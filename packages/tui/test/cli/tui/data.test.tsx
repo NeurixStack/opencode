@@ -1064,9 +1064,7 @@ test("tracks session status from active sessions and execution events", async ()
       const message = data.session.message.get("session-manual", "message-compaction")
       return message?.type === "compaction" && message.status === "running" && message.summary === "Streamed summary"
     })
-    const compactionRow = manualRows.find(
-      (row) => row.type === "message" && row.messageID === "message-compaction",
-    )
+    const compactionRow = manualRows.find((row) => row.type === "message" && row.messageID === "message-compaction")
     emitEvent(events, {
       id: "evt_manual_compaction_ended",
       created: 3,
@@ -1108,9 +1106,7 @@ test("tracks session status from active sessions and execution events", async ()
       const message = data.session.message.get("session-live", "msg_compaction_started")
       return message?.type === "compaction" && message.status === "running" && message.summary === "Live summary"
     })
-    const autoCompactionRow = rows.find(
-      (row) => row.type === "message" && row.messageID === "msg_compaction_started",
-    )
+    const autoCompactionRow = rows.find((row) => row.type === "message" && row.messageID === "msg_compaction_started")
 
     emitEvent(events, {
       id: "evt_compaction_ended",
@@ -2059,6 +2055,14 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
     await mounted
     const received: string[] = []
     const unsubscribe = sync.listen((event) => received.push(event.name))
+    sync.session.input.optimistic(sessionID, {
+      id: messageID,
+      type: "user",
+      text: "optimistic",
+      time: { created: -1 },
+    })
+    expect(sync.session.message.get(sessionID, messageID)).toMatchObject({ text: "optimistic", time: { created: -1 } })
+    expect(sync.session.input.list(sessionID)).toEqual([messageID])
     emitEvent(events, {
       id: "evt_admitted_1",
       created: 0,
@@ -2070,11 +2074,13 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
         input: { type: "user", data: { text: "hello" }, delivery: "steer" },
       },
     })
-    await wait(() => sync.session.message.list(sessionID)?.length === 1)
+    await wait(() => sync.session.message.get(sessionID, messageID)?.time.created === 0)
     const admitted = sync.session.message.list(sessionID)?.[0]
     expect(admitted).toMatchObject({ id: messageID, type: "user", text: "hello" })
     expect(admitted?.metadata).toBeUndefined()
     expect(sync.session.input.list(sessionID)).toEqual([messageID])
+    sync.session.input.rollback(sessionID, messageID)
+    expect(sync.session.message.ids(sessionID)).toEqual([messageID])
 
     await sync.session.message.refresh(sessionID)
     expect(sync.session.message.list(sessionID)?.[0]?.metadata).toBeUndefined()
@@ -2104,6 +2110,66 @@ test("renders admitted prompts immediately and tracks them until promoted", asyn
     expect(sync.session.message.get(sessionID, messageID)).toBe(message)
     expect(sync.session.message.get(sessionID, "missing")).toBeUndefined()
     expect(received).toHaveLength(3)
+  } finally {
+    app.renderer.destroy()
+  }
+})
+
+test("rolls back unconfirmed optimistic prompts and accepts later admission", async () => {
+  const events = createEventStream()
+  const sessionID = "session-1"
+  const messageID = "msg_user_rollback"
+  const calls = createFetch(undefined, events)
+  let sync!: ReturnType<typeof useData>
+  let ready!: () => void
+  const mounted = new Promise<void>((resolve) => {
+    ready = resolve
+  })
+
+  function Probe() {
+    sync = useData()
+    onMount(ready)
+    return <box />
+  }
+
+  const app = await testRender(() => (
+    <TestTuiContexts>
+      <SDKProvider client={createClient(calls.fetch)} api={createApi(calls.fetch)}>
+        <ProjectProvider>
+          <DataProvider>
+            <Probe />
+          </DataProvider>
+        </ProjectProvider>
+      </SDKProvider>
+    </TestTuiContexts>
+  ))
+
+  try {
+    await mounted
+    sync.session.input.optimistic(sessionID, {
+      id: messageID,
+      type: "user",
+      text: "optimistic",
+      time: { created: -1 },
+    })
+    sync.session.input.rollback(sessionID, messageID)
+    expect(sync.session.message.ids(sessionID)).toEqual([])
+    expect(sync.session.input.list(sessionID)).toEqual([])
+
+    emitEvent(events, {
+      id: "evt_admitted_after_rollback",
+      created: 1,
+      type: "session.input.admitted",
+      durable: durable(sessionID),
+      data: {
+        sessionID,
+        inputID: messageID,
+        input: { type: "user", data: { text: "accepted" }, delivery: "steer" },
+      },
+    })
+    await wait(() => sync.session.message.ids(sessionID).length === 1)
+    expect(sync.session.message.get(sessionID, messageID)).toMatchObject({ text: "accepted", time: { created: 1 } })
+    expect(sync.session.input.list(sessionID)).toEqual([messageID])
   } finally {
     app.renderer.destroy()
   }
@@ -2180,8 +2246,7 @@ function sessionInfo(id: string, parentID: string | undefined, cost = 0) {
 async function mountData(parents: Record<string, string>, costs: Record<string, number> = {}) {
   const calls = createFetch((url) => {
     const match = url.pathname.match(/^\/api\/session\/([^/]+)$/)
-    if (match && match[1] !== "active")
-      return json({ data: sessionInfo(match[1], parents[match[1]], costs[match[1]]) })
+    if (match && match[1] !== "active") return json({ data: sessionInfo(match[1], parents[match[1]], costs[match[1]]) })
   })
   let data!: ReturnType<typeof useData>
   let ready!: () => void
@@ -2250,10 +2315,7 @@ test("indexes arbitrarily deep nesting under a single root", async () => {
 })
 
 test("totals family cost for roots and keeps subagent cost scoped", async () => {
-  const { data, app } = await mountData(
-    { grandchild: "child", child: "root" },
-    { root: 1, child: 2, grandchild: 3 },
-  )
+  const { data, app } = await mountData({ grandchild: "child", child: "root" }, { root: 1, child: 2, grandchild: 3 })
   try {
     await data.session.refresh("grandchild")
     await data.session.refresh("child")

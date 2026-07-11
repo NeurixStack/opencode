@@ -40,6 +40,7 @@ import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "../../util/locale"
 import { errorMessage } from "../../util/error"
+import { SessionMessage } from "@opencode-ai/schema/session-message"
 import { createColors, createFrames } from "../../ui/spinner"
 import { useDialog } from "../../ui/dialog"
 import { DialogIntegration } from "../dialog-integration"
@@ -1146,9 +1147,18 @@ export function Prompt(props: PromptProps) {
           return false
         }
       }
+      const messageID = SessionMessage.ID.create()
+      data.session.input.optimistic(sessionID, {
+        id: messageID,
+        type: "user",
+        text: inputText,
+        agents: store.prompt.agents,
+        time: { created: Date.now() },
+      })
       const error = await sdk.api.session
         .prompt({
           sessionID,
+          id: messageID,
           text: inputText,
           files: store.prompt.files,
           agents: store.prompt.agents,
@@ -1158,6 +1168,7 @@ export function Prompt(props: PromptProps) {
           (error) => error,
         )
       if (error) {
+        data.session.input.rollback(sessionID, messageID)
         toast.show({ title: "Failed to send prompt", message: errorMessage(error), variant: "error" })
         return false
       }
