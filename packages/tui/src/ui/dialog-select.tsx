@@ -49,6 +49,7 @@ export interface DialogSelectProps<T> {
     label: string
     side?: "left" | "right"
   }[]
+  preview?: (option: DialogSelectOption<T> | undefined) => JSX.Element
   bindings?: readonly Binding<Renderable, KeyEvent>[]
   current?: T
 }
@@ -557,17 +558,37 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   }
 
   return (
-    <box gap={1} paddingBottom={1} flexGrow={1}>
-      <box paddingLeft={4} paddingRight={4}>
+    <box gap={1} paddingBottom={1} flexGrow={1} minHeight={props.preview ? 18 : undefined} position="relative">
+      <Show when={props.preview}>
+        <box
+          position="absolute"
+          top={-1}
+          bottom={0}
+          right={0}
+          width="58%"
+          paddingLeft={4}
+          paddingRight={4}
+          backgroundColor={theme.backgroundElement}
+          zIndex={2}
+        >
+          <text position="absolute" right={4} fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+            esc
+          </text>
+          {props.preview?.(selected())}
+        </box>
+      </Show>
+      <box paddingLeft={4} paddingRight={props.preview ? 2 : 4} width={props.preview ? "42%" : "100%"}>
         <box flexDirection="row" justifyContent="space-between">
           {props.titleView ?? (
             <text fg={theme.text} attributes={TextAttributes.BOLD}>
               {props.title}
             </text>
           )}
-          <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
-            esc
-          </text>
+          <Show when={!props.preview}>
+            <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+              esc
+            </text>
+          </Show>
         </box>
         <Show when={props.renderFilter !== false}>
           <box paddingTop={1}>
@@ -597,7 +618,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           </box>
         </Show>
       </box>
-      <box flexGrow={1} flexShrink={1}>
+      <box flexGrow={1} flexShrink={1} width={props.preview ? "42%" : "100%"}>
         <Show
           when={grouped().length > 0}
           fallback={
@@ -609,8 +630,8 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
           }
         >
           <scrollbox
-            paddingLeft={1}
-            paddingRight={1}
+            paddingLeft={props.preview ? 3 : 1}
+            paddingRight={props.preview ? 3 : 1}
             scrollbarOptions={{ visible: false }}
             scrollAcceleration={scrollAcceleration()}
             ref={(r: ScrollBoxRenderable) => (scroll = r)}
@@ -721,7 +742,14 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
         </Show>
       </box>
       <Show when={props.footer || visibleActions().length} fallback={<box flexShrink={0} />}>
-        <box paddingRight={2} paddingLeft={4} flexDirection="row" justifyContent="space-between" flexShrink={0}>
+        <box
+          paddingRight={2}
+          paddingLeft={4}
+          width={props.preview ? "42%" : "100%"}
+          flexDirection="row"
+          justifyContent="space-between"
+          flexShrink={0}
+        >
           <box flexDirection="row" gap={2}>
             {props.footer}
             <For each={left()}>{(item) => <FooterAction item={item} />}</For>
