@@ -312,12 +312,13 @@ export default Plugin.define({
 })
 ```
 
-Unsupported characters in tool and group names are normalized to underscores.
+Unsupported characters in tool and namespace names are normalized to underscores.
 The resulting exposed key must begin with a letter and contain at most 64
-letters, digits, underscores, or hyphens. Set `options` on the declaration to
-configure registration with `{ group, codemode }`:
+letters, digits, underscores, or hyphens. Set registration fields on the
+declaration or options with `{ namespace, codemode }`:
 
-- `group` prefixes and groups the exposed tool name.
+- `namespace` prefixes the exposed tool name (and becomes the CodeMode path
+  segment).
 - `codemode` defaults to `true` and makes the tool available through the
   `execute` CodeMode tool. Set `codemode: false` to expose it directly to the
   provider.

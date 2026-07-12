@@ -46,24 +46,11 @@ export const registerToolPlugin = <R>(plugin: {
     const context = host({
       tool: {
         transform: (callback) =>
-          Effect.gen(function* () {
-            const registrations: Array<{
-              readonly name: string
-              readonly tool: Tool.AnyTool
-              readonly options?: Tool.RegisterOptions
-            }> = []
-            callback({
-              add: (name, tool, options) => {
-                registrations.push({ name, tool, ...(options ? { options } : {}) })
-              },
-            })
-            yield* Effect.forEach(
-              registrations,
-              (registration) => tools.register({ [registration.name]: registration.tool }, registration.options),
-              { discard: true },
-            ).pipe(Effect.orDie)
-            return { dispose: Effect.void }
-          }),
+          Effect.forEach(
+            Tool.fromDraft(callback),
+            ({ name, tool, options }) => tools.register({ [name]: tool }, options),
+            { discard: true },
+          ).pipe(Effect.orDie, Effect.as({ dispose: Effect.void })),
         hook: () => Effect.die("registerToolPlugin does not support tool hooks"),
       },
     })

@@ -39,7 +39,7 @@ type CollectedFiles = {
 interface Registration {
   readonly tool: AnyTool
   readonly name: string
-  readonly group?: string
+  readonly namespace?: string
 }
 
 export const create = (registrations: ReadonlyMap<string, Registration>) => {
@@ -56,19 +56,19 @@ export const create = (registrations: ReadonlyMap<string, Registration>) => {
         output: child.outputSchema,
         run: (input) => invoke(name, registration, input),
       })
-      if (registration.group === undefined) {
+      if (registration.namespace === undefined) {
         const path = registration.name
         if (Object.hasOwn(tools, path)) throw new TypeError(`CodeMode tool namespace conflict: ${path}`)
         tools[path] = value
         continue
       }
       const path = registration.name
-      const namespace = registration.group
-      const group = tools[namespace]
-      if (group && Tool.isDefinition(group)) throw new TypeError(`CodeMode tool namespace conflict: ${namespace}`)
-      if (group) {
-        if (Object.hasOwn(group, path)) throw new TypeError(`CodeMode tool namespace conflict: ${namespace}.${path}`)
-        group[path] = value
+      const namespace = registration.namespace
+      const branch = tools[namespace]
+      if (branch && Tool.isDefinition(branch)) throw new TypeError(`CodeMode tool namespace conflict: ${namespace}`)
+      if (branch) {
+        if (Object.hasOwn(branch, path)) throw new TypeError(`CodeMode tool namespace conflict: ${namespace}.${path}`)
+        branch[path] = value
         continue
       }
       const entries: Record<string, Tool.Definition<never>> = {}

@@ -305,27 +305,13 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
         }),
     },
     tool: {
+      // The tool domain is scoped registration, not State, so the host adapts the draft to register calls directly.
       transform: (callback) =>
-        Effect.gen(function* () {
-          const registrations: Array<{
-            readonly name: string
-            readonly tool: Tool.AnyTool
-            readonly options?: Tool.RegisterOptions
-          }> = []
-          yield* Effect.sync(() =>
-            callback({
-              add: (name, tool, options) => {
-                registrations.push({ name, tool, ...(options ? { options } : {}) })
-              },
-            }),
-          )
-          yield* Effect.forEach(
-            registrations,
-            (registration) => tools.register({ [registration.name]: registration.tool }, registration.options),
-            { discard: true },
-          ).pipe(Effect.orDie)
-          return { dispose: Effect.void }
-        }),
+        Effect.forEach(
+          Tool.fromDraft(callback),
+          ({ name, tool, options }) => tools.register({ [name]: tool }, options),
+          { discard: true },
+        ).pipe(Effect.orDie, Effect.as({ dispose: Effect.void })),
       hook: (name, callback) => {
         if (name === "execute.before") {
           return toolHooks.hook.before((event) => {

@@ -16,7 +16,8 @@ export type Definition<
   Structured extends SchemaType<any> = Output,
 > = {
   readonly name: string
-  readonly options?: RegisterOptions
+  readonly namespace?: string
+  readonly codemode?: boolean
   readonly description: string
   readonly input: Input
   readonly output: Output
@@ -37,7 +38,8 @@ export type Definition<
 
 export type DynamicDefinition = {
   readonly name: string
-  readonly options?: RegisterOptions
+  readonly namespace?: string
+  readonly codemode?: boolean
   readonly description: string
   readonly jsonSchema: JsonSchema.JsonSchema
   readonly outputSchema?: JsonSchema.JsonSchema
@@ -65,12 +67,6 @@ export interface ToolExecuteAfterEvent {
   result: Tool.ToolExecuteAfterEvent["result"]
   output?: Tool.ToolExecuteAfterEvent["output"]
   outputPaths?: ReadonlyArray<string>
-}
-
-export interface RegisterOptions {
-  readonly group?: string
-  /** Defaults to true. False exposes the tool directly to the provider. */
-  readonly codemode?: boolean
 }
 
 export interface ToolDraft {

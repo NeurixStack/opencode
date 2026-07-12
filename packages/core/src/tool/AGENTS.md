@@ -29,8 +29,8 @@ Leaves own resolution, permission, and side-effect ordering. Translate only expe
 ## Registration
 
 Built-ins and plugin tools register through `Tools.Service.register({ [name]: tool })`. Registrations may provide a
-group, which flattens direct model names to `<group>_<tool>`, and default into CodeMode (`codemode` defaults true;
-`codemode: false` keeps the tool on the provider's native tool list).
+`namespace`, which flattens native model names to `<namespace>_<tool>`, and default into CodeMode (`codemode` defaults
+true; `codemode: false` keeps the tool on the provider's native tool list).
 
 Registrations are scoped:
 

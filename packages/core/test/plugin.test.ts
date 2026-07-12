@@ -274,7 +274,7 @@ describe("PluginV2", () => {
     }),
   )
 
-  it.effect("groups tool names and routes codemode registrations through execute", () =>
+  it.effect("namespaces tool names and routes codemode registrations through execute", () =>
     Effect.gen(function* () {
       const plugins = yield* PluginV2.Service
       const registry = yield* ToolRegistry.Service
@@ -286,13 +286,13 @@ describe("PluginV2", () => {
           execute: () => Effect.succeed({ ok: true }),
         })
       const plugin = EffectPlugin.define({
-        id: "grouped-tools",
+        id: "namespaced-tools",
         effect: (ctx) =>
           ctx.tool
             .transform((draft) => {
               draft.add("plain", tool("Plain"), { codemode: false })
-              draft.add("look/up", tool("Lookup"), { group: "context 7", codemode: false })
-              draft.add("search", tool("Search"), { group: "context 7" })
+              draft.add("look/up", tool("Lookup"), { namespace: "context 7", codemode: false })
+              draft.add("search", tool("Search"), { namespace: "context 7" })
             })
             .pipe(Effect.orDie),
       })
@@ -304,6 +304,41 @@ describe("PluginV2", () => {
         "context_7_look_up",
         "execute",
       ])
+    }),
+  )
+
+  it.effect("accepts flat Effect draft declarations with namespace", () =>
+    Effect.gen(function* () {
+      const plugins = yield* PluginV2.Service
+      const registry = yield* ToolRegistry.Service
+      const plugin = EffectPlugin.define({
+        id: "flat-tools",
+        effect: (ctx) =>
+          ctx.tool
+            .transform((draft) => {
+              draft.add({
+                name: "send",
+                namespace: "slack",
+                description: "Send a Slack message",
+                input: Schema.Struct({ text: Schema.String }),
+                output: Schema.Struct({ sent: Schema.Boolean }),
+                execute: () => Effect.succeed({ sent: true }),
+              })
+              draft.add({
+                name: "edit",
+                codemode: false,
+                description: "Edit a file",
+                input: Schema.Struct({}),
+                output: Schema.Struct({ ok: Schema.Boolean }),
+                execute: () => Effect.succeed({ ok: true }),
+              })
+            })
+            .pipe(Effect.orDie),
+      })
+
+      yield* plugins.activate([versioned(plugin)])
+
+      expect((yield* registry.materialize()).definitions.map((tool) => tool.name)).toEqual(["edit", "execute"])
     }),
   )
 

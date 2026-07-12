@@ -13,10 +13,10 @@ import { Tools } from "./tools"
 import { ToolRegistry } from "./registry"
 
 /**
- * Registry group and permission action names for MCP tools.
+ * Registry namespace and permission action names for MCP tools.
  */
-export const group = (server: string) => server.replace(/[^a-zA-Z0-9_-]/g, "_")
-export const name = (server: string, tool: string) => `${group(server)}_${tool.replace(/[^a-zA-Z0-9_-]/g, "_")}`
+export const namespace = (server: string) => server.replace(/[^a-zA-Z0-9_-]/g, "_")
+export const name = (server: string, tool: string) => `${namespace(server)}_${tool.replace(/[^a-zA-Z0-9_-]/g, "_")}`
 
 export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -32,11 +32,11 @@ export const layer = Layer.effectDiscard(
     // registry never has a gap where MCP tools disappear mid-swap.
     const reconcile = lock.withPermit(
       Effect.gen(function* () {
-        const groups = new Map<string, Record<string, Tool.AnyTool>>()
+        const byServer = new Map<string, Record<string, Tool.AnyTool>>()
         for (const tool of yield* mcp.tools()) {
-          const group = groups.get(tool.server) ?? {}
+          const record = byServer.get(tool.server) ?? {}
           const schema = (tool.inputSchema ?? {}) as JsonSchema.JsonSchema
-          group[tool.name] = Tool.withPermission(
+          record[tool.name] = Tool.withPermission(
             Tool.make({
               description: tool.description ?? "",
               jsonSchema: {
@@ -102,16 +102,12 @@ export const layer = Layer.effectDiscard(
             }),
             name(tool.server, tool.name),
           )
-          groups.set(tool.server, group)
+          byServer.set(tool.server, record)
         }
         const next = yield* Scope.fork(scope)
-        yield* Effect.forEach(
-          groups,
-          ([group, record]) => tools.register(record, { group }),
-          {
-            discard: true,
-          },
-        ).pipe(Scope.provide(next), Effect.orDie)
+        yield* Effect.forEach(byServer, ([server, record]) => tools.register(record, { namespace: server }), {
+          discard: true,
+        }).pipe(Scope.provide(next), Effect.orDie)
         if (current) yield* Scope.close(current, Exit.void)
         current = next
       }),
