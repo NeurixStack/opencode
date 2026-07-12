@@ -4623,17 +4623,26 @@ export type ShellOutputInput = {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
     readonly cursor?: number | undefined
     readonly limit?: number | undefined
+    readonly keep?: "head" | "tail" | undefined
   }["location"]
   readonly cursor?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
     readonly cursor?: number | undefined
     readonly limit?: number | undefined
+    readonly keep?: "head" | "tail" | undefined
   }["cursor"]
   readonly limit?: {
     readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
     readonly cursor?: number | undefined
     readonly limit?: number | undefined
+    readonly keep?: "head" | "tail" | undefined
   }["limit"]
+  readonly keep?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly cursor?: number | undefined
+    readonly limit?: number | undefined
+    readonly keep?: "head" | "tail" | undefined
+  }["keep"]
 }
 
 export type ShellOutputOutput = {

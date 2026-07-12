@@ -201,7 +201,7 @@ export const Plugin = {
 
                 const settleShell = Effect.fn("ShellTool.settleShell")(function* () {
                   const final = yield* shell.wait(info.id)
-                  const page = yield* shell.output(info.id, { limit: MAX_CAPTURE_BYTES })
+                  const page = yield* shell.output(info.id, { limit: MAX_CAPTURE_BYTES, keep: "tail" })
 
                   if (final.status === "timeout") {
                     return {
@@ -213,7 +213,7 @@ export const Plugin = {
                     }
                   }
 
-                  const truncated = page.size > page.cursor
+                  const truncated = page.size > MAX_CAPTURE_BYTES
                   const body = page.output || "(no output)"
                   const notice = truncated ? `\n\n[output truncated; full output saved to: ${final.file}]` : ""
                   return {

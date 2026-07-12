@@ -162,10 +162,10 @@ const idleCommand = isWindows ? "Start-Sleep -Seconds 60" : "sleep 60"
 const bodyExitCommand = isWindows
   ? "[Console]::Out.Write('body'); Start-Sleep -Milliseconds 100; exit 7"
   : "printf body && exit 7"
-const overflowCommand = (bytes: number) =>
+const overflowMarkersCommand = (bytes: number) =>
   isWindows
-    ? `[Console]::Out.Write(('x' * ${bytes})); Start-Sleep -Milliseconds 100`
-    : `head -c ${bytes} /dev/zero | tr '\\0' 'x'`
+    ? `[Console]::Out.Write('head-marker'); [Console]::Out.Write(('x' * ${bytes})); [Console]::Out.Write('tail-marker'); Start-Sleep -Milliseconds 100`
+    : `printf head-marker; head -c ${bytes} /dev/zero | tr '\\0' 'x'; printf tail-marker`
 
 const withSession = <A, E, R>(directory: string, body: (registry: ToolRegistry.Interface) => Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
@@ -396,15 +396,18 @@ describe("ShellTool", () => {
         reset()
         const bytes = ShellTool.MAX_CAPTURE_BYTES + 1024
         return withSession(tmp.path, (registry) =>
-          settleTool(registry, call({ command: overflowCommand(bytes) }, "call-overflow")),
+          settleTool(registry, call({ command: overflowMarkersCommand(bytes) }, "call-overflow")),
         ).pipe(
           Effect.andThen((settled) =>
             Effect.sync(() => {
               expect(settled.output?.structured).toMatchObject({ exit: 0, truncated: true })
               expect(settled.output?.content[0]).toMatchObject({
                 type: "text",
-                text: expect.stringContaining("output truncated; full output saved to:"),
+                text: expect.stringMatching(/tail-marker[\s\S]*output truncated; full output saved to:/),
               })
+              const content = settled.output?.content[0]
+              if (content?.type === "text" && typeof content.text === "string")
+                expect(content.text.includes("head-marker")).toBe(false)
             }),
           ),
         )

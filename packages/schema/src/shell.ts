@@ -65,6 +65,7 @@ export interface CreateInput extends Schema.Schema.Type<typeof CreateInput> {}
 export const OutputInput = Schema.Struct({
   cursor: optional(NonNegativeInt),
   limit: optional(NonNegativeInt),
+  keep: optional(Schema.Literals(["head", "tail"])),
 })
 export interface OutputInput extends Schema.Schema.Type<typeof OutputInput> {}
 

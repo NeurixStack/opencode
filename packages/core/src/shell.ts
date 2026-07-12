@@ -139,8 +139,9 @@ export const layer = Layer.effect(
       const cursor = input?.cursor ?? 0
       const limit = input?.limit ?? 65536
       if (cursor >= session.size) return { output: "", cursor: session.size, size: session.size, truncated: false }
-      const start = Math.max(0, cursor)
-      const length = Math.min(limit, session.size - start)
+      const available = session.size - Math.max(0, cursor)
+      const start = input?.keep === "tail" ? Math.max(cursor, session.size - limit) : Math.max(0, cursor)
+      const length = Math.min(limit, available)
       const buffer = Buffer.alloc(length)
       const bytesRead = yield* Effect.promise(
         () =>

@@ -971,11 +971,12 @@ type Endpoint21_4Input = {
   readonly location?: Endpoint21_4Request["query"]["location"]
   readonly cursor?: Endpoint21_4Request["query"]["cursor"]
   readonly limit?: Endpoint21_4Request["query"]["limit"]
+  readonly keep?: Endpoint21_4Request["query"]["keep"]
 }
 const Endpoint21_4 = (raw: RawClient["server.shell"]) => (input: Endpoint21_4Input) =>
   raw["shell.output"]({
     params: { id: input["id"] },
-    query: { location: input["location"], cursor: input["cursor"], limit: input["limit"] },
+    query: { location: input["location"], cursor: input["cursor"], limit: input["limit"], keep: input["keep"] },
   }).pipe(Effect.mapError(mapClientError))
 
 type Endpoint21_5Request = Parameters<RawClient["server.shell"]["shell.remove"]>[0]

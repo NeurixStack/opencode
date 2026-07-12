@@ -1411,7 +1411,7 @@ export function make(options: ClientOptions) {
           {
             method: "GET",
             path: `/api/shell/${encodeURIComponent(input.id)}/output`,
-            query: { location: input["location"], cursor: input["cursor"], limit: input["limit"] },
+            query: { location: input["location"], cursor: input["cursor"], limit: input["limit"], keep: input["keep"] },
             successStatus: 200,
             declaredStatuses: [404, 401, 400],
             empty: false,

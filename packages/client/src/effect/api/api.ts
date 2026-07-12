@@ -809,6 +809,7 @@ export type Endpoint21_4Input = {
   readonly location?: Endpoint21_4Request["query"]["location"]
   readonly cursor?: Endpoint21_4Request["query"]["cursor"]
   readonly limit?: Endpoint21_4Request["query"]["limit"]
+  readonly keep?: Endpoint21_4Request["query"]["keep"]
 }
 export type Endpoint21_4Output = EffectValue<ReturnType<RawClient["server.shell"]["shell.output"]>>
 export type ShellOutputOperation<E = never> = (input: Endpoint21_4Input) => Effect.Effect<Endpoint21_4Output, E>
