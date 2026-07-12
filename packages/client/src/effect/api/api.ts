@@ -406,6 +406,7 @@ export type Endpoint10_2Input = {
   readonly integrationID: Endpoint10_2Request["params"]["integrationID"]
   readonly location?: Endpoint10_2Request["query"]["location"]
   readonly key: Endpoint10_2Request["payload"]["key"]
+  readonly inputs?: Endpoint10_2Request["payload"]["inputs"]
   readonly label?: Endpoint10_2Request["payload"]["label"]
 }
 export type Endpoint10_2Output = EffectValue<ReturnType<RawClient["server.integration"]["integration.connect.key"]>>

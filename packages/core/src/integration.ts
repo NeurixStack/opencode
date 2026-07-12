@@ -85,6 +85,7 @@ export interface OAuthImplementation {
 export interface KeyImplementation {
   readonly integrationID: ID
   readonly method: KeyMethod
+  readonly authorize?: (key: string, inputs: Inputs) => Effect.Effect<Credential.Key, unknown>
 }
 
 export interface EnvImplementation {
@@ -119,6 +120,7 @@ type Entry = {
   ref: Types.DeepMutable<Ref>
   methods: Types.DeepMutable<Method>[]
   implementations: Map<MethodID, Types.DeepMutable<OAuthImplementation>>
+  key?: Types.DeepMutable<KeyImplementation>
 }
 
 type Data = {
@@ -156,6 +158,8 @@ export interface Interface extends State.Transformable<Draft> {
       readonly integrationID: ID
       /** Secret entered by the user. */
       readonly key: string
+      /** Answers to the method's optional prompts. */
+      readonly inputs?: Inputs
       /** User-facing label for the stored credential. */
       readonly label?: string
     }) => Effect.Effect<void, AuthorizationError>
@@ -237,6 +241,7 @@ const layer = Layer.effect(
             ref: { id, name: id },
             methods: [],
             implementations: new Map(),
+            key: undefined,
           }
           if (!draft.integrations.has(id)) draft.integrations.set(id, current)
           update(current.ref)
@@ -253,6 +258,7 @@ const layer = Layer.effect(
               },
               methods: [],
               implementations: new Map<MethodID, Types.DeepMutable<OAuthImplementation>>(),
+              key: undefined,
             }
             if (!draft.integrations.has(implementation.integrationID)) {
               draft.integrations.set(implementation.integrationID, current)
@@ -270,6 +276,9 @@ const layer = Layer.effect(
                 implementation as Types.DeepMutable<OAuthImplementation>,
               )
             }
+            if (implementation.method.type === "key") {
+              current.key = implementation as Types.DeepMutable<KeyImplementation>
+            }
           },
           remove: (integrationID, method) => {
             const current = draft.integrations.get(integrationID)
@@ -281,6 +290,7 @@ const layer = Layer.effect(
             })
             if (index !== -1) current.methods.splice(index, 1)
             if (method.type === "oauth") current.implementations.delete(method.id)
+            if (method.type === "key") current.key = undefined
           },
         },
       }),
@@ -365,10 +375,10 @@ const layer = Layer.effect(
               ? { status: "complete", time: attempt.time, removeAt: settledAt + terminalRetention }
               : {
                   status: "failed",
-                message: message(persistence.cause),
-                time: attempt.time,
-                removeAt: settledAt + terminalRetention,
-              }
+                  message: message(persistence.cause),
+                  time: attempt.time,
+                  removeAt: settledAt + terminalRetention,
+                }
             // Persisting attempts cannot be cancelled, expired, or claimed again.
             yield* SynchronizedRef.update(attempts, (current) => new Map(current).set(attemptID, terminal))
             if (Exit.isFailure(persistence)) yield* Effect.failCause(persistence.cause)
@@ -438,15 +448,16 @@ const layer = Layer.effect(
           return value
         }),
         key: Effect.fn("Integration.connection.key")(function* (input) {
-          const method = state
-            .get()
-            .integrations.get(input.integrationID)
-            ?.methods.some((method) => method.type === "key")
-          if (!method) return yield* Effect.die(new Error(`Key method not found: ${input.integrationID}`))
+          const entry = state.get().integrations.get(input.integrationID)
+          const method = entry?.methods.some((method) => method.type === "key")
+          if (!entry || !method) return yield* Effect.die(new Error(`Key method not found: ${input.integrationID}`))
+          const value = entry.key?.authorize
+            ? yield* authorize(entry.key.authorize(input.key, input.inputs ?? {}))
+            : Credential.Key.make({ type: "key", key: input.key })
           yield* credentials.create({
             integrationID: input.integrationID,
             label: input.label,
-            value: Credential.Key.make({ type: "key", key: input.key }),
+            value,
           })
           yield* events.publish(Event.ConnectionUpdated, { integrationID: input.integrationID })
           yield* events.publish(Event.Updated, {})

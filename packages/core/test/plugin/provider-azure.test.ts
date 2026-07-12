@@ -3,6 +3,7 @@ import { describe, expect } from "bun:test"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { Effect } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
+import { Integration } from "@opencode-ai/core/integration"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
@@ -60,6 +61,55 @@ function fakeSelectorSdk(calls: string[]) {
 }
 
 describe("AzurePlugin", () => {
+  it.effect("registers an API key method and stores prompted resource metadata", () =>
+    withEnv({ AZURE_RESOURCE_NAME: undefined }, () =>
+      Effect.gen(function* () {
+        const integrations = yield* Integration.Service
+        yield* addPlugin()
+        expect((yield* integrations.get(Integration.ID.make("azure")))?.methods).toEqual([
+          {
+            type: "key",
+            label: "API key",
+            prompts: [
+              {
+                type: "text",
+                key: "resourceName",
+                message: "Enter Azure Resource Name",
+                placeholder: "e.g. my-models",
+              },
+            ],
+          },
+        ])
+
+        yield* integrations.connection.key({
+          integrationID: Integration.ID.make("azure"),
+          key: "secret",
+          inputs: { resourceName: "my-models" },
+        })
+        const connection = required(yield* integrations.connection.active(Integration.ID.make("azure")))
+        expect(yield* integrations.connection.resolve(connection)).toMatchObject({
+          type: "key",
+          key: "secret",
+          metadata: { resourceName: "my-models" },
+        })
+      }),
+    ),
+  )
+
+  it.effect("omits the resource prompt when Azure resource env is configured", () =>
+    withEnv({ AZURE_RESOURCE_NAME: "from-env" }, () =>
+      Effect.gen(function* () {
+        const integrations = yield* Integration.Service
+        yield* addPlugin()
+        expect((yield* integrations.get(Integration.ID.make("azure")))?.methods).toContainEqual({
+          type: "key",
+          label: "API key",
+          prompts: [],
+        })
+      }),
+    ),
+  )
+
   it.effect("resolves resourceName from env", () =>
     withEnv({ AZURE_RESOURCE_NAME: "from-env" }, () =>
       Effect.gen(function* () {

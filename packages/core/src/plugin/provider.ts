@@ -7,6 +7,7 @@ import { CloudflareAIGatewayPlugin } from "./provider/cloudflare-ai-gateway"
 import { CloudflareWorkersAIPlugin } from "./provider/cloudflare-workers-ai"
 import { CoherePlugin } from "./provider/cohere"
 import { DeepInfraPlugin } from "./provider/deepinfra"
+import { DigitalOceanPlugin } from "./provider/digitalocean"
 import { DynamicProviderPlugin } from "./provider/dynamic"
 import { GatewayPlugin } from "./provider/gateway"
 import { GithubCopilotPlugin } from "./provider/github-copilot"
@@ -24,6 +25,7 @@ import { OpenAICompatiblePlugin } from "./provider/openai-compatible"
 import { OpencodePlugin } from "./provider/opencode"
 import { OpenRouterPlugin } from "./provider/openrouter"
 import { PerplexityPlugin } from "./provider/perplexity"
+import { PoePlugin } from "./provider/poe"
 import { SapAICorePlugin } from "./provider/sap-ai-core"
 import { TogetherAIPlugin } from "./provider/togetherai"
 import { VercelPlugin } from "./provider/vercel"
@@ -43,6 +45,7 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   CloudflareWorkersAIPlugin,
   CoherePlugin,
   DeepInfraPlugin,
+  DigitalOceanPlugin,
   GatewayPlugin,
   GithubCopilotPlugin,
   GitLabPlugin,
@@ -60,6 +63,7 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   OpenAIPlugin,
   OpenRouterPlugin,
   PerplexityPlugin,
+  PoePlugin,
   SapAICorePlugin,
   TogetherAIPlugin,
   VercelPlugin,

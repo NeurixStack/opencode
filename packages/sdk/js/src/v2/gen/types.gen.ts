@@ -598,24 +598,6 @@ export type Part =
   | RetryPart
   | CompactionPart
 
-export type Shell = {
-  id: string
-  status: "running" | "exited" | "timeout" | "killed"
-  command: string
-  cwd: string
-  shell: string
-  file: string
-  pid?: number
-  exit?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-  metadata: {
-    [key: string]: unknown
-  }
-  time: {
-    started: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-    completed?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
-  }
-}
-
 export type Pty = {
   id: string
   title: string
@@ -917,7 +899,7 @@ export type GlobalEvent = {
         type: "session.shell.started"
         properties: {
           sessionID: string
-          shell: Shell
+          shell: ShellInfo
         }
       }
     | {
@@ -925,7 +907,7 @@ export type GlobalEvent = {
         type: "session.shell.ended"
         properties: {
           sessionID: string
-          shell: Shell
+          shell: ShellInfo
           output: {
             output: string
             cursor: number
@@ -1358,7 +1340,7 @@ export type GlobalEvent = {
         id: string
         type: "shell.created"
         properties: {
-          info: Shell
+          info: ShellInfo
         }
       }
     | {
@@ -1366,7 +1348,7 @@ export type GlobalEvent = {
         type: "shell.exited"
         properties: {
           id: string
-          exit?: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+          exit?: number
           status: "running" | "exited" | "timeout" | "killed"
         }
       }
@@ -2890,24 +2872,6 @@ export type InstructionEntryValueTooLargeError = {
   message: string
 }
 
-export type Shell1 = {
-  id: string
-  status: "running" | "exited" | "timeout" | "killed"
-  command: string
-  cwd: string
-  shell: string
-  file: string
-  pid?: number
-  exit?: number | "NaN" | "Infinity" | "-Infinity"
-  metadata: {
-    [key: string]: unknown
-  }
-  time: {
-    started: number | "NaN" | "Infinity" | "-Infinity"
-    completed?: number | "NaN" | "Infinity" | "-Infinity"
-  }
-}
-
 export type SessionLogItem = SessionEventDurable | EventLogSynced
 
 export type SessionLogItemStream = string
@@ -3154,24 +3118,6 @@ export type EffectHttpApiErrorForbidden = {
   _tag: "Forbidden"
 }
 
-export type Shell2 = {
-  id: string
-  status: "running" | "exited" | "timeout" | "killed"
-  command: string
-  cwd: string
-  shell: string
-  file: string
-  pid?: number
-  exit?: number | "NaN" | "Infinity" | "-Infinity"
-  metadata: {
-    [key: string]: unknown
-  }
-  time: {
-    started: number | "NaN" | "Infinity" | "-Infinity"
-    completed?: number | "NaN" | "Infinity" | "-Infinity"
-  }
-}
-
 export type EventTuiPromptAppend2 = {
   id: string
   type: "tui.prompt.append"
@@ -3396,6 +3342,24 @@ export type SessionPendingMessage = SessionPendingUserMessage | SessionPendingSy
 export type SessionStructuredError = {
   type: string
   message: string
+}
+
+export type ShellInfo = {
+  id: string
+  status: "running" | "exited" | "timeout" | "killed"
+  command: string
+  cwd: string
+  shell: string
+  file: string
+  pid?: number
+  exit?: number
+  metadata: {
+    [key: string]: unknown
+  }
+  time: {
+    started: number
+    completed?: number
+  }
 }
 
 export type SessionMessageProviderState = {
@@ -3962,7 +3926,7 @@ export type SyncEventSessionShellStarted = {
     aggregateID: string
     data: {
       sessionID: string
-      shell: Shell
+      shell: ShellInfo
     }
   }
 }
@@ -3977,7 +3941,7 @@ export type SyncEventSessionShellEnded = {
     aggregateID: string
     data: {
       sessionID: string
-      shell: Shell
+      shell: ShellInfo
       output: {
         output: string
         cursor: number
@@ -5083,7 +5047,7 @@ export type SessionShellStarted = {
   location?: LocationRef
   data: {
     sessionID: string
-    shell: Shell1
+    shell: ShellInfo
   }
 }
 
@@ -5102,7 +5066,7 @@ export type SessionShellEnded = {
   location?: LocationRef
   data: {
     sessionID: string
-    shell: Shell1
+    shell: ShellInfo
     output: {
       output: string
       cursor: number
@@ -5730,6 +5694,7 @@ export type IntegrationOAuthMethod = {
 export type IntegrationKeyMethod = {
   type: "key"
   label?: string
+  prompts?: Array<IntegrationTextPrompt | IntegrationSelectPrompt>
 }
 
 export type IntegrationEnvMethod = {
@@ -6461,7 +6426,7 @@ export type ShellCreated = {
   type: "shell.created"
   location?: LocationRef
   data: {
-    info: Shell1
+    info: ShellInfo
   }
 }
 
@@ -6475,7 +6440,7 @@ export type ShellExited = {
   location?: LocationRef
   data: {
     id: string
-    exit?: number | "NaN" | "Infinity" | "-Infinity"
+    exit?: number
     status: "running" | "exited" | "timeout" | "killed"
   }
 }
@@ -7285,7 +7250,7 @@ export type EventSessionShellStarted = {
   type: "session.shell.started"
   properties: {
     sessionID: string
-    shell: Shell2
+    shell: ShellInfo
   }
 }
 
@@ -7294,7 +7259,7 @@ export type EventSessionShellEnded = {
   type: "session.shell.ended"
   properties: {
     sessionID: string
-    shell: Shell2
+    shell: ShellInfo
     output: {
       output: string
       cursor: number
@@ -7772,7 +7737,7 @@ export type EventShellCreated = {
   id: string
   type: "shell.created"
   properties: {
-    info: Shell2
+    info: ShellInfo
   }
 }
 
@@ -7781,7 +7746,7 @@ export type EventShellExited = {
   type: "shell.exited"
   properties: {
     id: string
-    exit?: number | "NaN" | "Infinity" | "-Infinity"
+    exit?: number
     status: "running" | "exited" | "timeout" | "killed"
   }
 }
@@ -8177,24 +8142,6 @@ export type UnknownErrorV2 = {
   _tag: "UnknownError"
   message: string
   ref?: string | null
-}
-
-export type ShellV2 = {
-  id: string
-  status: "running" | "exited" | "timeout" | "killed"
-  command: string
-  cwd: string
-  shell: string
-  file: string
-  pid?: number
-  exit?: number | "NaN" | "Infinity" | "-Infinity"
-  metadata: {
-    [key: string]: unknown
-  }
-  time: {
-    started: number | "NaN" | "Infinity" | "-Infinity"
-    completed?: number | "NaN" | "Infinity" | "-Infinity"
-  }
 }
 
 export type SessionMessagesResponseV2 = {
@@ -9333,6 +9280,24 @@ export type SessionSkillActivatedV2 = {
   }
 }
 
+export type ShellInfoV2 = {
+  id: string
+  status: "running" | "exited" | "timeout" | "killed"
+  command: string
+  cwd: string
+  shell: string
+  file: string
+  pid?: number
+  exit?: number
+  metadata: {
+    [key: string]: unknown
+  }
+  time: {
+    started: number
+    completed?: number
+  }
+}
+
 export type SessionShellStartedV2 = {
   id: string
   created: number
@@ -9348,7 +9313,7 @@ export type SessionShellStartedV2 = {
   location?: LocationRefV2
   data: {
     sessionID: string
-    shell: ShellV2
+    shell: ShellInfoV2
   }
 }
 
@@ -9367,7 +9332,7 @@ export type SessionShellEndedV2 = {
   location?: LocationRefV2
   data: {
     sessionID: string
-    shell: ShellV2
+    shell: ShellInfoV2
     output: {
       output: string
       cursor: number
@@ -10514,7 +10479,7 @@ export type ShellCreatedV2 = {
   type: "shell.created"
   location?: LocationRefV2
   data: {
-    info: ShellV2
+    info: ShellInfoV2
   }
 }
 
@@ -10528,7 +10493,7 @@ export type ShellExitedV2 = {
   location?: LocationRefV2
   data: {
     id: string
-    exit?: number | "NaN" | "Infinity" | "-Infinity"
+    exit?: number
     status: "running" | "exited" | "timeout" | "killed"
   }
 }
@@ -10984,6 +10949,24 @@ export type V2EventServerConnected = {
 export type PtyTicketConnectTokenV2 = {
   ticket: string
   expires_in: number
+}
+
+export type ShellInfo1 = {
+  id: string
+  status: "running" | "exited" | "timeout" | "killed"
+  command: string
+  cwd: string
+  shell: string
+  file: string
+  pid?: number
+  exit?: number
+  metadata: {
+    [key: string]: unknown
+  }
+  time: {
+    started: number
+    completed?: number
+  }
 }
 
 export type QuestionV2RequestV2 = {
@@ -16783,6 +16766,9 @@ export type V2IntegrationGetResponse = V2IntegrationGetResponses[keyof V2Integra
 export type V2IntegrationConnectKeyData = {
   body: {
     key: string
+    inputs?: {
+      [key: string]: string
+    } | null
     label?: string | null
   }
   path: {
@@ -18318,7 +18304,7 @@ export type V2ShellListResponses = {
    */
   200: {
     location: LocationInfoV2
-    data: Array<ShellV2>
+    data: Array<ShellInfo1>
   }
 }
 
@@ -18362,7 +18348,7 @@ export type V2ShellCreateResponses = {
    */
   200: {
     location: LocationInfoV2
-    data: ShellV2
+    data: ShellInfo1
   }
 }
 
@@ -18445,7 +18431,7 @@ export type V2ShellGetResponses = {
    */
   200: {
     location: LocationInfoV2
-    data: ShellV2
+    data: ShellInfo1
   }
 }
 
@@ -18490,7 +18476,7 @@ export type V2ShellTimeoutResponses = {
    */
   200: {
     location: LocationInfoV2
-    data: ShellV2
+    data: ShellInfo1
   }
 }
 

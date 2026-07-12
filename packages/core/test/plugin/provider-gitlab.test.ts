@@ -1,4 +1,6 @@
 import { AISDK } from "@opencode-ai/core/aisdk"
+import { Credential } from "@opencode-ai/core/credential"
+import { Integration } from "@opencode-ai/core/integration"
 import { describe, expect, mock } from "bun:test"
 import { Effect } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
@@ -41,6 +43,20 @@ function withEnv<A, E, R>(vars: Record<string, string | undefined>, effect: () =
   )
 }
 
+function eventually<A>(
+  effect: Effect.Effect<A>,
+  predicate: (value: A) => boolean,
+  remaining = 1000,
+): Effect.Effect<A, Error> {
+  return Effect.gen(function* () {
+    const value = yield* effect
+    if (predicate(value)) return value
+    if (remaining === 0) return yield* Effect.fail(new Error("Timed out waiting for value"))
+    yield* Effect.promise(() => Bun.sleep(1))
+    return yield* eventually(effect, predicate, remaining - 1)
+  })
+}
+
 void mock.module("gitlab-ai-provider", () => ({
   VERSION: "test-version",
   createGitLab: (options: Record<string, unknown>) => {
@@ -55,6 +71,155 @@ void mock.module("gitlab-ai-provider", () => ({
 }))
 
 describe("GitLabPlugin", () => {
+  it.effect("registers OAuth, PAT, and environment methods", () =>
+    Effect.gen(function* () {
+      yield* addPlugin()
+      expect((yield* (yield* Integration.Service).get(Integration.ID.make("gitlab")))?.methods).toEqual([
+        {
+          id: Integration.MethodID.make("oauth"),
+          type: "oauth",
+          label: "GitLab OAuth",
+          prompts: [
+            {
+              type: "text",
+              key: "instanceUrl",
+              message: "GitLab instance URL",
+              placeholder: "https://gitlab.com",
+            },
+          ],
+        },
+        {
+          type: "key",
+          label: "GitLab Personal Access Token",
+          prompts: [
+            {
+              type: "text",
+              key: "instanceUrl",
+              message: "GitLab instance URL",
+              placeholder: "https://gitlab.com",
+            },
+          ],
+        },
+        { type: "env", names: ["GITLAB_TOKEN"] },
+      ])
+    }),
+  )
+
+  it.effect("validates PATs and stores normalized instance URL metadata", () =>
+    Effect.gen(function* () {
+      yield* addPlugin()
+      const original = globalThis.fetch
+      const calls: [string, RequestInit | undefined][] = []
+      globalThis.fetch = Object.assign(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          calls.push([String(input), init])
+          return new Response(JSON.stringify({ id: 1 }), { status: 200 })
+        },
+        { preconnect: original.preconnect },
+      )
+      yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = original)))
+      const integrations = yield* Integration.Service
+      yield* integrations.connection.key({
+        integrationID: Integration.ID.make("gitlab"),
+        key: "glpat-test",
+        inputs: { instanceUrl: "https://gitlab.example/path/" },
+      })
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.[0]).toBe("https://gitlab.example/api/v4/user")
+      expect(calls[0]?.[1]?.headers).toEqual({ Authorization: "Bearer glpat-test" })
+      expect((yield* (yield* Credential.Service).list(Integration.ID.make("gitlab")))[0]?.value).toEqual({
+        type: "key",
+        key: "glpat-test",
+        metadata: { instanceUrl: "https://gitlab.example" },
+      })
+    }),
+  )
+
+  it.effect("rejects invalid PAT instance URLs before validation", () =>
+    Effect.gen(function* () {
+      yield* addPlugin()
+      const integrations = yield* Integration.Service
+      const exit = yield* integrations.connection
+        .key({
+          integrationID: Integration.ID.make("gitlab"),
+          key: "glpat-test",
+          inputs: { instanceUrl: "file:///tmp/gitlab" },
+        })
+        .pipe(Effect.exit)
+      expect(exit._tag).toBe("Failure")
+      expect(yield* (yield* Credential.Service).list(Integration.ID.make("gitlab"))).toHaveLength(0)
+    }),
+  )
+
+  it.effect("completes OAuth PKCE and refreshes with instance metadata", () =>
+    withEnv({ GITLAB_OAUTH_CLIENT_ID: "test-client" }, () =>
+      Effect.gen(function* () {
+        yield* addPlugin()
+        const original = globalThis.fetch
+        const tokenBodies: URLSearchParams[] = []
+        globalThis.fetch = Object.assign(
+          async (input: string | URL | Request, init?: RequestInit) => {
+            if (String(input).startsWith("http://127.0.0.1:8080/")) return original(input, init)
+            tokenBodies.push(new URLSearchParams(String(init?.body)))
+            return Response.json({
+              access_token: tokenBodies.length === 1 ? "access" : "refreshed-access",
+              refresh_token: tokenBodies.length === 1 ? "refresh" : "rotated-refresh",
+              expires_in: 1,
+            })
+          },
+          { preconnect: original.preconnect },
+        )
+        yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = original)))
+
+        const integrations = yield* Integration.Service
+        const attempt = yield* integrations.connection.oauth({
+          integrationID: Integration.ID.make("gitlab"),
+          methodID: Integration.MethodID.make("oauth"),
+          inputs: { instanceUrl: "http://gitlab.example/path" },
+        })
+        const authorize = new URL(attempt.url)
+        expect(authorize.origin).toBe("http://gitlab.example")
+        expect(authorize.pathname).toBe("/oauth/authorize")
+        expect(authorize.searchParams.get("client_id")).toBe("test-client")
+        expect(authorize.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:8080/callback")
+        expect(authorize.searchParams.get("code_challenge_method")).toBe("S256")
+        expect(authorize.searchParams.get("code_challenge")).toBeTruthy()
+        yield* Effect.promise(() =>
+          fetch(`http://127.0.0.1:8080/callback?code=test-code&state=${authorize.searchParams.get("state")}`),
+        )
+        yield* eventually(integrations.attempt.status(attempt.attemptID), (status) => status.status === "complete")
+
+        const saved = (yield* (yield* Credential.Service).list(Integration.ID.make("gitlab")))[0]
+        expect(saved?.value).toEqual({
+          type: "oauth",
+          methodID: Integration.MethodID.make("oauth"),
+          access: "access",
+          refresh: "refresh",
+          expires: expect.any(Number),
+          metadata: { instanceUrl: "http://gitlab.example" },
+        })
+        expect(tokenBodies[0]?.get("grant_type")).toBe("authorization_code")
+        expect(tokenBodies[0]?.get("code_verifier")).toBeTruthy()
+
+        if (saved?.value.type !== "oauth") throw new Error("Expected OAuth credential")
+        yield* (yield* Credential.Service).update(saved.id, { value: { ...saved.value, expires: 0 } })
+        const resolved = yield* integrations.connection.resolve({
+          type: "credential",
+          id: saved!.id,
+          label: saved!.label,
+        })
+        expect(resolved).toMatchObject({
+          type: "oauth",
+          access: "refreshed-access",
+          refresh: "rotated-refresh",
+          metadata: { instanceUrl: "http://gitlab.example" },
+        })
+        expect(tokenBodies[1]?.get("grant_type")).toBe("refresh_token")
+        expect(tokenBodies[1]?.get("refresh_token")).toBe("refresh")
+      }),
+    ),
+  )
+
   it.effect("creates SDKs with legacy default instance URL, token env, headers, and feature flags", () =>
     withEnv(
       {

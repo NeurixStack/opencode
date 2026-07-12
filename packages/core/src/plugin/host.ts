@@ -1,6 +1,11 @@
 export * as PluginHost from "./host"
 
 import type { Plugin } from "@opencode-ai/plugin/v2/effect"
+import type {
+  IntegrationInputs,
+  IntegrationKeyMethodRegistration,
+  IntegrationOAuthMethodRegistration,
+} from "@opencode-ai/plugin/v2/effect/integration"
 import { EventManifest } from "@opencode-ai/schema/event-manifest"
 import { Effect, Schema, Stream } from "effect"
 import { AgentV2 } from "../agent"
@@ -171,6 +176,7 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
           integration.connection.key({
             integrationID: Integration.ID.make(input.integrationID),
             key: input.key,
+            inputs: input.inputs,
             label: input.label,
           }),
         oauth: (input) =>
@@ -207,14 +213,15 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
             method: {
               list: (id) => mutable(draft.method.list(Integration.ID.make(id))),
               update: (input) => {
-                if ("authorize" in input) {
-                  const methodID = Integration.MethodID.make(input.method.id)
-                  const refresh = input.refresh
+                if (input.method.type === "oauth") {
+                  const oauth = input as IntegrationOAuthMethodRegistration
+                  const methodID = Integration.MethodID.make(oauth.method.id)
+                  const refresh = oauth.refresh
                   draft.method.update({
-                    integrationID: Integration.ID.make(input.integrationID),
-                    method: { ...input.method, id: methodID },
-                    authorize: (inputs) =>
-                      input.authorize(inputs).pipe(
+                    integrationID: Integration.ID.make(oauth.integrationID),
+                    method: { ...oauth.method, id: methodID },
+                    authorize: (inputs: IntegrationInputs) =>
+                      oauth.authorize(inputs).pipe(
                         Effect.map((authorization) => {
                           if (authorization.mode === "auto") {
                             return {
@@ -256,7 +263,7 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
                             ),
                         }
                       : {}),
-                    ...(input.label ? { label: input.label } : {}),
+                    ...(oauth.label ? { label: oauth.label } : {}),
                   })
                   return
                 }
@@ -267,9 +274,18 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
                   })
                   return
                 }
+                const registration = input as IntegrationKeyMethodRegistration
                 draft.method.update({
-                  integrationID: Integration.ID.make(input.integrationID),
-                  method: { type: "key", label: input.method.label },
+                  integrationID: Integration.ID.make(registration.integrationID),
+                  method: { type: "key", label: registration.method.label, prompts: registration.method.prompts },
+                  ...(registration.authorize
+                    ? {
+                        authorize: (key, inputs) =>
+                          registration.authorize!(key, inputs).pipe(
+                            Effect.map((credential) => Schema.decodeUnknownSync(Credential.Key)(credential)),
+                          ),
+                      }
+                    : {}),
                 })
               },
               remove: (id, method) =>

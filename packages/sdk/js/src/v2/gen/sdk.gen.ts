@@ -6772,6 +6772,9 @@ export class Connect extends HeyApiClient {
         workspace?: string | null
       } | null
       key?: string
+      inputs?: {
+        [key: string]: string
+      } | null
       label?: string | null
     },
     options?: Options<never, ThrowOnError>,
@@ -6784,6 +6787,7 @@ export class Connect extends HeyApiClient {
             { in: "path", key: "integrationID" },
             { in: "query", key: "location" },
             { in: "body", key: "key" },
+            { in: "body", key: "inputs" },
             { in: "body", key: "label" },
           ],
         },

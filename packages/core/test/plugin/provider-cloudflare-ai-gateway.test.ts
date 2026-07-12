@@ -1,6 +1,7 @@
 import { AISDK } from "@opencode-ai/core/aisdk"
 import { describe, expect, mock } from "bun:test"
 import { Effect } from "effect"
+import { Integration } from "@opencode-ai/core/integration"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
@@ -102,6 +103,69 @@ mock.module("ai-gateway-provider/providers/unified", () => ({
 }))
 
 describe("CloudflareAIGatewayPlugin", () => {
+  it.effect("registers a gateway token method and stores prompted gateway metadata", () =>
+    withEnv(
+      cloudflareEnv({
+        CLOUDFLARE_ACCOUNT_ID: undefined,
+        CLOUDFLARE_GATEWAY_ID: undefined,
+        CLOUDFLARE_API_TOKEN: undefined,
+      }),
+      () =>
+        Effect.gen(function* () {
+          const integrations = yield* Integration.Service
+          yield* addPlugin()
+          const integrationID = Integration.ID.make("cloudflare-ai-gateway")
+          expect((yield* integrations.get(integrationID))?.methods).toEqual([
+            {
+              type: "key",
+              label: "Gateway API token",
+              prompts: [
+                {
+                  type: "text",
+                  key: "accountId",
+                  message: "Enter your Cloudflare Account ID",
+                  placeholder: "e.g. 1234567890abcdef1234567890abcdef",
+                },
+                {
+                  type: "text",
+                  key: "gatewayId",
+                  message: "Enter your Cloudflare AI Gateway ID",
+                  placeholder: "e.g. my-gateway",
+                },
+              ],
+            },
+          ])
+
+          yield* integrations.connection.key({
+            integrationID,
+            key: "secret",
+            inputs: { accountId: "acct", gatewayId: "gateway" },
+          })
+          const connection = yield* integrations.connection.active(integrationID)
+          if (!connection) throw new Error("Expected connection")
+          expect(yield* integrations.connection.resolve(connection)).toMatchObject({
+            type: "key",
+            key: "secret",
+            metadata: { accountId: "acct", gatewayId: "gateway" },
+          })
+        }),
+    ),
+  )
+
+  it.effect("omits gateway prompts backed by Cloudflare env", () =>
+    withEnv(cloudflareEnv(), () =>
+      Effect.gen(function* () {
+        const integrations = yield* Integration.Service
+        yield* addPlugin()
+        expect((yield* integrations.get(Integration.ID.make("cloudflare-ai-gateway")))?.methods).toContainEqual({
+          type: "key",
+          label: "Gateway API token",
+          prompts: [],
+        })
+      }),
+    ),
+  )
+
   it.effect("requires account, gateway, and token before creating the unified SDK", () =>
     withEnv(
       {

@@ -1,5 +1,6 @@
 import type {
   ConnectionInfo,
+  CredentialKey,
   CredentialOAuth,
   CredentialValue,
   IntegrationEnvMethod,
@@ -12,6 +13,8 @@ import type {
 import type { IntegrationApi } from "@opencode-ai/client/effect/api"
 import type { Effect, Scope } from "effect"
 import type { Transform } from "./registration.js"
+
+export type { IntegrationInputs }
 
 export type IntegrationOAuthAuthorization = {
   readonly url: string
@@ -33,16 +36,19 @@ export type IntegrationOAuthMethodRegistration = {
   readonly refresh?: (credential: CredentialOAuth) => Effect.Effect<CredentialOAuth, unknown>
   readonly label?: (credential: CredentialOAuth) => string | undefined
 }
+export type IntegrationKeyMethodRegistration = {
+  readonly integrationID: string
+  readonly method: IntegrationKeyMethod
+  readonly authorize?: (key: string, inputs: IntegrationInputs) => Effect.Effect<CredentialKey, unknown>
+}
+export type IntegrationEnvMethodRegistration = {
+  readonly integrationID: string
+  readonly method: IntegrationEnvMethod
+}
 export type IntegrationMethodRegistration =
   | IntegrationOAuthMethodRegistration
-  | {
-      readonly integrationID: string
-      readonly method: IntegrationKeyMethod
-    }
-  | {
-      readonly integrationID: string
-      readonly method: IntegrationEnvMethod
-    }
+  | IntegrationKeyMethodRegistration
+  | IntegrationEnvMethodRegistration
 
 export interface IntegrationDraft {
   list(): readonly IntegrationRef[]

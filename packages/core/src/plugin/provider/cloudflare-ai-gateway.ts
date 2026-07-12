@@ -2,10 +2,54 @@ import os from "os"
 import { InstallationVersion } from "../../installation/version"
 import { Effect, Option, Schema } from "effect"
 import { define } from "@opencode-ai/plugin/v2/effect/plugin"
+import { Credential } from "../../credential"
+import { Integration } from "../../integration"
+
+const integrationID = Integration.ID.make("cloudflare-ai-gateway")
 
 export const CloudflareAIGatewayPlugin = define({
   id: "opencode.provider.cloudflare-ai-gateway",
   effect: Effect.fn(function* (ctx) {
+    const integration = yield* Integration.Service
+    yield* integration.transform((draft) => {
+      draft.method.update({
+        integrationID,
+        method: {
+          type: "key",
+          label: "Gateway API token",
+          prompts: [
+            ...(process.env.CLOUDFLARE_ACCOUNT_ID
+              ? []
+              : [
+                  {
+                    type: "text" as const,
+                    key: "accountId",
+                    message: "Enter your Cloudflare Account ID",
+                    placeholder: "e.g. 1234567890abcdef1234567890abcdef",
+                  },
+                ]),
+            ...(process.env.CLOUDFLARE_GATEWAY_ID
+              ? []
+              : [
+                  {
+                    type: "text" as const,
+                    key: "gatewayId",
+                    message: "Enter your Cloudflare AI Gateway ID",
+                    placeholder: "e.g. my-gateway",
+                  },
+                ]),
+          ],
+        },
+        authorize: (key, inputs) =>
+          Effect.succeed(
+            Credential.Key.make({
+              type: "key",
+              key,
+              ...(Object.keys(inputs).length ? { metadata: inputs } : {}),
+            }),
+          ),
+      })
+    })
     yield* ctx.aisdk.hook(
       "sdk",
       Effect.fn(function* (evt) {

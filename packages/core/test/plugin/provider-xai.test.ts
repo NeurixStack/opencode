@@ -1,4 +1,6 @@
 import { AISDK } from "@opencode-ai/core/aisdk"
+import { Credential } from "@opencode-ai/core/credential"
+import { Integration } from "@opencode-ai/core/integration"
 import type { LanguageModelV3 } from "@ai-sdk/provider"
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
@@ -16,7 +18,8 @@ const addPlugin = Effect.fn(function* () {
   const plugin = yield* PluginV2.Service
   const aisdk = yield* AISDK.Service
   const host = yield* PluginHost.make(plugin)
-  yield* XAIPlugin.effect(host)
+  const integration = yield* Integration.Service
+  yield* XAIPlugin.effect(host).pipe(Effect.provideService(Integration.Service, integration))
 })
 
 function fakeSelectorSdk(calls: string[]) {
@@ -33,6 +36,39 @@ function fakeSelectorSdk(calls: string[]) {
 }
 
 describe("XAIPlugin", () => {
+  it.effect("registers browser OAuth, device OAuth, and API key methods", () =>
+    Effect.gen(function* () {
+      yield* addPlugin()
+      const integration = yield* (yield* Integration.Service).get(Integration.ID.make("xai"))
+      expect(integration?.name).toBe("xAI")
+      expect(integration?.methods).toEqual([
+        {
+          id: Integration.MethodID.make("browser"),
+          type: "oauth",
+          label: "xAI Grok OAuth (SuperGrok Subscription)",
+        },
+        {
+          id: Integration.MethodID.make("device"),
+          type: "oauth",
+          label: "xAI Grok OAuth (Headless / Remote / VPS)",
+        },
+        { type: "key", label: "Manually enter API Key" },
+      ])
+    }),
+  )
+
+  it.effect("stores API keys through the registered key method", () =>
+    Effect.gen(function* () {
+      yield* addPlugin()
+      const integrations = yield* Integration.Service
+      yield* integrations.connection.key({ integrationID: Integration.ID.make("xai"), key: "xai-test" })
+      expect((yield* (yield* Credential.Service).list(Integration.ID.make("xai")))[0]?.value).toEqual({
+        type: "key",
+        key: "xai-test",
+      })
+    }),
+  )
+
   it.effect("creates an xAI SDK only for @ai-sdk/xai", () =>
     Effect.gen(function* () {
       const plugin = yield* PluginV2.Service

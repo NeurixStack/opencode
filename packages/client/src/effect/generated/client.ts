@@ -504,13 +504,14 @@ type Endpoint10_2Input = {
   readonly integrationID: Endpoint10_2Request["params"]["integrationID"]
   readonly location?: Endpoint10_2Request["query"]["location"]
   readonly key: Endpoint10_2Request["payload"]["key"]
+  readonly inputs?: Endpoint10_2Request["payload"]["inputs"]
   readonly label?: Endpoint10_2Request["payload"]["label"]
 }
 const Endpoint10_2 = (raw: RawClient["server.integration"]) => (input: Endpoint10_2Input) =>
   raw["integration.connect.key"]({
     params: { integrationID: input["integrationID"] },
     query: { location: input["location"] },
-    payload: { key: input["key"], label: input["label"] },
+    payload: { key: input["key"], inputs: input["inputs"], label: input["label"] },
   }).pipe(Effect.mapError(mapClientError))
 
 type Endpoint10_3Request = Parameters<RawClient["server.integration"]["integration.connect.oauth"]>[0]

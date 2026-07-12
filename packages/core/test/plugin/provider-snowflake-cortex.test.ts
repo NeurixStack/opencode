@@ -1,10 +1,11 @@
 import { AISDK } from "@opencode-ai/core/aisdk"
+import { Integration } from "@opencode-ai/core/integration"
 import { describe, expect, it as bun_it } from "bun:test"
 import { Effect } from "effect"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
-import { SnowflakeCortexPlugin, cortexFetch } from "@opencode-ai/core/plugin/provider/snowflake-cortex"
+import { SnowflakeCortexPlugin, cortexFetch, oauthScope } from "@opencode-ai/core/plugin/provider/snowflake-cortex"
 import { ProviderPlugins } from "@opencode-ai/core/plugin/provider"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { testEffect } from "../lib/effect"
@@ -41,6 +42,61 @@ function withEnv<A, E, R>(vars: Record<string, string | undefined>, effect: () =
 }
 
 describe("SnowflakeCortexPlugin", () => {
+  it.effect("registers browser OAuth, key, and environment methods", () =>
+    Effect.gen(function* () {
+      yield* addPlugin()
+      expect((yield* (yield* Integration.Service).get(Integration.ID.make("snowflake-cortex")))?.methods).toEqual([
+        {
+          id: Integration.MethodID.make("snowflake-browser"),
+          type: "oauth",
+          label: "Login with Snowflake (External Browser)",
+          prompts: [
+            {
+              type: "text",
+              key: "account",
+              message: "Snowflake Account Identifier",
+              placeholder: "myorg-myaccount",
+            },
+            {
+              type: "text",
+              key: "role",
+              message: "Snowflake Role (optional)",
+              placeholder: "PUBLIC",
+            },
+          ],
+        },
+        { type: "key", label: "Paste PAT or bearer token manually" },
+        { type: "env", names: ["SNOWFLAKE_CORTEX_TOKEN", "SNOWFLAKE_CORTEX_PAT"] },
+      ])
+    }),
+  )
+
+  it.effect("uses account metadata to derive the Cortex endpoint", () =>
+    withEnv({ SNOWFLAKE_ACCOUNT: undefined }, () =>
+      Effect.gen(function* () {
+        const aisdk = yield* AISDK.Service
+        yield* addPlugin()
+        const result = yield* aisdk.runSDK({
+          model: ModelV2.Info.make({
+            ...ModelV2.Info.empty(ProviderV2.ID.make("snowflake-cortex"), ModelV2.ID.make("claude-sonnet-4-6")),
+            package: "aisdk:test-provider",
+          }),
+          package: "@ai-sdk/openai-compatible",
+          options: { account: "https://myorg-myaccount.snowflakecomputing.com/", apiKey: "test-pat" },
+        })
+        expect(result.options.baseURL).toBe("https://myorg-myaccount.snowflakecomputing.com/api/v2/cortex/v1")
+      }),
+    ),
+  )
+
+  it.effect("uses Snowflake-compatible OAuth scopes", () =>
+    Effect.sync(() => {
+      expect(oauthScope(undefined)).toBe("refresh_token")
+      expect(oauthScope("PUBLIC")).toBe("refresh_token session:role:PUBLIC")
+      expect(oauthScope("AUTH SNOWFLAKE")).toBe("refresh_token session:role-encoded:AUTH%20SNOWFLAKE")
+    }),
+  )
+
   it.effect("is registered in ProviderPlugins before OpenAICompatiblePlugin", () =>
     Effect.sync(() => {
       expect(ProviderPlugins.map((item) => item.id)).toContain("opencode.provider.snowflake-cortex")
@@ -194,6 +250,7 @@ describe("cortexFetch", () => {
     const body = JSON.parse(captured[0].body as string)
     expect(body.max_completion_tokens).toBe(1024)
     expect(body.max_tokens).toBeUndefined()
+    expect(new Headers(captured[0].headers).get("User-Agent")).toMatch(/^opencode\//)
   })
 
   bun_it("preserves body when max_tokens is absent", async () => {

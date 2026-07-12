@@ -2,13 +2,44 @@ import os from "os"
 import { InstallationVersion } from "../../installation/version"
 import { Effect } from "effect"
 import { define } from "@opencode-ai/plugin/v2/effect/plugin"
+import { Credential } from "../../credential"
+import { Integration } from "../../integration"
 import { ProviderV2 } from "../../provider"
 
 const providerID = ProviderV2.ID.make("cloudflare-workers-ai")
+const integrationID = Integration.ID.make("cloudflare-workers-ai")
 
 export const CloudflareWorkersAIPlugin = define({
   id: "opencode.provider.cloudflare-workers-ai",
   effect: Effect.fn(function* (ctx) {
+    const integration = yield* Integration.Service
+    yield* integration.transform((draft) => {
+      draft.method.update({
+        integrationID,
+        method: {
+          type: "key",
+          label: "API key",
+          prompts: process.env.CLOUDFLARE_ACCOUNT_ID
+            ? []
+            : [
+                {
+                  type: "text",
+                  key: "accountId",
+                  message: "Enter your Cloudflare Account ID",
+                  placeholder: "e.g. 1234567890abcdef1234567890abcdef",
+                },
+              ],
+        },
+        authorize: (key, inputs) =>
+          Effect.succeed(
+            Credential.Key.make({
+              type: "key",
+              key,
+              ...(inputs.accountId ? { metadata: { accountId: inputs.accountId } } : {}),
+            }),
+          ),
+      })
+    })
     yield* ctx.catalog.transform((evt) => {
       const item = evt.provider.get(providerID)
       if (!item) return

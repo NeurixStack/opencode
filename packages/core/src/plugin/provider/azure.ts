@@ -1,5 +1,7 @@
 import { Effect } from "effect"
 import { define } from "@opencode-ai/plugin/v2/effect/plugin"
+import { Credential } from "../../credential"
+import { Integration } from "../../integration"
 import { ProviderV2 } from "../../provider"
 
 function selectLanguage(sdk: any, modelID: string, useChat: boolean) {
@@ -13,6 +15,34 @@ function selectLanguage(sdk: any, modelID: string, useChat: boolean) {
 export const AzurePlugin = define({
   id: "opencode.provider.azure",
   effect: Effect.fn(function* (ctx) {
+    const integration = yield* Integration.Service
+    yield* integration.transform((draft) => {
+      draft.method.update({
+        integrationID: Integration.ID.make("azure"),
+        method: {
+          type: "key",
+          label: "API key",
+          prompts: process.env.AZURE_RESOURCE_NAME
+            ? []
+            : [
+                {
+                  type: "text",
+                  key: "resourceName",
+                  message: "Enter Azure Resource Name",
+                  placeholder: "e.g. my-models",
+                },
+              ],
+        },
+        authorize: (key, inputs) =>
+          Effect.succeed(
+            Credential.Key.make({
+              type: "key",
+              key,
+              ...(inputs.resourceName ? { metadata: { resourceName: inputs.resourceName } } : {}),
+            }),
+          ),
+      })
+    })
     yield* ctx.catalog.transform((evt) => {
       for (const item of evt.provider.list()) {
         if (!ProviderV2.isAISDK(item.provider.package)) continue

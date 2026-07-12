@@ -218,14 +218,16 @@ export function integrationHost(integration: Integration.Interface): PluginConte
           method: {
             list: (id) => draft.method.list(Integration.ID.make(id)).map(method),
             update: (input) => {
-              if ("authorize" in input) {
-                const methodID = Integration.MethodID.make(input.method.id)
-                const refresh = input.refresh
+              if (input.method.type === "oauth") {
+                const oauth =
+                  input as import("@opencode-ai/plugin/v2/effect/integration").IntegrationOAuthMethodRegistration
+                const methodID = Integration.MethodID.make(oauth.method.id)
+                const refresh = oauth.refresh
                 draft.method.update({
-                  integrationID: Integration.ID.make(input.integrationID),
-                  method: { ...input.method, id: methodID },
-                  authorize: (inputs) =>
-                    input.authorize(inputs).pipe(
+                  integrationID: Integration.ID.make(oauth.integrationID),
+                  method: { ...oauth.method, id: methodID },
+                  authorize: (inputs: import("@opencode-ai/plugin/v2/effect/integration").IntegrationInputs) =>
+                    oauth.authorize(inputs).pipe(
                       Effect.map((authorization) => {
                         if (authorization.mode === "auto") {
                           return {
@@ -267,7 +269,7 @@ export function integrationHost(integration: Integration.Interface): PluginConte
                           ),
                       }
                     : {}),
-                  ...(input.label ? { label: input.label } : {}),
+                  ...(oauth.label ? { label: oauth.label } : {}),
                 })
                 return
               }
@@ -278,9 +280,19 @@ export function integrationHost(integration: Integration.Interface): PluginConte
                 })
                 return
               }
+              const registration =
+                input as import("@opencode-ai/plugin/v2/effect/integration").IntegrationKeyMethodRegistration
               draft.method.update({
-                integrationID: Integration.ID.make(input.integrationID),
-                method: input.method,
+                integrationID: Integration.ID.make(registration.integrationID),
+                method: registration.method,
+                ...(registration.authorize
+                  ? {
+                      authorize: (key, inputs) =>
+                        registration.authorize!(key, inputs).pipe(
+                          Effect.map((credential) => Credential.Key.make(credential)),
+                        ),
+                    }
+                  : {}),
               })
             },
             remove: (id, item) => draft.method.remove(Integration.ID.make(id), internalMethod(item)),

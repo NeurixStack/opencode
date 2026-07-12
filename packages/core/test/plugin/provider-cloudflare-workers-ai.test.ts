@@ -2,6 +2,7 @@ import { AISDK } from "@opencode-ai/core/aisdk"
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
+import { Integration } from "@opencode-ai/core/integration"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
@@ -79,6 +80,56 @@ function cloudflareHeaders(sdk: unknown, modelID = "@cf/model") {
 }
 
 describe("CloudflareWorkersAIPlugin", () => {
+  it.effect("registers an API key method and stores prompted account metadata", () =>
+    withEnv({ CLOUDFLARE_ACCOUNT_ID: undefined }, () =>
+      Effect.gen(function* () {
+        const integrations = yield* Integration.Service
+        yield* addPlugin()
+        const integrationID = Integration.ID.make("cloudflare-workers-ai")
+        expect((yield* integrations.get(integrationID))?.methods).toEqual([
+          {
+            type: "key",
+            label: "API key",
+            prompts: [
+              {
+                type: "text",
+                key: "accountId",
+                message: "Enter your Cloudflare Account ID",
+                placeholder: "e.g. 1234567890abcdef1234567890abcdef",
+              },
+            ],
+          },
+        ])
+
+        yield* integrations.connection.key({
+          integrationID,
+          key: "secret",
+          inputs: { accountId: "acct" },
+        })
+        const connection = required(yield* integrations.connection.active(integrationID))
+        expect(yield* integrations.connection.resolve(connection)).toMatchObject({
+          type: "key",
+          key: "secret",
+          metadata: { accountId: "acct" },
+        })
+      }),
+    ),
+  )
+
+  it.effect("omits the account prompt when Cloudflare account env is configured", () =>
+    withEnv({ CLOUDFLARE_ACCOUNT_ID: "acct" }, () =>
+      Effect.gen(function* () {
+        const integrations = yield* Integration.Service
+        yield* addPlugin()
+        expect((yield* integrations.get(Integration.ID.make("cloudflare-workers-ai")))?.methods).toContainEqual({
+          type: "key",
+          label: "API key",
+          prompts: [],
+        })
+      }),
+    ),
+  )
+
   it.effect("maps account ID to endpoint URL and creates an OpenAI-compatible SDK", () =>
     withEnv({ CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_API_KEY: "key" }, () =>
       Effect.gen(function* () {
