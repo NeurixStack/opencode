@@ -32,7 +32,7 @@ CodeMode is an orchestration language, not a general JavaScript runtime or an ap
 The generic runtime lives in `packages/codemode` and is host-neutral:
 
 1. The host builds a tree of `Tool.make(...)` definitions and calls `CodeMode.make(...)` or `CodeMode.execute(...)`.
-2. CodeMode generates model instructions, a budgeted inline catalog, and the internal `$codemode.search` tool.
+2. CodeMode generates model instructions, a budgeted inline catalog, and the global `search(...)` built-in.
 3. TypeScript syntax is transpiled away, Acorn parses the resulting JavaScript, and an owned tree-walking interpreter
    executes it without `eval`.
 4. Tool inputs and outputs cross schema and plain-data boundaries before they become visible on either side.
@@ -46,13 +46,14 @@ advertised as `Promise<unknown>`.
 ### Discovery and model workflow
 
 The model sees a token-budgeted catalog. Every namespace remains visible, and complete signatures are selected
-round-robin across namespaces so one large namespace cannot starve the others. `$codemode.search` is always callable
-and is advertised when the inline catalog is partial.
+round-robin across namespaces so one large namespace cannot starve the others. The global `search(...)` built-in is
+always callable - synchronously, counted as an admitted tool call - and is advertised when the inline catalog is
+partial.
 
 The intended workflow is:
 
-1. Pick an exact signature from the inline catalog, or return `$codemode.search(...)` results and use a selected path
-   in the next execution.
+1. Pick an exact signature from the inline catalog, or return `search(...)` results and use a selected path in the
+   next execution.
 2. Call the exact returned path without guessing or normalizing segments.
 3. Narrow `Promise<unknown>` results before reading fields.
 4. Start independent calls together and await them with `Promise.all`.
@@ -64,10 +65,16 @@ path lookup, namespace browsing, deterministic ranking, and pagination.
 ### Tool execution
 
 Every sandbox promise starts eagerly on a run-once fiber owned by the whole CodeMode execution, including tool calls,
-async functions, `Promise.all`, `Promise.allSettled`, `Promise.race`, `Promise.resolve`, and `Promise.reject`. Nested
-functions therefore cannot end the lifetime of work they started. Independent aggregate batches overlap, and rejection
-is observed at the eventual `await`. `Promise.race` uses native non-cancelling settlement semantics: its first result
-wins while losers continue running. At normal completion CodeMode interrupts everything still running - race losers,
+async functions, chained `.then`/`.catch`/`.finally` reactions, `new Promise(executor)` constructions, and the
+`Promise.all`/`allSettled`/`race`/`any`/`resolve`/`reject` statics. Nested functions therefore cannot end the lifetime
+of work they started.
+Independent aggregate batches overlap, and rejection is observed at the eventual `await` or chained rejection handler.
+`Promise.race` and `Promise.any` use native non-cancelling settlement semantics: the deciding member wins while losers
+continue running, and an all-rejected `Promise.any` rejects with an `AggregateError`. `new Promise(...)` hands the
+executor first-class resolve/reject callables that may escape and settle the promise later, exactly once.
+Reaction ordering matches what V8 makes observable - handlers and await continuations are deferred and run in attach
+order, and a combinator settles one reaction turn after its deciding member - without promising exact microtask-count
+parity beyond that. At normal completion CodeMode interrupts everything still running - race losers,
 fail-fast `Promise.all` stragglers, and fire-and-forget calls alike: the program has returned, so no future await can
 exist, and work whose completion matters must be awaited by the program. Waiting for any class of leftover instead
 would let it hold the execution open, or deadlock it when queued work needs tool-call permits the leftovers occupy.

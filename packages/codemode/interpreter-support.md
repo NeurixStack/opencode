@@ -22,6 +22,8 @@ ultimate source of truth.
 - [x] JSON-like host boundaries with `undefined` and non-finite numbers normalized to `null`.
 - [x] Live Date, RegExp, Map, Set, URL, and URLSearchParams values inside the sandbox.
 - [x] Tool calls through the host-provided `tools` tree only.
+- [x] The global `search(...)` built-in: synchronous tool discovery that counts as an admitted tool call and is
+      shadowable by program declarations like other globals.
 - [x] Cooperative timeout, tool-call accounting, output bounding, and a maximum of eight concurrent tool calls.
 - [ ] Full JavaScript or TypeScript compatibility. CodeMode is a bounded orchestration language.
 
@@ -92,8 +94,9 @@ ultimate source of truth.
 - [x] Optional property access and optional calls.
 - [x] Function/tool calls and spread arguments.
 - [x] Sequence expressions (the comma operator).
-- [x] `await` for sandbox promises; awaiting a plain value is a no-op.
-- [x] `new` for Error types, Date, RegExp, Map, Set, URL, and URLSearchParams.
+- [x] `await` for sandbox promises; a plain value passes through unchanged, though every `await` still defers its
+      continuation one reaction turn.
+- [x] `new` for Error types, Date, RegExp, Map, Set, URL, URLSearchParams, and Promise.
 - [x] Arithmetic operators: `+`, `-`, `*`, `/`, `%`, and `**`.
 - [x] Equality and ordering: `==`, `!=`, `===`, `!==`, `<`, `<=`, `>`, and `>=`.
 - [x] Bitwise operators: `&`, `|`, `^`, `~`, `<<`, `>>`, and `>>>`.
@@ -102,27 +105,41 @@ ultimate source of truth.
 - [x] Prefix and postfix `++` and `--`.
 - [x] Plain, arithmetic, bitwise, and logical assignment operators.
 - [ ] Unary `void` and `delete`.
-- [ ] Arbitrary constructors and `new Promise(...)`.
+- [ ] Arbitrary constructors.
 
 ## Promises and tools
 
 - [x] Tool calls start eagerly and return supervised, run-once sandbox promises.
 - [x] Direct `await`, repeated awaits, and implicit resolution when a promise is returned from a function/program.
 - [x] `Promise.resolve` and `Promise.reject`.
-- [x] `Promise.all`, `Promise.allSettled`, and `Promise.race` over supported collections containing promises and plain
-      values.
+- [x] `Promise.all`, `Promise.allSettled`, `Promise.race`, and `Promise.any` over supported collections containing
+      promises and plain values.
 - [x] `Promise.all` preserves result order and rejects on the first observed failure without cancelling siblings.
 - [x] `Promise.allSettled` returns plain fulfilled/rejected outcome records.
 - [x] `Promise.race` settles from the first result without cancelling losers at settlement time.
 - [x] Real promise values from `Promise.all`, `Promise.allSettled`, and `Promise.race`; separately constructed
       combinator batches overlap as in normal JavaScript.
+- [x] Promise chaining with `.then`, `.catch`, and `.finally`: handlers run deferred in attach order, returned
+      promises are adopted, handler throws reject the derived promise, `.finally` preserves the original settlement
+      unless its cleanup fails, and direct self-resolution rejects with a `TypeError`.
+- [x] Every `await` (including of plain values and already-settled promises) defers its continuation one reaction
+      turn, so concurrent async functions interleave at await points as in JavaScript.
+- [x] Combinators settle one reaction turn after their deciding member (V8-observable ordering): reactions already
+      attached to members run first, and an aggregate cannot beat a plain value settling in the same turn into a
+      `Promise.race`. Exact microtask-count parity beyond this observable ordering is not a documented guarantee.
 - [x] All still-pending work (race losers, fail-fast `Promise.all` stragglers, and un-awaited calls alike) is
       interrupted when the program returns; rejections that settled un-awaited become `Success.warnings`
-      diagnostics.
+      diagnostics. A combinator abandoned inside its final settlement turn counts as pending and is interrupted
+      without a warning.
 - [x] `try`/`catch` can handle awaited tool and promise failures.
-- [ ] `Promise.any`.
-- [ ] Promise chaining with `.then`, `.catch`, and `.finally`.
-- [ ] Custom promise construction with `new Promise(...)`.
+- [x] `Promise.any`: first fulfillment wins; all-rejected rejects with an `AggregateError` whose `errors` array holds
+      the catch-normalized reasons in input order, and empty input rejects with an empty `AggregateError`.
+- [x] `new Promise((resolve, reject) => ...)`: the executor runs synchronously and receives first-class resolve/reject
+      callables that settle the promise exactly once (they may escape the executor and settle later); an executor
+      throw rejects unless the promise already settled, resolving with a promise adopts it, and resolving with the
+      promise itself rejects with a `TypeError`. Resolver callables work as `.then`/`.catch` handlers and collection
+      callbacks but remain opaque references that cannot cross the data boundary.
+- [ ] Thenable assimilation (objects with a `then` method are plain data, not promises).
 - [ ] Async iterables, host streams, and stream consumption.
 
 ## Objects and properties
@@ -153,15 +170,15 @@ ultimate source of truth.
 - [ ] The mapper and `thisArg` forms of `Array.from`.
 - [ ] `Array.prototype.toSpliced`.
 - [ ] Canonical index handling: a key such as `"01"` must not alias index `1`.
-- [ ] Complete sparse-array parity.
+- [ ] Complete sparse-array parity. Promise combinators do consume holes as `undefined` members, as in JS.
 - [ ] Correct `findLast` return behavior when its predicate mutates the examined element.
 
 ## Strings
 
 - [x] Case/normalization: `toLowerCase`, `toUpperCase`, `normalize`.
-- [x] Trimming: `trim`, `trimStart`, `trimEnd`, `trimLeft`, and `trimRight`.
+- [x] Trimming: `trim`, `trimStart`, and `trimEnd`.
 - [x] Searching/tests: `includes`, `startsWith`, `endsWith`, `indexOf`, `lastIndexOf`, and `search`.
-- [x] Slicing/access: `slice`, `substring`, `substr`, `at`, `charAt`, `charCodeAt`, and `codePointAt`.
+- [x] Slicing/access: `slice`, `substring`, `at`, `charAt`, `charCodeAt`, and `codePointAt`.
 - [x] Construction/transformation: `split`, `concat`, `repeat`, `padStart`, `padEnd`, `replace`, and `replaceAll`.
 - [x] Regular-expression integration: `match`, materialized `matchAll`, `replace`, `replaceAll`, `split`, and `search`.
 - [x] `localeCompare`; locale and options arguments are currently ignored.
@@ -258,6 +275,8 @@ ultimate source of truth.
 
 - [x] `Error`, `TypeError`, `RangeError`, `SyntaxError`, `ReferenceError`, `EvalError`, and `URIError`, callable with
       or without `new`.
+- [x] `AggregateError` with the `(errors, message?)` signature and an own `errors` array, constructed directly or by
+      an all-rejected `Promise.any`.
 - [x] Error `name`/`message`, error inheritance through `instanceof`, and plain-data serialization.
 - [x] `instanceof` for Date, RegExp, Map, Set, URL, URLSearchParams, Array, Object, Promise, and Error types.
 - [x] Catchable interpreter failures and awaited tool failures.

@@ -23,7 +23,6 @@ import { Spinner } from "../spinner"
 import { useSDK } from "../../context/sdk"
 import { useRoute } from "../../context/route"
 import { useProject } from "../../context/project"
-import { useSync } from "../../context/sync"
 import { useEvent } from "../../context/event"
 import { editorSelectionKey, useEditorContext, type EditorSelection } from "../../context/editor"
 import { normalizePromptContent, openEditor } from "../../editor"
@@ -37,7 +36,6 @@ import { usePromptStash } from "../../prompt/stash"
 import { DialogStash } from "../dialog-stash"
 import { type AutocompleteRef, Autocomplete } from "./autocomplete"
 import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
-import type { UserMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "../../util/locale"
 import { errorMessage } from "../../util/error"
 import { createColors, createFrames } from "../../ui/spinner"
@@ -48,16 +46,14 @@ import { useToast } from "../../ui/toast"
 import { useKV } from "../../context/kv"
 import { createFadeIn } from "../../util/signal"
 import { DialogSkill } from "../dialog-skill"
-import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "../../context/args"
 import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut, useLeaderActive, useOpencodeKeymap } from "../../keymap"
-import { useTuiConfig } from "../../config"
-import { usePromptWorkspace } from "./workspace"
+import { useTuiConfig } from "../../config/v1"
 import { usePromptMove } from "./move"
 import { readLocalAttachment } from "./local-attachment"
 import { useData } from "../../context/data"
 import { useLocation } from "../../context/location"
-import { lastAssistantWithUsage } from "../../util/session"
+import { contextUsage } from "../../util/session"
 
 registerOpencodeSpinner()
 
@@ -156,7 +152,6 @@ export function Prompt(props: PromptProps) {
   const editor = useEditorContext()
   const route = useRoute()
   const project = useProject()
-  const sync = useSync()
   const data = useData()
   const currentLocation = useLocation()
   const tuiConfig = useTuiConfig()
@@ -177,6 +172,7 @@ export function Prompt(props: PromptProps) {
   const keymap = useOpencodeKeymap()
   const agentShortcut = useCommandShortcut("agent.cycle")
   const paletteShortcut = useCommandShortcut("command.palette.show")
+  const liveWorkShortcut = useCommandShortcut("session.child.first")
   const renderer = useRenderer()
   const exit = useExit()
   const dimensions = useTerminalDimensions()
@@ -218,7 +214,6 @@ export function Prompt(props: PromptProps) {
   })
   const editorContextLabelState = createMemo(() => editor.labelState())
   const [auto, setAuto] = createSignal<AutocompleteRef>()
-  const workspace = usePromptWorkspace(props.sessionID)
   const move = usePromptMove({
     projectID: () => (props.sessionID ? data.session.get(props.sessionID)?.projectID : undefined) ?? project.project(),
     sessionID: () => props.sessionID,
@@ -268,32 +263,24 @@ export function Prompt(props: PromptProps) {
     if (!props.disabled) input.cursorColor = theme.text
   })
 
-  const lastUserMessage = createMemo(() => {
-    if (!props.sessionID) return undefined
-    const messages = sync.data.message[props.sessionID]
-    if (!messages) return undefined
-    return messages.findLast((m): m is UserMessage => m.role === "user")
-  })
-
   const usage = createMemo(() => {
     if (!props.sessionID) return
     const session = data.session.get(props.sessionID)
     if (!session) return
-    const last = lastAssistantWithUsage(data.session.message.list(props.sessionID), session.revert?.messageID)
-    if (!last) return
-
-    const tokens =
-      last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
-    if (tokens <= 0) return
-
-    const model = data.location.model
-      .list(session.location)
-      ?.find((model) => model.providerID === last.model.providerID && model.id === last.model.id)
-    const pct = model?.limit.context ? `${Math.round((tokens / model.limit.context) * 100)}%` : undefined
-    const cost = session.cost
+    const cost = data.session.cost(props.sessionID)
+    const formattedCost = cost > 0 ? money.format(cost) : undefined
+    const context = contextUsage(
+      data.session.message.list(props.sessionID),
+      data.location.model.list(session.location),
+      session.revert?.messageID,
+    )
     return {
-      context: pct ? `${Locale.number(tokens)} (${pct})` : Locale.number(tokens),
-      cost: cost > 0 ? money.format(cost) : undefined,
+      context: context
+        ? context.percent === undefined
+          ? Locale.number(context.tokens)
+          : `${Locale.number(context.tokens)} (${context.percent}%)`
+        : undefined,
+      cost: formattedCost,
     }
   })
 
@@ -530,17 +517,6 @@ export function Prompt(props: PromptProps) {
         },
       },
       {
-        title: "Warp",
-        desc: "Change the workspace for the session",
-        name: "workspace.set",
-        category: "Session",
-        enabled: Flag.OPENCODE_EXPERIMENTAL_WORKSPACES,
-        slashName: "warp",
-        run: () => {
-          workspace.open()
-        },
-      },
-      {
         title: "Move session",
         desc: "Move to another project dir",
         name: "session.move",
@@ -572,7 +548,6 @@ export function Prompt(props: PromptProps) {
       "prompt.skills",
       "session.interrupt",
       "session.background",
-      "workspace.set",
       "session.move",
     ]),
   }))
@@ -864,6 +839,7 @@ export function Prompt(props: PromptProps) {
 
   useBindings(() => {
     return {
+      priority: 1,
       target: inputTarget,
       enabled: (() => {
         cursorVersion()
@@ -876,8 +852,12 @@ export function Prompt(props: PromptProps) {
           category: "Prompt",
           run() {
             if (input.cursorOffset !== 0) {
-              if (input.scrollY + input.visualCursor.visualRow === 0) input.cursorOffset = 0
-              return false
+              if (input.scrollY + input.visualCursor.visualRow === 0) {
+                input.cursorOffset = 0
+                return
+              }
+              input.moveCursorUp()
+              return
             }
 
             const item = history.move(-1, input.plainText)
@@ -896,6 +876,7 @@ export function Prompt(props: PromptProps) {
 
   useBindings(() => {
     return {
+      priority: 1,
       target: inputTarget,
       enabled: (() => {
         cursorVersion()
@@ -911,9 +892,12 @@ export function Prompt(props: PromptProps) {
               if (
                 input.scrollY + input.visualCursor.visualRow ===
                 Math.max(0, input.editorView.getTotalVirtualLineCount() - 1)
-              )
+              ) {
                 input.cursorOffset = input.plainText.length
-              return false
+                return
+              }
+              input.moveCursorDown()
+              return
             }
 
             const item = history.move(1, input.plainText)
@@ -948,8 +932,6 @@ export function Prompt(props: PromptProps) {
   }
 
   async function submitInner() {
-    workspace.clearNotice()
-
     // IME: double-defer may fire before onContentChange flushes the last
     // composed character (e.g. Korean hangul) to the store, so read
     // plainText directly and sync before any downstream reads.
@@ -958,7 +940,7 @@ export function Prompt(props: PromptProps) {
       syncExtmarksWithPromptParts()
     }
     if (props.disabled) return false
-    if (workspace.creating() || move.creating()) return false
+    if (move.creating()) return false
     if (auto()?.visible) return false
     if (!store.prompt.text) return false
     const trimmed = store.prompt.text.trim()
@@ -974,29 +956,11 @@ export function Prompt(props: PromptProps) {
       return false
     }
 
-    const workspaceSession = props.sessionID ? sync.session.get(props.sessionID) : undefined
-    const workspaceID = workspaceSession?.workspaceID
-    const workspaceStatus = workspaceID ? (project.workspace.status(workspaceID) ?? "error") : undefined
-    if (props.sessionID && workspaceID && workspaceStatus !== "connected") {
-      dialog.replace(() => (
-        <DialogWorkspaceUnavailable
-          onRestore={() => {
-            workspace.open()
-            return false
-          }}
-        />
-      ))
-      return false
-    }
-
     const variant = local.model.variant.current()
     let sessionID = props.sessionID
     let session = sessionID ? data.session.get(sessionID) : undefined
     let finishMoveProgress = false
     if (sessionID == null) {
-      const selectedWorkspace = workspace.selection()
-      const workspaceID = selectedWorkspace?.type === "existing" ? selectedWorkspace.workspaceID : undefined
-
       const directory = await move.getDirectory()
       if (move.pending() && !directory) return false
       finishMoveProgress = Boolean(move.progress())
@@ -1004,9 +968,7 @@ export function Prompt(props: PromptProps) {
 
       const created = await sdk.api.session
         .create({
-          location: directory
-            ? { directory, workspaceID }
-            : { directory: location.directory, workspaceID: workspaceID ?? location.workspaceID },
+          location: directory ? { directory } : location,
           agent: agent.id,
           model: {
             providerID: selectedModel.providerID,
@@ -1229,7 +1191,7 @@ export function Prompt(props: PromptProps) {
     const lineCount = (pastedContent.match(/\n/g)?.length ?? 0) + 1
     if (
       (lineCount >= 3 || pastedContent.length > 150) &&
-      kv.get("paste_summary_enabled", !sync.data.config.experimental?.disable_paste_summary)
+      kv.get("paste_summary_enabled", true)
     ) {
       pasteText(pastedContent, `[Pasted ~${lineCount} lines]`)
       return
@@ -1339,7 +1301,7 @@ export function Prompt(props: PromptProps) {
   const spinnerDef = createMemo(() => {
     const agent =
       status() === "running"
-        ? (local.agent.list().find((agent) => agent.id === lastUserMessage()?.agent) ?? local.agent.current())
+        ? local.agent.current()
         : local.agent.current()
     const color = agent ? local.agent.color(agent.id) : theme.border
     return {
@@ -1545,41 +1507,6 @@ export function Prompt(props: PromptProps) {
                 </text>
               </box>
             </Match>
-            <Match when={workspace.notice()}>
-              {(notice) => (
-                <box paddingLeft={3}>
-                  <text fg={theme.accent}>{notice()}</text>
-                </box>
-              )}
-            </Match>
-            <Match when={workspace.label()}>
-              {(label) => (
-                <box paddingLeft={3} flexDirection="row" gap={1}>
-                  <Show when={workspace.creating()}>
-                    <Spinner color={theme.accent} />
-                  </Show>
-                  <text fg={workspace.creating() ? theme.accent : theme.text}>
-                    {(() => {
-                      const item = label()
-                      if (item.type === "new") {
-                        if (workspace.creating())
-                          return `Creating ${item.workspaceType}${".".repeat(workspace.creatingDots())}`
-                        return (
-                          <>
-                            Workspace <span style={{ fg: theme.textMuted }}>(new {item.workspaceType})</span>
-                          </>
-                        )
-                      }
-                      return (
-                        <>
-                          Workspace <span style={{ fg: theme.textMuted }}>{item.workspaceName}</span>
-                        </>
-                      )
-                    })()}
-                  </text>
-                </box>
-              )}
-            </Match>
             <Match when={move.progress()}>
               {(progress) => (
                 <box paddingLeft={3}>
@@ -1608,6 +1535,9 @@ export function Prompt(props: PromptProps) {
                 <Switch>
                   <Match when={liveWorkStatusVisible() || statusItems().length > 0}>
                     <text fg={theme.textMuted} wrapMode="none">
+                      <Show when={liveWorkStatusVisible() && liveWorkShortcut()}>
+                        {(shortcut) => <span style={{ fg: theme.text }}>{shortcut()} </span>}
+                      </Show>
                       <Show when={subagentStatusLabel()}>
                         {(label) => <span style={{ fg: theme.textMuted }}>{label()}</span>}
                       </Show>

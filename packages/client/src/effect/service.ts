@@ -32,6 +32,15 @@ export type Options = {
   readonly command?: ReadonlyArray<string>
 }
 
+export type StartReason = "missing" | "version-mismatch"
+
+export type StartOptions = Options & {
+  // Called once when start() decides it must spawn: either no service was
+  // found, or a healthy service with a different version is being replaced.
+  // `existing` carries the registration of the service being replaced.
+  readonly onStart?: (reason: StartReason, existing?: Info) => void
+}
+
 // Read-only lookup: registration file plus health check and version gate.
 // Never spawns; escalation to start() is the caller's policy.
 export const discover = Effect.fn("service.discover")(function* (options: Options = {}) {
@@ -47,10 +56,13 @@ const discoverLocal = Effect.fnUntraced(function* (options: Options) {
 
 // Idempotent ensure-running: reuses a healthy compatible server, replaces a
 // version-mismatched one, and otherwise spawns the service command detached.
-export const start = Effect.fn("service.start")(function* (options: Options = {}) {
+export const start = Effect.fn("service.start")(function* (options: StartOptions = {}) {
   const compatible = yield* discover(options)
   if (compatible !== undefined) return compatible
   const mismatched = yield* find(options)
+  yield* Effect.sync(() =>
+    options.onStart?.(mismatched === undefined ? "missing" : "version-mismatch", mismatched?.info),
+  )
   if (mismatched !== undefined) yield* kill(mismatched.info, options).pipe(Effect.ignore)
 
   const [command, ...args] = options.command ?? ["opencode", "serve", "--service"]
