@@ -34,7 +34,7 @@ import {
   UriFunction,
 } from "./model.js"
 import { caughtErrorValue, constructErrorValue } from "./errors.js"
-import { type CallbackRunner, invokeGlobalMethod, invokeIntrinsic } from "./methods.js"
+import { type CallbackRunner, invokeArrayFrom, invokeGlobalMethod, invokeIntrinsic } from "./methods.js"
 import {
   constructPromise,
   invokePromiseInstanceMethod,
@@ -153,6 +153,7 @@ export class Interpreter<R> {
   private readonly promises: PromiseRuntime<R>
   private readonly runner: CallbackRunner<R> = {
     invokeFunction: (fn, args) => this.invokeFunction(fn, args),
+    invokeCallable: (callable, args, node) => this.invokeCallable(callable, args, node),
     settlePromise: (promise) => this.settlePromise(promise),
   }
 
@@ -1401,7 +1402,19 @@ export class Interpreter<R> {
       if ((callable === null || callable === undefined) && node.optional === true) return OptionalShortCircuit
 
       const args = yield* self.evaluateCallArguments(argNodes)
+      return yield* self.invokeCallable(callable, args, node, callee)
+    })
+  }
 
+  // The single dispatch for every invocation: call expressions and callbacks share it.
+  private invokeCallable(
+    callable: unknown,
+    args: Array<unknown>,
+    node: AstNode,
+    callee: AstNode = node,
+  ): Effect.Effect<unknown, unknown, R> {
+    const self = this
+    return Effect.gen(function* () {
       if (callable instanceof ToolReference) {
         if (callable.path.length === 0) throw new InterpreterRuntimeError("The tools root is not callable.", callee)
         return yield* self.createToolCallPromise(callable.path, args)
@@ -1426,7 +1439,10 @@ export class Interpreter<R> {
         if (callable.namespace === "Object" && objectMethodsPreservingIdentity.has(callable.name)) {
           return invokeGlobalMethod(callable, args, node)
         }
-        if (callable.namespace === "Array" && (callable.name === "from" || callable.name === "of")) {
+        if (callable.namespace === "Array" && callable.name === "from") {
+          return yield* invokeArrayFrom(self.runner, args, node)
+        }
+        if (callable.namespace === "Array" && callable.name === "of") {
           return invokeGlobalMethod(callable, args, node)
         }
         return boundedData(invokeGlobalMethod(callable, args, node), `${callable.namespace}.${callable.name} result`)

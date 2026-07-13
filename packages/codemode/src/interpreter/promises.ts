@@ -5,7 +5,9 @@ import {
   type AstNode,
   CodeModeFunction,
   CoercionFunction,
+  GlobalMethodReference,
   InterpreterRuntimeError,
+  IntrinsicReference,
   ProgramThrow,
   PromiseCapabilityFunction,
   PromiseInstanceMethodReference,
@@ -258,14 +260,22 @@ class PromiseAnyFulfilled {
   constructor(readonly value: unknown) {}
 }
 
-type ReactionHandler = CodeModeFunction | CoercionFunction | UriFunction | PromiseCapabilityFunction
+type ReactionHandler =
+  | CodeModeFunction
+  | CoercionFunction
+  | UriFunction
+  | PromiseCapabilityFunction
+  | GlobalMethodReference
+  | IntrinsicReference
 
 const reactionHandler = (value: unknown, method: string, node: AstNode): ReactionHandler | undefined => {
   if (
     value instanceof CodeModeFunction ||
     value instanceof CoercionFunction ||
     value instanceof UriFunction ||
-    value instanceof PromiseCapabilityFunction
+    value instanceof PromiseCapabilityFunction ||
+    value instanceof GlobalMethodReference ||
+    value instanceof IntrinsicReference
   ) {
     return value
   }
