@@ -95,17 +95,9 @@ export function Home() {
           {(_) => {
             const form = forms()[0]
             return form ? (
-              <box
-                position="absolute"
-                zIndex={2000}
-                left={0}
-                right={0}
-                bottom={1}
-                paddingLeft={2}
-                paddingRight={2}
-              >
+              <box position="absolute" zIndex={2000} left={0} right={0} bottom={1} paddingLeft={2} paddingRight={2}>
                 <box width="100%">
-                  <FormPrompt form={form} />
+                  <FormPrompt form={form} onDismiss={() => data.session.form.dismiss(form.sessionID, form.id)} />
                 </box>
               </box>
             ) : null

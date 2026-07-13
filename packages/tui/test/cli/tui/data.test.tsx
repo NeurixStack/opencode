@@ -1073,9 +1073,7 @@ test("tracks session status from active sessions and execution events", async ()
       return message?.type === "compaction" && message.status === "running" && message.summary === "Streamed summary"
     })
     expect(data.session.compaction.list("session-manual")).toEqual([])
-    const compactionRow = manualRows.find(
-      (row) => row.type === "message" && row.messageID === "message-compaction",
-    )
+    const compactionRow = manualRows.find((row) => row.type === "message" && row.messageID === "message-compaction")
     emitEvent(events, {
       id: "evt_manual_compaction_ended",
       created: 3,
@@ -1117,9 +1115,7 @@ test("tracks session status from active sessions and execution events", async ()
       const message = data.session.message.get("session-live", "msg_compaction_started")
       return message?.type === "compaction" && message.status === "running" && message.summary === "Live summary"
     })
-    const autoCompactionRow = rows.find(
-      (row) => row.type === "message" && row.messageID === "msg_compaction_started",
-    )
+    const autoCompactionRow = rows.find((row) => row.type === "message" && row.messageID === "msg_compaction_started")
 
     emitEvent(events, {
       id: "evt_compaction_ended",
@@ -1192,10 +1188,7 @@ test("restores queued compaction from durable pending input", async () => {
 
   try {
     await wait(() => data.session.compaction.list(sessionID).length === 2)
-    expect(data.session.compaction.list(sessionID)).toEqual([
-      "message-compaction-queued",
-      "message-compaction-later",
-    ])
+    expect(data.session.compaction.list(sessionID)).toEqual(["message-compaction-queued", "message-compaction-later"])
     await wait(() => rows.filter((row) => row.type === "compaction-queued").length === 2)
     expect(rows.filter((row) => row.type === "compaction-queued")).toEqual([
       { type: "compaction-queued", inputID: "message-compaction-queued" },
@@ -1736,9 +1729,20 @@ test("adds, dismisses, and refreshes form requests", async () => {
     })
     await wait(() => data.session.form.list("ses_1")?.length === 1)
 
+    data.session.form.dismiss("ses_1", "frm_1")
+    await wait(() => data.session.form.list("ses_1")?.length === 0)
+
+    emitEvent(events, {
+      id: "evt_form_created_after_local_dismiss",
+      created: 2,
+      type: "form.created",
+      data: { form: { id: "frm_1", sessionID: "ses_1", title: "Input requested", fields: formFields } },
+    })
+    await wait(() => data.session.form.list("ses_1")?.length === 1)
+
     emitEvent(events, {
       id: "evt_form_replied_1",
-      created: 2,
+      created: 3,
       type: "form.replied",
       data: { sessionID: "ses_1", id: "frm_1", answer: {} },
     })
@@ -1746,13 +1750,13 @@ test("adds, dismisses, and refreshes form requests", async () => {
 
     emitEvent(events, {
       id: "evt_form_created_2",
-      created: 3,
+      created: 4,
       type: "form.created",
       data: { form: { id: "frm_2", sessionID: "ses_1", title: "Input requested", fields: formFields } },
     })
     emitEvent(events, {
       id: "evt_form_cancelled_2",
-      created: 4,
+      created: 5,
       type: "form.cancelled",
       data: { sessionID: "ses_1", id: "frm_2" },
     })
@@ -2357,8 +2361,7 @@ function sessionInfo(id: string, parentID: string | undefined, cost = 0) {
 async function mountData(parents: Record<string, string>, costs: Record<string, number> = {}) {
   const calls = createFetch((url) => {
     const match = url.pathname.match(/^\/api\/session\/([^/]+)$/)
-    if (match && match[1] !== "active")
-      return json({ data: sessionInfo(match[1], parents[match[1]], costs[match[1]]) })
+    if (match && match[1] !== "active") return json({ data: sessionInfo(match[1], parents[match[1]], costs[match[1]]) })
   })
   let data!: ReturnType<typeof useData>
   let ready!: () => void
@@ -2427,10 +2430,7 @@ test("indexes arbitrarily deep nesting under a single root", async () => {
 })
 
 test("totals family cost for roots and keeps subagent cost scoped", async () => {
-  const { data, app } = await mountData(
-    { grandchild: "child", child: "root" },
-    { root: 1, child: 2, grandchild: 3 },
-  )
+  const { data, app } = await mountData({ grandchild: "child", child: "root" }, { root: 1, child: 2, grandchild: 3 })
   try {
     await data.session.refresh("grandchild")
     await data.session.refresh("child")

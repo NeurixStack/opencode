@@ -4,7 +4,13 @@ import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core"
 import open from "open"
 import { selectedForeground, tint, useTheme } from "../../context/theme"
-import type { FormField, FormValue } from "@opencode-ai/client"
+import {
+  isFormAlreadySettledError,
+  isFormNotFoundError,
+  isSessionNotFoundError,
+  type FormField,
+  type FormValue,
+} from "@opencode-ai/client"
 import type { FormWithLocation } from "../../context/data"
 import { useSDK } from "../../context/sdk"
 import { useClipboard } from "../../context/clipboard"
@@ -144,7 +150,7 @@ function requestOptions(form: FormWithLocation) {
   }
 }
 
-export function FormPrompt(props: { form: FormWithLocation }) {
+export function FormPrompt(props: { form: FormWithLocation; onDismiss: () => void }) {
   const sdk = useSDK()
   const { theme } = useTheme()
   const renderer = useRenderer()
@@ -478,7 +484,13 @@ export function FormPrompt(props: { form: FormWithLocation }) {
   }
 
   function cancel() {
-    void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id }, requestOptions(props.form))
+    props.onDismiss()
+    void sdk.api.form
+      .cancel({ sessionID: props.form.sessionID, formID: props.form.id }, requestOptions(props.form))
+      .catch((error) => {
+        if (isFormNotFoundError(error) || isFormAlreadySettledError(error) || isSessionNotFoundError(error)) return
+        toast.error(error)
+      })
   }
 
   function openExternal() {
@@ -581,10 +593,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
         group: "Form",
         cmd: () => {
           if (textual()) {
-            void sdk.api.form.cancel(
-              { sessionID: props.form.sessionID, formID: props.form.id },
-              requestOptions(props.form),
-            )
+            cancel()
             return
           }
           setStore("editing", false)

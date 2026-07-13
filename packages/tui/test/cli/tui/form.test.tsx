@@ -4,7 +4,7 @@ import { testRender, useRenderer } from "@opentui/solid"
 import { expect, test } from "bun:test"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
-import { onCleanup } from "solid-js"
+import { createSignal, onCleanup, Show } from "solid-js"
 import { ClipboardProvider } from "../../../src/context/clipboard"
 import type { FormWithLocation } from "../../../src/context/data"
 import { KVProvider } from "../../../src/context/kv"
@@ -24,16 +24,25 @@ async function mountForm(root: string, width = 80) {
   await Bun.write(path.join(state, "kv.json"), "{}")
 
   const replies: unknown[] = []
+  const cancellations: string[] = []
   const copied: string[] = []
   const events = createEventStream()
   const transport = createFetch(
     (url, request) =>
-      url.pathname === "/api/session/ses_test/form/frm_test/reply"
-        ? request.json().then((answer) => {
-            replies.push(answer)
-            return new Response(null, { status: 204 })
-          })
-        : undefined,
+      url.pathname === "/api/session/ses_test/form/frm_test/cancel"
+        ? (() => {
+            cancellations.push("frm_test")
+            return Response.json(
+              { _tag: "FormNotFoundError", id: "frm_test", message: "Form not found: frm_test" },
+              { status: 404 },
+            )
+          })()
+        : url.pathname === "/api/session/ses_test/form/frm_test/reply"
+          ? request.json().then((answer) => {
+              replies.push(answer)
+              return new Response(null, { status: 204 })
+            })
+          : undefined,
     events,
   )
   const config = createTuiResolvedConfig()
@@ -57,6 +66,7 @@ async function mountForm(root: string, width = 80) {
     const keymap = createDefaultOpenTuiKeymap(renderer)
     const off = registerOpencodeKeymap(keymap, renderer, config)
     onCleanup(off)
+    const [visible, setVisible] = createSignal(true)
 
     return (
       <TestTuiContexts
@@ -81,7 +91,9 @@ async function mountForm(root: string, width = 80) {
                 <KVProvider>
                   <ThemeProvider mode="dark" source={{ discover: () => Promise.resolve({}) }}>
                     <ToastProvider>
-                      <FormPrompt form={form} />
+                      <Show when={visible()}>
+                        <FormPrompt form={form} onDismiss={() => setVisible(false)} />
+                      </Show>
                     </ToastProvider>
                   </ThemeProvider>
                 </KVProvider>
@@ -96,8 +108,21 @@ async function mountForm(root: string, width = 80) {
   const app = await testRender(() => <Harness />, { width, height: 20, kittyKeyboard: true })
   app.renderer.start()
   await app.waitForFrame((frame) => frame.includes("Authorization required"))
-  return { app, copied, replies }
+  return { app, cancellations, copied, replies }
 }
+
+test("dismisses locally when the server no longer has the form", async () => {
+  await using tmp = await tmpdir()
+  const prompt = await mountForm(tmp.path)
+  try {
+    prompt.app.mockInput.pressEscape()
+    await prompt.app.waitForFrame((frame) => !frame.includes("Authorization required"))
+    await prompt.app.waitFor(() => prompt.cancellations.length === 1)
+    expect(prompt.cancellations).toEqual(["frm_test"])
+  } finally {
+    prompt.app.renderer.destroy()
+  }
+})
 
 test("requires explicit acknowledgement before submitting an external field", async () => {
   await using tmp = await tmpdir()

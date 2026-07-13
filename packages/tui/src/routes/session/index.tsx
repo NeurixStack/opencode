@@ -918,7 +918,12 @@ export function Session() {
                     <Show when={forms()[0]?.id} keyed>
                       {(_) => {
                         const form = forms()[0]
-                        return form ? <FormPrompt form={form} /> : null
+                        return form ? (
+                          <FormPrompt
+                            form={form}
+                            onDismiss={() => data.session.form.dismiss(form.sessionID, form.id)}
+                          />
+                        ) : null
                       }}
                     </Show>
                   </Match>

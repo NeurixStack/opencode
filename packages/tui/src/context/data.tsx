@@ -950,6 +950,14 @@ export const { use: useData, provider: DataProvider } = createSimpleContext({
             const key = locationKey(ref)
             return forms?.filter((form) => form.location && locationKey(form.location) === key)
           },
+          dismiss(sessionID: string, formID: string) {
+            setStore(
+              "session",
+              "form",
+              sessionID,
+              (store.session.form[sessionID] ?? []).filter((form) => form.id !== formID),
+            )
+          },
           async refresh(sessionID: string, ref?: LocationRef) {
             if (sessionID === "global") {
               const response = await sdk.api.form.request.list({ location: locationQuery(ref ?? defaultLocation()) })
