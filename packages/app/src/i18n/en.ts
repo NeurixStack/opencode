@@ -101,6 +101,7 @@ export const dict = {
   "dialog.provider.empty": "No providers found",
   "dialog.provider.group.popular": "Popular",
   "dialog.provider.group.other": "Other",
+  "dialog.provider.custom.label": "Custom OpenAI-compatible provider",
   "dialog.provider.tag.recommended": "Recommended",
   "dialog.provider.opencode.note": "Curated models including Claude, GPT, Gemini and more",
   "dialog.provider.opencode.tagline": "Reliable optimized models",
