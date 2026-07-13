@@ -3,10 +3,11 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import type { ScrollBoxRenderable, TextareaRenderable } from "@opentui/core"
 import open from "open"
-import { selectedForeground, tint, useTheme } from "../../context/theme"
+import { selectedForeground, useTheme } from "../../context/theme"
+import { tint } from "../../theme/color"
 import type { FormField, FormValue } from "@opencode-ai/client"
 import type { FormWithLocation } from "../../context/data"
-import { useSDK } from "../../context/sdk"
+import { useClient } from "../../context/client"
 import { useClipboard } from "../../context/clipboard"
 import { SplitBorder } from "../../ui/border"
 import { useToast } from "../../ui/toast"
@@ -145,7 +146,7 @@ function requestOptions(form: FormWithLocation) {
 }
 
 export function FormPrompt(props: { form: FormWithLocation }) {
-  const sdk = useSDK()
+  const client = useClient()
   const { theme } = useTheme()
   const renderer = useRenderer()
   const dimensions = useTerminalDimensions()
@@ -296,7 +297,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
   }
 
   function replySingle(field: Field, value: FormValue) {
-    sdk.api.form
+    client.api.form
       .reply(
         {
           sessionID: props.form.sessionID,
@@ -478,7 +479,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
   }
 
   function cancel() {
-    void sdk.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id }, requestOptions(props.form))
+    void client.api.form.cancel({ sessionID: props.form.sessionID, formID: props.form.id }, requestOptions(props.form))
   }
 
   function openExternal() {
@@ -530,7 +531,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
       setStore("error", validateValue(invalid, store.answers[invalid.key]) ?? "Invalid answer")
       return
     }
-    sdk.api.form
+    client.api.form
       .reply(
         {
           sessionID: props.form.sessionID,
@@ -581,7 +582,7 @@ export function FormPrompt(props: { form: FormWithLocation }) {
         group: "Form",
         cmd: () => {
           if (textual()) {
-            void sdk.api.form.cancel(
+            void client.api.form.cancel(
               { sessionID: props.form.sessionID, formID: props.form.id },
               requestOptions(props.form),
             )
