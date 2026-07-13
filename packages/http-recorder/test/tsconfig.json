@@ -5,7 +5,8 @@
     "noEmit": true,
     "declaration": false,
     "module": "preserve",
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "types": ["bun", "node"]
   },
   "include": ["../src", "."]
 }
