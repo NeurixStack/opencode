@@ -1754,6 +1754,17 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     <ComposerAgentControl state={agentControlState()} />
                   </Show>
                   {props.toolbar}
+                  <Show when={props.controls.newLayoutDesigns}>
+                    <ButtonV2
+                      type="button"
+                      variant="ghost-muted"
+                      size="normal"
+                      class="shrink-0 [font-family:var(--v2-font-family-sans)] ![font-weight:440]"
+                      onClick={modelControlState().onUnpaidClick}
+                    >
+                      Test model dialog
+                    </ButtonV2>
+                  </Show>
                   <ComposerModelControl state={modelControlState()} />
                   <Show when={!providersLoading() && store.mode !== "shell" && showVariantControl()}>
                     <div
