@@ -41,12 +41,15 @@ import { IconButtonV2 } from "@opencode-ai/ui/v2/icon-button-v2"
 import { KeybindV2 } from "@opencode-ai/ui/v2/keybind-v2"
 import { MenuV2 } from "@opencode-ai/ui/v2/menu-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
+import { Tag } from "@opencode-ai/ui/tag"
+import { Tag as TagV2 } from "@opencode-ai/ui/v2/badge-v2"
 import { IconButton } from "@opencode-ai/ui/icon-button"
 import { Select } from "@opencode-ai/ui/select"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { ModelSelectorPopover, ModelSelectorPopoverV2 } from "@/components/dialog-select-model"
 import { DialogSelectModelUnpaid } from "@/components/dialog-select-model-unpaid"
 import { DialogSelectModelUnpaidV2 } from "@/components/dialog-select-model-unpaid-v2"
+import { isFreeModel, modelDisplayName } from "@/components/model-display"
 import { useCommand } from "@/context/command"
 import { Persist, persisted } from "@/utils/persist"
 import { usePermission } from "@/context/permission"
@@ -1541,26 +1544,30 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return "Ask anything, / for commands, @ for context..."
   }
 
-  const modelControlState = createMemo<ComposerModelControlState>(() => ({
-    loading: providersLoading(),
-    shouldAnimate: providersShouldFadeIn(),
-    paid: props.controls.model.paid,
-    title: language.t("command.model.choose"),
-    keybind: command.keybindParts("model.choose"),
-    model: props.controls.model.selection,
-    providerID: props.controls.model.selection.current()?.provider?.id,
-    modelName: props.controls.model.selection.current()?.name ?? language.t("dialog.model.select.title"),
-    newLayoutDesigns: props.controls.newLayoutDesigns,
-    style: control(),
-    onClose: restoreFocus,
-    onUnpaidClick: () => {
-      if (props.controls.newLayoutDesigns) {
-        dialog.show(() => <DialogSelectModelUnpaidV2 model={props.controls.model.selection} />)
-        return
-      }
-      dialog.show(() => <DialogSelectModelUnpaid model={props.controls.model.selection} />)
-    },
-  }))
+  const modelControlState = createMemo<ComposerModelControlState>(() => {
+    const current = props.controls.model.selection.current()
+    return {
+      loading: providersLoading(),
+      shouldAnimate: providersShouldFadeIn(),
+      paid: props.controls.model.paid,
+      title: language.t("command.model.choose"),
+      keybind: command.keybindParts("model.choose"),
+      model: props.controls.model.selection,
+      providerID: current?.provider?.id,
+      modelName: current ? modelDisplayName(current) : language.t("dialog.model.select.title"),
+      free: current ? isFreeModel(current) : false,
+      newLayoutDesigns: props.controls.newLayoutDesigns,
+      style: control(),
+      onClose: restoreFocus,
+      onUnpaidClick: () => {
+        if (props.controls.newLayoutDesigns) {
+          dialog.show(() => <DialogSelectModelUnpaidV2 model={props.controls.model.selection} />)
+          return
+        }
+        dialog.show(() => <DialogSelectModelUnpaid model={props.controls.model.selection} />)
+      },
+    }
+  })
 
   const newSession = () => props.variant === "new-session"
   const bindEditorRef = (el: HTMLDivElement) => {
@@ -2178,6 +2185,7 @@ type ComposerModelControlState = {
   model: ReturnType<typeof useLocal>["model"]
   providerID?: string
   modelName: string
+  free: boolean
   newLayoutDesigns: boolean
   style: JSX.CSSProperties | undefined
   onClose: () => void
@@ -2217,6 +2225,7 @@ function ComposerAgentControl(props: { state: ComposerAgentControlState }) {
 }
 
 function ComposerModelControl(props: { state: ComposerModelControlState }) {
+  const language = useLanguage()
   return (
     <Show when={!props.state.loading}>
       <Show
@@ -2255,6 +2264,9 @@ function ComposerModelControl(props: { state: ComposerModelControlState }) {
                     )}
                   </Show>
                   <span class="truncate">{props.state.modelName}</span>
+                  <Show when={props.state.free}>
+                    <Tag>{language.t("model.tag.free")}</Tag>
+                  </Show>
                   <span class="-ml-1 shrink-0 flex size-fit">
                     <Icon name="chevron-down" size="small" class="text-v2-icon-icon-muted" />
                   </span>
@@ -2330,6 +2342,7 @@ function ComposerModelControl(props: { state: ComposerModelControlState }) {
 }
 
 function ModelControlContent(props: { state: ComposerModelControlState; v2?: boolean }) {
+  const language = useLanguage()
   return (
     <>
       <Show when={props.state.providerID}>
@@ -2342,6 +2355,11 @@ function ModelControlContent(props: { state: ComposerModelControlState; v2?: boo
         )}
       </Show>
       <span class="truncate">{props.state.modelName}</span>
+      <Show when={props.state.free}>
+        <Show when={props.v2} fallback={<Tag>{language.t("model.tag.free")}</Tag>}>
+          <TagV2 class="shrink-0">{language.t("model.tag.free")}</TagV2>
+        </Show>
+      </Show>
       <span class={props.v2 ? "-ml-0.5 -mr-1 flex shrink-0" : "-ml-1 shrink-0 flex size-fit"}>
         <Icon name="chevron-down" size="small" class="text-v2-icon-icon-muted" />
       </span>

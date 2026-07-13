@@ -11,6 +11,7 @@ import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { ModelTooltip } from "./model-tooltip"
 import { useLanguage } from "@/context/language"
 import { decode64 } from "@/utils/base64"
+import { isFreeModel, modelDisplayName } from "./model-display"
 
 type ModelState = ReturnType<typeof useLocal>["model"]
 
@@ -57,13 +58,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
               class="w-full"
               placement="right-start"
               gutter={12}
-              value={
-                <ModelTooltip
-                  model={item}
-                  latest={item.latest}
-                  free={item.provider.id === "opencode" && (!item.cost || item.cost.input === 0)}
-                />
-              }
+              value={<ModelTooltip model={item} latest={item.latest} free={isFreeModel(item)} />}
             >
               {node}
             </Tooltip>
@@ -77,7 +72,7 @@ export const DialogSelectModelUnpaid: Component<{ model?: ModelState }> = (props
         >
           {(i) => (
             <div class="w-full flex items-center gap-x-2.5">
-              <span>{i.name}</span>
+              <span>{modelDisplayName(i)}</span>
               <Tag>{language.t("model.tag.free")}</Tag>
               <Show when={i.latest}>
                 <Tag>{language.t("model.tag.latest")}</Tag>

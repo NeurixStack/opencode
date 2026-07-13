@@ -11,6 +11,7 @@ import { popularProviders, useProviders } from "@/hooks/use-providers"
 import { decode64 } from "@/utils/base64"
 import { useLanguage } from "@/context/language"
 import { ModelTooltip } from "./model-tooltip"
+import { isFreeModel, modelDisplayName } from "./model-display"
 
 type ModelState = ReturnType<typeof useLocal>["model"]
 
@@ -26,9 +27,6 @@ export const DialogSelectModelUnpaidV2: Component<{ model?: ModelState }> = (pro
     const c = model.current()
     return c ? `${c.provider.id}:${c.id}` : undefined
   })
-  const isFree = (item: ReturnType<ModelState["list"]>[number]) =>
-    item.provider.id === "opencode" && (!item.cost || item.cost.input === 0)
-
   const openProviders = (provider?: string) => {
     void import("./dialog-connect-provider").then((x) => {
       const controller = x.useProviderConnectController()
@@ -83,15 +81,15 @@ export const DialogSelectModelUnpaidV2: Component<{ model?: ModelState }> = (pro
                     placement="right-start"
                     gutter={6}
                     openDelay={0}
-                    value={<ModelTooltip model={item} latest={item.latest} free={isFree(item)} v2 />}
+                    value={<ModelTooltip model={item} latest={item.latest} free={isFreeModel(item)} v2 />}
                   >
                     <button
                       type="button"
                       class="flex w-full scroll-my-3.5 flex-row items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] font-[530] leading-5 tracking-[-0.04px] text-v2-text-text-base [font-family:Inter,var(--font-family-sans)] [font-variation-settings:'slnt'_0] hover:bg-v2-overlay-simple-overlay-hover focus:bg-v2-overlay-simple-overlay-hover focus:outline-none"
                       onClick={() => selectModel(item)}
                     >
-                      <span class="min-w-0 truncate">{item.name}</span>
-                      <Show when={isFree(item)}>
+                      <span class="min-w-0 truncate">{modelDisplayName(item)}</span>
+                      <Show when={isFreeModel(item)}>
                         <Tag class="shrink-0">{language.t("model.tag.free")}</Tag>
                       </Show>
                       <Show when={item.latest}>
