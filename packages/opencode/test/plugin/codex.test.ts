@@ -152,13 +152,19 @@ describe("plugin.codex", () => {
   test("uses Codex context limits for OAuth GPT models", async () => {
     const hooks = await CodexAuthPlugin({} as never)
     const limit = { context: 1_050_000, input: 922_000, output: 128_000 }
+    const ids = [
+      "gpt-5.4",
+      "gpt-5.5",
+      "gpt-5.6",
+      "gpt-5.6-luna",
+      "gpt-5.6-luna-pro",
+      "gpt-5.6-sol",
+      "gpt-5.6-sol-pro",
+      "gpt-5.6-terra",
+      "gpt-5.6-terra-pro",
+    ]
     const provider = {
-      models: Object.fromEntries(
-        ["gpt-5.4", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"].map((id) => [
-          id,
-          { id, api: { id }, limit, cost: {} },
-        ]),
-      ),
+      models: Object.fromEntries(ids.map((id) => [id, { id, api: { id }, limit, cost: {} }])),
     }
 
     const models = await hooks.provider!.models!(provider as never, { auth: { type: "oauth" } } as never)
@@ -168,9 +174,153 @@ describe("plugin.codex", () => {
     expect(models["gpt-5.6-sol"]?.limit).toEqual({ context: 500_000, input: 372_000, output: 128_000 })
     expect(models["gpt-5.6-terra"]?.limit).toEqual({ context: 500_000, input: 372_000, output: 128_000 })
     expect(models["gpt-5.6-luna"]?.limit).toEqual({ context: 500_000, input: 372_000, output: 128_000 })
+    expect(models["gpt-5.6"]).toBeUndefined()
+    expect(Object.keys(models)).toEqual(ids.filter((id) => id !== "gpt-5.6"))
     expect(await hooks.provider!.models!(provider as never, { auth: { type: "api" } } as never)).toBe(
       provider.models as never,
     )
+  })
+
+  test("applies Responses Lite only to exact Luna requests and keeps its session UUID stable", async () => {
+    const requests: Array<{ body: Record<string, unknown>; headers: Headers }> = []
+    using server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        requests.push({ body: await request.json(), headers: request.headers })
+        return Response.json({})
+      },
+    })
+    const hooks = await CodexAuthPlugin({} as never, {
+      codexApiEndpoint: new URL("/backend-api/codex/responses", server.url).toString(),
+    })
+    const loaded = await hooks.auth!.loader!(
+      async () => ({
+        type: "oauth",
+        refresh: "refresh",
+        access: "access",
+        expires: Date.now() + 60_000,
+      }),
+      {} as never,
+    )
+    const first = {
+      model: "gpt-5.6-luna",
+      stream: true,
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_image", image_url: "data:image/png;base64,a", detail: "high" }],
+        },
+      ],
+      tools: [],
+      instructions: "Be precise",
+      tool_choice: "required",
+      parallel_tool_calls: true,
+      reasoning: { effort: "high" },
+    }
+    const continuation = {
+      model: "gpt-5.6-luna",
+      stream: true,
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "Continue" }] }],
+      tools: [{ type: "function", name: "search" }],
+      instructions: "",
+    }
+    const headers = {
+      "session-id": "opencode-session",
+      originator: "opencode",
+      "user-agent": "opencode/test",
+    }
+
+    await loaded.fetch!("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(first),
+    })
+    await loaded.fetch!("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(continuation),
+    })
+
+    expect(requests).toHaveLength(2)
+    const sessionID = requests[0].headers.get("session-id")
+    expect(sessionID).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    expect(requests[1].headers.get("session-id")).toBe(sessionID)
+    for (const request of requests) {
+      expect(request.headers.get("x-session-affinity")).toBe(sessionID)
+      expect(request.headers.get("version")).toBe("0.144.0")
+      expect(request.headers.get("x-openai-internal-codex-responses-lite")).toBe("true")
+      expect(request.headers.get("originator")).toBe("opencode")
+      expect(request.headers.get("user-agent")).toBe("opencode/test")
+      expect(request.body.prompt_cache_key).toBe(sessionID)
+      expect(request.body.tool_choice).toBe("auto")
+      expect(request.body.parallel_tool_calls).toBe(false)
+      expect(request.body.tools).toBeUndefined()
+      expect(request.body.instructions).toBeUndefined()
+    }
+    expect(requests[0].body.reasoning).toEqual({ effort: "high", context: "all_turns" })
+    expect(requests[1].body.reasoning).toEqual({ context: "all_turns" })
+    expect(requests[0].body.input).toEqual([
+      { type: "additional_tools", role: "developer", tools: [] },
+      {
+        type: "message",
+        role: "developer",
+        content: [{ type: "input_text", text: "Be precise" }],
+      },
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_image", image_url: "data:image/png;base64,a" }],
+      },
+    ])
+    expect(requests[1].body.input).toEqual([
+      { type: "additional_tools", role: "developer", tools: [{ type: "function", name: "search" }] },
+      { type: "message", role: "user", content: [{ type: "input_text", text: "Continue" }] },
+    ])
+  })
+
+  test("leaves Sol, Terra, and other Responses requests unchanged", async () => {
+    const requests: Array<{ body: string; headers: Headers }> = []
+    using server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        requests.push({ body: await request.text(), headers: request.headers })
+        return Response.json({})
+      },
+    })
+    const hooks = await CodexAuthPlugin({} as never, {
+      codexApiEndpoint: new URL("/backend-api/codex/responses", server.url).toString(),
+    })
+    const loaded = await hooks.auth!.loader!(
+      async () => ({
+        type: "oauth",
+        refresh: "refresh",
+        access: "access",
+        expires: Date.now() + 60_000,
+      }),
+      {} as never,
+    )
+    const bodies = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna-pro", "gpt-5.5"].map((model) =>
+      JSON.stringify({ model, stream: true, input: [], tools: [], instructions: "Keep me" }),
+    )
+
+    await Promise.all(
+      bodies.map((body) =>
+        loaded.fetch!("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: { "session-id": "opencode-session" },
+          body,
+        }),
+      ),
+    )
+
+    expect(requests.map((request) => request.body).sort()).toEqual(bodies.sort())
+    for (const request of requests) {
+      expect(request.headers.get("session-id")).toBe("opencode-session")
+      expect(request.headers.get("x-session-affinity")).toBeNull()
+      expect(request.headers.get("version")).toBeNull()
+      expect(request.headers.get("x-openai-internal-codex-responses-lite")).toBeNull()
+    }
   })
 
   test("deduplicates concurrent Codex token refreshes", async () => {

@@ -166,6 +166,31 @@ describe("plugin.openai.ws-pool", () => {
     fetch.close()
   })
 
+  test("adds the Responses Lite marker to websocket client metadata", async () => {
+    let requestBody: Record<string, unknown> | undefined
+    await using server = await createWebSocketServer((socket) => {
+      socket.once("message", (data) => {
+        requestBody = JSON.parse(data.toString())
+        socket.send(JSON.stringify({ type: "response.completed", response: { id: "resp_luna" } }))
+      })
+    })
+    const fetch = OpenAIWebSocketPool.createWebSocketFetch({ url: server.url })
+
+    const response = await fetch(
+      server.url,
+      streamRequest({ [OpenAIWebSocketPool.RESPONSES_LITE_HEADER]: "true" }, undefined, {
+        client_metadata: { existing: "value" },
+      }),
+    )
+
+    expect(await response.text()).toContain("data: [DONE]")
+    expect(requestBody?.client_metadata).toEqual({
+      existing: "value",
+      ws_request_header_x_openai_internal_codex_responses_lite: "true",
+    })
+    fetch.close()
+  })
+
   test("rotates a socket that exceeds max connection age", async () => {
     let connections = 0
     await using server = await createWebSocketServer((socket) => {
@@ -773,7 +798,11 @@ describe("plugin.openai.ws-pool", () => {
   })
 })
 
-function streamRequest(headers?: Record<string, string>, signal?: AbortSignal): RequestInit {
+function streamRequest(
+  headers?: Record<string, string>,
+  signal?: AbortSignal,
+  body?: Record<string, unknown>,
+): RequestInit {
   return {
     method: "POST",
     headers: {
@@ -781,7 +810,7 @@ function streamRequest(headers?: Record<string, string>, signal?: AbortSignal): 
       authorization: "Bearer test",
       ...headers,
     },
-    body: JSON.stringify({ stream: true, input: "hi" }),
+    body: JSON.stringify({ stream: true, input: "hi", ...body }),
     signal,
   }
 }
