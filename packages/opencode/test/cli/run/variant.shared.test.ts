@@ -8,10 +8,8 @@ import {
   createVariantRuntime,
   cycleVariant,
   formatModelLabel,
-  pickVariant,
   resolveVariant,
 } from "@opencode-ai/cli/mini/variant.shared"
-import type { SessionMessages } from "@opencode-ai/cli/mini/session.shared"
 import type { RunProvider } from "@opencode-ai/cli/mini/types"
 import { testEffect } from "../../lib/effect"
 
@@ -79,25 +77,6 @@ const providers: RunProvider[] = [
   },
 ]
 
-function userMessage(
-  id: string,
-  input: { providerID: string; modelID: string; variant?: string },
-): SessionMessages[number] {
-  return {
-    info: {
-      id,
-      sessionID: "session-1",
-      role: "user",
-      time: {
-        created: 1,
-      },
-      agent: "build",
-      model: input,
-    },
-    parts: [],
-  }
-}
-
 const it = testEffect(AppNodeBuilder.build(FSUtil.node))
 
 function remap(root: string, file: string) {
@@ -145,16 +124,6 @@ describe("run variant shared", () => {
     expect(formatModelLabel(model, "high")).toBe("gpt-5 · openai · high")
     expect(formatModelLabel(model, undefined, providers)).toBe("GPT-5 · OpenAI")
     expect(formatModelLabel(model, "high", providers)).toBe("GPT-5 · OpenAI · high")
-  })
-
-  test("picks the latest matching variant from raw session messages", () => {
-    const msgs: SessionMessages = [
-      userMessage("msg-1", { providerID: "openai", modelID: "gpt-5", variant: "high" }),
-      userMessage("msg-2", { providerID: "anthropic", modelID: "sonnet", variant: "max" }),
-      userMessage("msg-3", { providerID: "openai", modelID: "gpt-5", variant: "minimal" }),
-    ]
-
-    expect(pickVariant(model, msgs)).toBe("minimal")
   })
 
   it.live("reads and writes saved variants through a runtime-backed app fs layer", () =>
