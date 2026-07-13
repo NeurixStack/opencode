@@ -1,5 +1,5 @@
 import { createStore, reconcile } from "solid-js/store"
-import { createEffect, createMemo } from "solid-js"
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js"
 import { createSimpleContext } from "@opencode-ai/ui/context"
 import { persisted } from "@/utils/persist"
 
@@ -34,6 +34,7 @@ export interface Settings {
     showCustomAgents: boolean
     mobileTitlebarPosition: "top" | "bottom"
     newLayoutDesigns?: boolean
+    layoutTransitionEligible?: boolean
     newInterfaceNoticeDismissed?: boolean
   }
   appearance: {
@@ -53,9 +54,56 @@ export interface Settings {
 export const monoDefault = "System Mono"
 export const sansDefault = "System Sans"
 export const terminalDefault = "JetBrainsMono Nerd Font Mono"
-export const newLayoutDesignsDefault = import.meta.env.VITE_OPENCODE_CHANNEL !== "prod"
-// Date the old interface is retired; the settings toggle references this countdown.
-export const oldInterfaceSunset = new Date(2026, 7, 6)
+const legacyNewLayoutDesignsDefault = import.meta.env.VITE_OPENCODE_CHANNEL !== "prod"
+export const newLayoutDesignsDefault = true
+// Existing users can switch layouts until local midnight on this date. Set new Date(YYYY, M-1, D) to show.
+export const oldInterfaceSunset = null as Date | null
+
+export function formatOldInterfaceSunset(locale: string, ordinal = false, sunset = oldInterfaceSunset) {
+  if (!sunset) return ""
+  const date = new Intl.DateTimeFormat(locale, { month: "long", day: "numeric" }).format(sunset)
+  if (!ordinal || !locale.startsWith("en")) return date
+  return `${date}${ordinalSuffix(sunset.getDate())}`
+}
+
+function ordinalSuffix(day: number) {
+  if (day % 100 >= 11 && day % 100 <= 13) return "th"
+  if (day % 10 === 1) return "st"
+  if (day % 10 === 2) return "nd"
+  if (day % 10 === 3) return "rd"
+  return "th"
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+export function migrateSettings(value: unknown, legacyDefault = legacyNewLayoutDesignsDefault) {
+  if (!isRecord(value)) return value
+  const general = isRecord(value.general) ? value.general : {}
+  if (typeof general.layoutTransitionEligible === "boolean") return value
+  // Only persisted profiles pass through migration; fresh profiles retain the non-eligible defaults below.
+  return {
+    ...value,
+    general: {
+      ...general,
+      newLayoutDesigns: typeof general.newLayoutDesigns === "boolean" ? general.newLayoutDesigns : legacyDefault,
+      layoutTransitionEligible: true,
+    },
+  }
+}
+
+export function layoutTransitionState(scheduled: boolean, eligible: boolean, retired: boolean, dismissed: boolean) {
+  return {
+    available: scheduled && eligible && !retired,
+    notice: scheduled && eligible && retired && !dismissed,
+  }
+}
+
+export function resolveNewLayoutDesigns(retired: boolean, preference: boolean | undefined, fallback = true) {
+  if (retired) return true
+  return preference ?? fallback
+}
 
 const monoFallback =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
@@ -121,6 +169,8 @@ const defaultSettings: Settings = {
     editToolPartsExpanded: false,
     showCustomAgents: false,
     mobileTitlebarPosition: "top",
+    newLayoutDesigns: newLayoutDesignsDefault,
+    layoutTransitionEligible: false,
   },
   appearance: {
     fontSize: 14,
@@ -155,7 +205,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
   name: "Settings",
   gate: false,
   init: () => {
-    const [store, setStore, _, ready] = persisted("settings.v3", createStore<Settings>(defaultSettings))
+    const [store, setStore, _, ready] = persisted(
+      { key: "settings.v3", migrate: migrateSettings },
+      createStore<Settings>(defaultSettings),
+    )
     const showFileTree = withFallback(() => store.general?.showFileTree, defaultSettings.general.showFileTree)
     const showSearch = withFallback(() => store.general?.showSearch, defaultSettings.general.showSearch)
     const showStatus = withFallback(() => store.general?.showStatus, defaultSettings.general.showStatus)
@@ -163,8 +216,29 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
       () => store.general?.showCustomAgents,
       defaultSettings.general.showCustomAgents,
     )
-    const newLayoutDesigns = withFallback(() => store.general?.newLayoutDesigns, newLayoutDesignsDefault)
+    const sunset = oldInterfaceSunset
+    const [oldInterfaceRetired, setOldInterfaceRetired] = createSignal(sunset ? Date.now() >= sunset.getTime() : false)
+    const layoutTransitionEligible = withFallback(() => store.general?.layoutTransitionEligible, false)
+    const newInterfaceNoticeDismissed = withFallback(() => store.general?.newInterfaceNoticeDismissed, false)
+    const layoutTransition = createMemo(() =>
+      layoutTransitionState(!!sunset, layoutTransitionEligible(), oldInterfaceRetired(), newInterfaceNoticeDismissed()),
+    )
+    const newLayoutDesigns = createMemo(() => {
+      if (!ready() && !oldInterfaceRetired()) return legacyNewLayoutDesignsDefault
+      return resolveNewLayoutDesigns(oldInterfaceRetired(), store.general?.newLayoutDesigns, newLayoutDesignsDefault)
+    })
     const visible = (preference: () => boolean) => createMemo(() => !newLayoutDesigns() || preference())
+
+    if (sunset && !oldInterfaceRetired()) {
+      const timeout = setTimeout(() => setOldInterfaceRetired(true), Math.max(0, sunset.getTime() - Date.now()))
+      onCleanup(() => clearTimeout(timeout))
+    }
+
+    createEffect(() => {
+      if (!ready() || !oldInterfaceRetired()) return
+      if (store.general?.newLayoutDesigns === true) return
+      setStore("general", "newLayoutDesigns", true)
+    })
 
     createEffect(() => {
       if (typeof document === "undefined") return
@@ -253,12 +327,10 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         },
         newLayoutDesigns,
         setNewLayoutDesigns(value: boolean) {
-          setStore("general", "newLayoutDesigns", value)
+          setStore("general", "newLayoutDesigns", oldInterfaceRetired() ? true : value)
         },
-        newInterfaceNoticeDismissed: withFallback(
-          () => store.general?.newInterfaceNoticeDismissed,
-          false,
-        ),
+        layoutTransitionAvailable: createMemo(() => ready() && layoutTransition().available),
+        newInterfaceNoticeVisible: createMemo(() => ready() && layoutTransition().notice),
         dismissNewInterfaceNotice() {
           setStore("general", "newInterfaceNoticeDismissed", true)
         },

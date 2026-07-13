@@ -22,7 +22,7 @@ import {
   sansInput,
   terminalDefault,
   terminalFontFamily,
-  oldInterfaceSunset,
+  formatOldInterfaceSunset,
   terminalInput,
   useSettings,
 } from "@/context/settings"
@@ -240,9 +240,7 @@ export const SettingsGeneralV2: Component<{
               </span>
             }
             description={language.t("settings.general.row.newInterface.description", {
-              date: new Intl.DateTimeFormat(language.intl(), { month: "long", day: "numeric" }).format(
-                oldInterfaceSunset,
-              ),
+              date: formatOldInterfaceSunset(language.intl(), true),
             })}
           >
             <div data-action="settings-new-layout-designs">
@@ -260,23 +258,23 @@ export const SettingsGeneralV2: Component<{
           </SettingsRowV2>
         </SettingsListV2>
       </div>
+    </div>
+  )
 
-      <Show when={!settings.general.newInterfaceNoticeDismissed()}>
-        <SettingsListV2>
-          <SettingsRowV2
-            title={language.t("settings.general.row.newInterfaceNotice.title")}
-            description={language.t("settings.general.row.newInterfaceNotice.description", {
-              date: new Intl.DateTimeFormat(language.intl(), { month: "long", day: "numeric" }).format(
-                oldInterfaceSunset,
-              ),
-            })}
-          >
-            <ButtonV2 size="small" variant="ghost-muted" onClick={settings.general.dismissNewInterfaceNotice}>
-              {language.t("settings.general.row.newInterfaceNotice.dismiss")}
-            </ButtonV2>
-          </SettingsRowV2>
-        </SettingsListV2>
-      </Show>
+  const InterfaceNoticeSection = () => (
+    <div class="settings-v2-section">
+      <SettingsListV2>
+        <SettingsRowV2
+          title={language.t("settings.general.row.newInterfaceNotice.title")}
+          description={language.t("settings.general.row.newInterfaceNotice.description", {
+            date: formatOldInterfaceSunset(language.intl()),
+          })}
+        >
+          <ButtonV2 size="small" variant="ghost-muted" onClick={settings.general.dismissNewInterfaceNotice}>
+            {language.t("settings.general.row.newInterfaceNotice.dismiss")}
+          </ButtonV2>
+        </SettingsRowV2>
+      </SettingsListV2>
     </div>
   )
 
@@ -719,8 +717,12 @@ export const SettingsGeneralV2: Component<{
       </div>
 
       <div class="settings-v2-tab-body">
-        <Show when={Date.now() < oldInterfaceSunset.getTime()}>
+        <Show when={settings.general.layoutTransitionAvailable()}>
           <InterfaceSection />
+        </Show>
+
+        <Show when={settings.general.newInterfaceNoticeVisible()}>
+          <InterfaceNoticeSection />
         </Show>
 
         <GeneralSection />
