@@ -4,7 +4,6 @@ import {
   DEFAULT_THEMES,
   addTheme,
   allThemes,
-  generateSubtleSyntax,
   generateSyntax,
   generateSystem,
   hasTheme,
@@ -269,7 +268,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
     createEffect(() => renderer.setBackgroundColor(values().background))
 
     const syntax = createSyntaxStyleMemo(() => generateSyntax(values()))
-    const subtleSyntax = createSyntaxStyleMemo(() => generateSubtleSyntax(values()))
 
     return {
       theme: new Proxy(values(), {
@@ -284,7 +282,6 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
       all: allThemes,
       has: hasTheme,
       syntax,
-      subtleSyntax,
       mode: () => store.mode,
       locked: () => store.lock !== undefined,
       lock: () => pin(store.mode),
