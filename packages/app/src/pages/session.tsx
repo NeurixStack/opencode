@@ -58,6 +58,7 @@ import { useSync } from "@/context/sync"
 import { useTabs } from "@/context/tabs"
 import { TerminalProvider, useTerminal } from "@/context/terminal"
 import { PromptInput } from "@/components/prompt-input"
+import { useSettingsCommand } from "@/components/settings-dialog"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import {
   createPromptInputController,
@@ -153,11 +154,21 @@ export function SessionPage() {
 // workspace-scoped state (terminal, directory providers) lives below.
 export function TargetSessionRouteContent() {
   const params = useParams<{ serverKey: string; id: string }>()
+  const serverSync = useServerSync()
+  const directory = createMemo(() => serverSync().session.lineage.peek(params.id)?.session.directory)
   return (
-    <SessionRouteErrorBoundary sessionID={params.id} serverKey={requireServerKey(params.serverKey)} padded>
-      <ResolvedTargetSessionRoute />
-    </SessionRouteErrorBoundary>
+    <PermissionProvider directory={directory}>
+      <TargetSessionSettingsCommand />
+      <SessionRouteErrorBoundary sessionID={params.id} serverKey={requireServerKey(params.serverKey)} padded>
+        <ResolvedTargetSessionRoute />
+      </SessionRouteErrorBoundary>
+    </PermissionProvider>
   )
+}
+
+function TargetSessionSettingsCommand() {
+  useSettingsCommand()
+  return null
 }
 
 export function SessionRouteErrorBoundary(
@@ -281,10 +292,10 @@ function TargetServerScopedProviders(
   props: ParentProps<{ directory?: () => string | undefined; sessionID?: () => string | undefined }>,
 ) {
   return (
-    <PermissionProvider directory={props.directory}>
+    <>
       <MarkSessionNotificationsViewed sessionID={props.sessionID} />
       <ModelsProvider directory={props.directory}>{props.children}</ModelsProvider>
-    </PermissionProvider>
+    </>
   )
 }
 

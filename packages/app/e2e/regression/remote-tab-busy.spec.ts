@@ -38,6 +38,28 @@ test("tab busy indicator reflects the tab server's own session status", async ({
   await expect(tabA.locator('[data-component="session-progress-indicator-v2"]')).toHaveCount(0)
 })
 
+test("auto-accept can be enabled for a session on a remote server", async ({ page }) => {
+  await mockServers(page)
+  await page.addInitScript(
+    ({ serverB }) => {
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+      localStorage.setItem("opencode.global.dat:server", JSON.stringify({ list: [serverB] }))
+    },
+    { serverB },
+  )
+
+  await page.goto(`/server/${base64Encode(serverB)}/session/${sessionB.id}`)
+  await expect(page.getByText(sessionB.title).first()).toBeVisible()
+  await page.keyboard.press("Control+,")
+
+  const autoAccept = page.locator('[data-action="settings-auto-accept-permissions"]')
+  const input = autoAccept.locator('[data-slot="switch-input"]')
+  await expect(autoAccept).toBeVisible()
+  await expect(input).toBeEnabled()
+  await autoAccept.locator('[data-slot="switch-control"]').click()
+  await expect(input).toBeChecked()
+})
+
 function session(id: string, directory: string, title: string) {
   return {
     id,
