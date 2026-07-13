@@ -289,7 +289,7 @@ function layoutClassificationRequest<T>(promise: Promise<T>, onTimeout: () => vo
   })
 }
 
-function LayoutTransitionClassifier() {
+function LayoutTransitionGate(props: ParentProps) {
   const settings = useSettings()
   const server = useServer()
   const global = useGlobal()
@@ -358,8 +358,8 @@ function LayoutTransitionClassifier() {
     )
     void layoutClassificationRequest(
       Promise.all([
-        client.project.list(undefined, { signal: abort.signal }),
-        client.session.list({ limit: 1 }, { signal: abort.signal }),
+        client.project.list(undefined, { signal: abort.signal, throwOnError: true }),
+        client.session.list({ limit: 1 }, { signal: abort.signal, throwOnError: true }),
         wsl,
       ]),
       () => abort.abort(),
@@ -383,7 +383,18 @@ function LayoutTransitionClassifier() {
       })
   })
 
-  return null
+  return (
+    <Show
+      when={settings.general.layoutTransitionClassified()}
+      fallback={
+        <div class="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background-base">
+          <Splash class="w-16 h-20 opacity-50 animate-pulse" />
+        </div>
+      }
+    >
+      {props.children}
+    </Show>
+  )
 }
 
 // Server-agnostic providers shared across every route. These live in the shared
@@ -671,25 +682,26 @@ export function AppInterface(props: {
       <GlobalProvider>
         <SettingsProvider>
           <ConnectionGate disableHealthCheck={props.disableHealthCheck} startup={props.startup}>
-            <LayoutTransitionClassifier />
-            <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
-              <Dynamic
-                component={props.router ?? Router}
-                root={(routerProps) => (
-                  <TabsProvider>
-                    <NotificationProvider>
-                      <ServerShell>
-                        <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
-                          <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
-                        </Show>
-                      </ServerShell>
-                    </NotificationProvider>
-                  </TabsProvider>
-                )}
-              >
-                <Routes serverScoped={props.serverScoped} />
-              </Dynamic>
-            </Show>
+            <LayoutTransitionGate>
+              <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
+                <Dynamic
+                  component={props.router ?? Router}
+                  root={(routerProps) => (
+                    <TabsProvider>
+                      <NotificationProvider>
+                        <ServerShell>
+                          <Show when={useSettings().general.newLayoutDesigns()} fallback={routerProps.children}>
+                            <NewAppLayout serverScoped={props.serverScoped}>{routerProps.children}</NewAppLayout>
+                          </Show>
+                        </ServerShell>
+                      </NotificationProvider>
+                    </TabsProvider>
+                  )}
+                >
+                  <Routes serverScoped={props.serverScoped} />
+                </Dynamic>
+              </Show>
+            </LayoutTransitionGate>
           </ConnectionGate>
         </SettingsProvider>
       </GlobalProvider>
