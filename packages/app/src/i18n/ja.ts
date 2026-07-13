@@ -741,12 +741,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "edit ツールパーツを展開",
   "settings.general.row.editToolPartsExpanded.description":
     "タイムラインで edit、write、patch ツールパーツをデフォルトで展開して表示します",
-  "settings.general.row.newInterface.title": "新しいインターフェースを使用",
+  "settings.general.row.newInterface.title": "新しいレイアウト",
   "settings.general.row.newInterface.badge": "新機能",
   "settings.general.row.newInterface.description":
-    "刷新されたレイアウト、タブ、コンポーザー、ホーム画面です。以前のインターフェースは{{date}}に終了します。",
-  "settings.general.row.newInterfaceNotice.title": "新しいインターフェースを使用しています",
-  "settings.general.row.newInterfaceNotice.description": "以前のインターフェースは{{date}}に廃止されました。",
+    "新しいタブとホーム画面のレイアウトを使用します。{{date}}まではレイアウトを切り替えられます。",
+  "settings.general.row.newInterfaceNotice.title": "新しいレイアウトを使用しています",
+  "settings.general.row.newInterfaceNotice.description": "以前のレイアウトは{{date}}に廃止されました。",
   "settings.general.row.newInterfaceNotice.dismiss": "閉じる",
   "settings.general.row.pinchZoom.title": "ピンチでズーム",
   "settings.general.row.pinchZoom.description":

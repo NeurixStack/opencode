@@ -759,12 +759,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Edit-Tool-Abschnitte ausklappen",
   "settings.general.row.editToolPartsExpanded.description":
     "Edit-, Write- und Patch-Tool-Abschnitte standardmäßig in der Timeline ausgeklappt anzeigen",
-  "settings.general.row.newInterface.title": "Neue Oberfläche verwenden",
+  "settings.general.row.newInterface.title": "Neues Layout",
   "settings.general.row.newInterface.badge": "Neu",
   "settings.general.row.newInterface.description":
-    "Neu gestaltetes Layout, Tabs, Eingabebereich und neue Startseite. Die alte Oberfläche wird am {{date}} entfernt.",
-  "settings.general.row.newInterfaceNotice.title": "Sie verwenden jetzt die neue Oberfläche",
-  "settings.general.row.newInterfaceNotice.description": "Die alte Oberfläche wurde am {{date}} eingestellt.",
+    "Verwenden Sie die neuen Tabs und das Startseitenlayout. Sie können bis zum {{date}} zwischen den Layouts wechseln.",
+  "settings.general.row.newInterfaceNotice.title": "Sie verwenden jetzt das neue Layout",
+  "settings.general.row.newInterfaceNotice.description": "Das vorherige Layout wurde am {{date}} eingestellt.",
   "settings.general.row.newInterfaceNotice.dismiss": "Verwerfen",
   "settings.general.row.pinchZoom.title": "Zoom per Fingergeste",
   "settings.general.row.pinchZoom.description": "Zoomen per Zwei-Finger- und Ctrl-Scroll-Geste erlauben",

@@ -816,12 +816,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Expandir partes de la herramienta de edición",
   "settings.general.row.editToolPartsExpanded.description":
     "Mostrar las partes de las herramientas de edición, escritura y parcheado expandidas por defecto en la línea de tiempo",
-  "settings.general.row.newInterface.title": "Usar la nueva interfaz",
+  "settings.general.row.newInterface.title": "Nuevo diseño",
   "settings.general.row.newInterface.badge": "Nuevo",
   "settings.general.row.newInterface.description":
-    "Un diseño renovado con pestañas, editor y nueva página de inicio. La interfaz anterior desaparecerá el {{date}}.",
-  "settings.general.row.newInterfaceNotice.title": "Ahora estás usando la nueva interfaz",
-  "settings.general.row.newInterfaceNotice.description": "La interfaz anterior se retiró el {{date}}.",
+    "Usa las nuevas pestañas y el diseño de la página de inicio. Cambia entre los diseños hasta el {{date}}.",
+  "settings.general.row.newInterfaceNotice.title": "Ahora estás usando el nuevo diseño",
+  "settings.general.row.newInterfaceNotice.description": "El diseño anterior se retiró el {{date}}.",
   "settings.general.row.newInterfaceNotice.dismiss": "Descartar",
   "settings.general.row.pinchZoom.title": "Pellizcar para ampliar",
   "settings.general.row.pinchZoom.description":

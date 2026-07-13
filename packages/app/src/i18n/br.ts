@@ -746,12 +746,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Expandir partes da ferramenta de edição",
   "settings.general.row.editToolPartsExpanded.description":
     "Mostrar partes das ferramentas de edição, escrita e patch expandidas por padrão na linha do tempo",
-  "settings.general.row.newInterface.title": "Usar a nova interface",
+  "settings.general.row.newInterface.title": "Novo layout",
   "settings.general.row.newInterface.badge": "Novo",
   "settings.general.row.newInterface.description":
-    "Layout, abas, área de composição e página inicial reformulados. A interface anterior será removida em {{date}}.",
-  "settings.general.row.newInterfaceNotice.title": "Agora você está usando a nova interface",
-  "settings.general.row.newInterfaceNotice.description": "A interface antiga foi descontinuada em {{date}}.",
+    "Use as novas abas e o layout da página inicial. Alterne entre os layouts até {{date}}.",
+  "settings.general.row.newInterfaceNotice.title": "Agora você está usando o novo layout",
+  "settings.general.row.newInterfaceNotice.description": "O layout anterior foi descontinuado em {{date}}.",
   "settings.general.row.newInterfaceNotice.dismiss": "Descartar",
   "settings.general.row.pinchZoom.title": "Zoom com gesto de pinça",
   "settings.general.row.pinchZoom.description":

@@ -816,12 +816,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Düzenleme araç bileşenlerini genişlet",
   "settings.general.row.editToolPartsExpanded.description":
     "Zaman çizelgesinde düzenleme, yazma ve yama araç bileşenlerini varsayılan olarak genişletilmiş göster",
-  "settings.general.row.newInterface.title": "Yeni arayüzü kullan",
+  "settings.general.row.newInterface.title": "Yeni düzen",
   "settings.general.row.newInterface.badge": "Yeni",
   "settings.general.row.newInterface.description":
-    "Yeniden tasarlanan düzen, sekmeler, yazma alanı ve yeni ana sayfa. Eski arayüz {{date}} tarihinde kaldırılacak.",
-  "settings.general.row.newInterfaceNotice.title": "Artık yeni arayüzü kullanıyorsunuz",
-  "settings.general.row.newInterfaceNotice.description": "Eski arayüz {{date}} tarihinde kullanımdan kaldırıldı.",
+    "Yeni sekmeleri ve ana sayfa düzenini kullanın. {{date}} tarihine kadar düzenler arasında geçiş yapabilirsiniz.",
+  "settings.general.row.newInterfaceNotice.title": "Artık yeni düzeni kullanıyorsunuz",
+  "settings.general.row.newInterfaceNotice.description": "Önceki düzen {{date}} tarihinde kullanımdan kaldırıldı.",
   "settings.general.row.newInterfaceNotice.dismiss": "Kapat",
   "settings.general.row.pinchZoom.title": "Sıkıştırarak yakınlaştır",
   "settings.general.row.pinchZoom.description":

@@ -902,12 +902,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Розгортати частини інструменту редагування",
   "settings.general.row.editToolPartsExpanded.description":
     "Показувати частини інструментів редагування, запису та патчів розгорнутими за замовчуванням на часовій шкалі",
-  "settings.general.row.newInterface.title": "Використовувати новий інтерфейс",
+  "settings.general.row.newInterface.title": "Новий макет",
   "settings.general.row.newInterface.badge": "Нове",
   "settings.general.row.newInterface.description":
-    "Оновлений макет, вкладки, редактор запитів і нова головна сторінка. Попередній інтерфейс зникне {{date}}.",
-  "settings.general.row.newInterfaceNotice.title": "Тепер ви використовуєте новий інтерфейс",
-  "settings.general.row.newInterfaceNotice.description": "Попередній інтерфейс було виведено з експлуатації {{date}}.",
+    "Використовуйте нові вкладки та макет головної сторінки. Перемикайтеся між макетами до {{date}}.",
+  "settings.general.row.newInterfaceNotice.title": "Тепер ви використовуєте новий макет",
+  "settings.general.row.newInterfaceNotice.description": "Попередній макет було виведено з експлуатації {{date}}.",
   "settings.general.row.newInterfaceNotice.dismiss": "Відхилити",
   "settings.general.row.pinchZoom.title": "Масштабування щипком",
   "settings.general.row.pinchZoom.description":

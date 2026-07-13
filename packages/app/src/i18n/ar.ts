@@ -735,12 +735,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "توسيع أجزاء أداة edit",
   "settings.general.row.editToolPartsExpanded.description":
     "إظهار أجزاء أدوات edit و write و patch موسعة بشكل افتراضي في الشريط الزمني",
-  "settings.general.row.newInterface.title": "استخدام الواجهة الجديدة",
+  "settings.general.row.newInterface.title": "التخطيط الجديد",
   "settings.general.row.newInterface.badge": "جديد",
   "settings.general.row.newInterface.description":
-    "تخطيط وعلامات تبويب ومحرر رسائل وصفحة رئيسية معاد تصميمها. ستختفي الواجهة السابقة في {{date}}.",
-  "settings.general.row.newInterfaceNotice.title": "أنت تستخدم الآن الواجهة الجديدة",
-  "settings.general.row.newInterfaceNotice.description": "تم إيقاف الواجهة القديمة تدريجيًا في {{date}}.",
+    "استخدم علامات التبويب الجديدة وتخطيط الصفحة الرئيسية. يمكنك التبديل بين التخطيطات حتى {{date}}.",
+  "settings.general.row.newInterfaceNotice.title": "أنت تستخدم الآن التخطيط الجديد",
+  "settings.general.row.newInterfaceNotice.description": "تم إيقاف التخطيط السابق في {{date}}.",
   "settings.general.row.newInterfaceNotice.dismiss": "رفض",
   "settings.general.row.pinchZoom.title": "التكبير بإيماءة القرص",
   "settings.general.row.pinchZoom.description": "السماح بإيماءة القرص على لوحة اللمس وإيماءة Ctrl-scroll للتكبير",

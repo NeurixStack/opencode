@@ -756,12 +756,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Développer les parties de l'outil edit",
   "settings.general.row.editToolPartsExpanded.description":
     "Afficher les parties des outils edit, write et patch développées par défaut dans la chronologie",
-  "settings.general.row.newInterface.title": "Utiliser la nouvelle interface",
+  "settings.general.row.newInterface.title": "Nouvelle mise en page",
   "settings.general.row.newInterface.badge": "Nouveau",
   "settings.general.row.newInterface.description":
-    "Une mise en page repensée, des onglets, une zone de saisie et un nouvel accueil. L'ancienne interface disparaîtra le {{date}}.",
-  "settings.general.row.newInterfaceNotice.title": "Vous utilisez maintenant la nouvelle interface",
-  "settings.general.row.newInterfaceNotice.description": "L'ancienne interface a été retirée le {{date}}.",
+    "Utilisez les nouveaux onglets et la mise en page de l'accueil. Alternez entre les mises en page jusqu'au {{date}}.",
+  "settings.general.row.newInterfaceNotice.title": "Vous utilisez maintenant la nouvelle mise en page",
+  "settings.general.row.newInterfaceNotice.description": "La mise en page précédente a été retirée le {{date}}.",
   "settings.general.row.newInterfaceNotice.dismiss": "Ignorer",
   "settings.general.row.pinchZoom.title": "Pincer pour zoomer",
   "settings.general.row.pinchZoom.description":
