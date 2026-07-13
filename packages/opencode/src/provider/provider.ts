@@ -1266,6 +1266,14 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
       // @ts-expect-error dead V1 expects raw model IDs inside normalized ModelsDev data.
       const id = `${model.id}-${mode}`
       const base = fromModelsDevModel(provider, model)
+      const providerOptions = (
+        opts as {
+          readonly provider?: {
+            readonly body?: Record<string, unknown>
+            readonly headers?: Record<string, string>
+          }
+        }
+      ).provider
       models[id] = {
         ...base,
         id: ModelV2.ID.make(id),
@@ -1273,8 +1281,8 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
         name: `${model.name} ${mode[0].toUpperCase()}${mode.slice(1)}`,
         // @ts-expect-error dead V1 expects raw mode costs inside normalized ModelsDev data.
         cost: opts.cost ? mergeDeep(base.cost, cost(opts.cost)) : base.cost,
-        options: modeOptions(base, opts.provider?.body),
-        headers: opts.provider?.headers ?? base.headers,
+        options: modeOptions(base, providerOptions?.body),
+        headers: providerOptions?.headers ?? base.headers,
       }
     }
   }
