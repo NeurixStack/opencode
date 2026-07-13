@@ -157,12 +157,14 @@ export function TargetSessionRouteContent() {
   const serverSync = useServerSync()
   const directory = createMemo(() => serverSync().session.lineage.peek(params.id)?.session.directory)
   return (
-    <PermissionProvider directory={directory}>
+    // Settings must keep the complete target-server context and remain registered
+    // when session content falls back to the route error boundary.
+    <TargetServerScopedProviders directory={directory} sessionID={() => params.id}>
       <TargetSessionSettingsCommand />
       <SessionRouteErrorBoundary sessionID={params.id} serverKey={requireServerKey(params.serverKey)} padded>
         <ResolvedTargetSessionRoute />
       </SessionRouteErrorBoundary>
-    </PermissionProvider>
+    </TargetServerScopedProviders>
   )
 }
 
@@ -259,19 +261,17 @@ function ResolvedTargetSessionRoute() {
   })
 
   return (
-    <TargetServerScopedProviders directory={directory} sessionID={() => params.id}>
-      {/* Non-keyed: closes only while the target's directory is unknown (uncached
-          lineage mid-resolution), which tears down the workspace subtree including
-          the terminal. Same-workspace tab switches keep it open because warm
-          targets resolve synchronously from the sync cache. */}
-      <Show when={directory()}>
-        <SDKProvider directory={targetDirectory}>
-          <DirectoryDataProvider directory={targetDirectory} server={serverKey}>
-            <TargetSessionPage />
-          </DirectoryDataProvider>
-        </SDKProvider>
-      </Show>
-    </TargetServerScopedProviders>
+    // Non-keyed: closes only while the target's directory is unknown (uncached
+    // lineage mid-resolution), which tears down the workspace subtree including
+    // the terminal. Same-workspace tab switches keep it open because warm
+    // targets resolve synchronously from the sync cache.
+    <Show when={directory()}>
+      <SDKProvider directory={targetDirectory}>
+        <DirectoryDataProvider directory={targetDirectory} server={serverKey}>
+          <TargetSessionPage />
+        </DirectoryDataProvider>
+      </SDKProvider>
+    </Show>
   )
 }
 
@@ -292,10 +292,10 @@ function TargetServerScopedProviders(
   props: ParentProps<{ directory?: () => string | undefined; sessionID?: () => string | undefined }>,
 ) {
   return (
-    <>
+    <PermissionProvider directory={props.directory}>
       <MarkSessionNotificationsViewed sessionID={props.sessionID} />
       <ModelsProvider directory={props.directory}>{props.children}</ModelsProvider>
-    </>
+    </PermissionProvider>
   )
 }
 
