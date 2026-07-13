@@ -1,4 +1,3 @@
-import { Schema } from "effect"
 import {
   APIError,
   Authentication,
@@ -9,12 +8,10 @@ import {
   HttpRateLimitDetails,
   NotFound,
   PermissionDenied,
-  ProviderErrorEvent,
   ProviderMetadata,
   QuotaExceeded,
   RateLimit,
   ServerError,
-  isLLMError,
   type LLMError,
 } from "./schema"
 
@@ -43,11 +40,6 @@ const patterns = [
 
 export const isContextOverflow = (message: string) =>
   patterns.some((pattern) => pattern.test(message)) || /^4(00|13)\s*(status code)?\s*\(no body\)/i.test(message)
-
-export const isContextOverflowFailure = (failure: unknown) =>
-  isLLMError(failure)
-    ? failure._tag === "LLM.ContextOverflow"
-    : Schema.is(ProviderErrorEvent)(failure) && failure.classification === "context-overflow"
 
 const OVERFLOW_CODES = new Set(["context_length_exceeded", "model_context_window_exceeded"])
 const QUOTA_CODES = new Set(["insufficient_quota", "usage_not_included", "billing_error"])

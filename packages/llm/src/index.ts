@@ -2,7 +2,7 @@ export { LLMClient } from "./route/client"
 export { Auth } from "./route/auth"
 export { Provider } from "./provider"
 export { ProviderPackage } from "./provider-package"
-export { classifyApiFailure, isContextOverflow, isContextOverflowFailure, type ApiFailure } from "./provider-error"
+export { classifyApiFailure, isContextOverflow, type ApiFailure } from "./provider-error"
 export type {
   RouteModelInput,
   RouteRoutedModelInput,

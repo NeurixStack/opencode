@@ -1,9 +1,6 @@
 import { Schema } from "effect"
 import { ModelID, ProviderID, ProviderMetadata, RouteID } from "./ids"
 
-export const ProviderFailureClassification = Schema.Literal("context-overflow")
-export type ProviderFailureClassification = typeof ProviderFailureClassification.Type
-
 export class HttpRequestDetails extends Schema.Class<HttpRequestDetails>("LLM.HttpRequestDetails")({
   method: Schema.String,
   url: Schema.String,

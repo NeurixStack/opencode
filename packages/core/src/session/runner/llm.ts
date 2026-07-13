@@ -1,15 +1,6 @@
 export * as SessionRunnerLLM from "./llm"
 
-import {
-  LLM,
-  LLMClient,
-  LLMEvent,
-  Message,
-  SystemPart,
-  isContextOverflowFailure,
-  isLLMError,
-  type ProviderErrorEvent,
-} from "@opencode-ai/llm"
+import { LLM, LLMClient, LLMEvent, Message, SystemPart, isLLMError, type LLMError } from "@opencode-ai/llm"
 import { SessionError } from "@opencode-ai/schema/session-error"
 import { Money } from "@opencode-ai/schema/money"
 import { Cause, Effect, Exit, Fiber, FiberSet, Layer, Option, Semaphore, Stream } from "effect"
@@ -227,17 +218,10 @@ const layer = Layer.effect(
       // mid-event.
       const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) => publication.withPermit(effect)
       const publish = (event: LLMEvent, error?: SessionError.Error) => serialized(publisher.publish(event, error))
-      let overflowFailure: ProviderErrorEvent | undefined
       const providerStream = llm.stream(request).pipe(
         Stream.runForEach((event) =>
           Effect.gen(function* () {
-            if (overflowFailure || publisher.hasProviderError()) return
-            if (LLMEvent.is.providerError(event)) {
-              if (isContextOverflowFailure(event) && !publisher.hasRetryEvidence()) {
-                overflowFailure = event
-                return
-              }
-            }
+            if (publisher.hasProviderError()) return
             yield* publish(event)
             if (event.type !== "tool-call" || event.providerExecuted) return
             if (!toolMaterialization) {
@@ -317,22 +301,21 @@ const layer = Layer.effect(
           // away non-interrupt failures, so both interrupt checks stay Cause-based.
           const streamInterrupted = stream._tag === "Failure" && Cause.hasInterrupts(stream.cause)
 
+          const llmFailure = streamFailure !== undefined && isLLMError(streamFailure) ? streamFailure : undefined
+
           // A context overflow before any assistant output is recoverable: compact and
           // restart the step instead of surfacing the provider error.
           if (
             recoverOverflow &&
             !publisher.hasRetryEvidence() &&
-            isContextOverflowFailure(overflowFailure ?? streamFailure) &&
+            llmFailure?._tag === "LLM.ContextOverflow" &&
             (yield* restore(recoverOverflow({ sessionID: session.id, messages: context, model }))).status ===
               "completed"
           )
             return { _tag: "RestartAfterOverflowCompaction", step: currentStep } as const
 
-          // An unrecovered held-back overflow becomes the step's durable provider error. A
-          // thrown LLM failure records the assistant failure unless a provider error was
-          // already recorded from the stream. Terminal publication waits for owned tools.
-          if (overflowFailure) yield* publish(overflowFailure)
-          const llmFailure = streamFailure !== undefined && isLLMError(streamFailure) ? streamFailure : undefined
+          // A thrown LLM failure records the assistant failure unless a provider failure
+          // was already recorded from the stream. Terminal publication waits for owned tools.
           if (llmFailure && !publisher.hasProviderError()) {
             const error = toSessionError(llmFailure)
             if (
@@ -349,7 +332,8 @@ const layer = Layer.effect(
             }
             yield* serialized(publisher.failAssistant(error))
           }
-          // Provider error events only arrive from the stream, so the flag is final here.
+          // The provider-failed flag is only set while consuming the stream (content-filter
+          // step finish), so it is final here.
           const providerFailed = publisher.hasProviderError()
 
           // Settle every owned tool fiber. FiberSet.join returns on the first failure, so retain

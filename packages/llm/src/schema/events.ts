@@ -2,7 +2,6 @@ import { Schema } from "effect"
 import { ContentBlockID, FinishReason, ProtocolID, ProviderMetadata, RouteID, ToolCallID } from "./ids"
 import { ModelSchema } from "./options"
 import { Message, ToolCallPart, ToolOutput, ToolResultPart, ToolResultValue, type ContentPart } from "./messages"
-import { ProviderFailureClassification } from "./errors"
 
 /**
  * Token usage reported by an LLM provider.
@@ -197,14 +196,6 @@ export const Finish = Schema.Struct({
 }).annotate({ identifier: "LLM.Event.Finish" })
 export type Finish = Schema.Schema.Type<typeof Finish>
 
-export const ProviderErrorEvent = Schema.Struct({
-  type: Schema.tag("provider-error"),
-  message: Schema.String,
-  classification: Schema.optional(ProviderFailureClassification),
-  providerMetadata: Schema.optional(ProviderMetadata),
-}).annotate({ identifier: "LLM.Event.ProviderError" })
-export type ProviderErrorEvent = Schema.Schema.Type<typeof ProviderErrorEvent>
-
 const llmEventTagged = Schema.Union([
   StepStart,
   TextStart,
@@ -221,7 +212,6 @@ const llmEventTagged = Schema.Union([
   ToolError,
   StepFinish,
   Finish,
-  ProviderErrorEvent,
 ]).pipe(Schema.toTaggedUnion("type"))
 
 type WithID<Event extends { readonly id: unknown }, ID> = Omit<Event, "type" | "id"> & { readonly id: ID | string }
@@ -271,7 +261,6 @@ export const LLMEvent = Object.assign(llmEventTagged, {
       ...input,
       usage: input.usage === undefined ? undefined : Usage.from(input.usage),
     }),
-  providerError: ProviderErrorEvent.make,
   is: {
     stepStart: llmEventTagged.guards["step-start"],
     textStart: llmEventTagged.guards["text-start"],
@@ -288,7 +277,6 @@ export const LLMEvent = Object.assign(llmEventTagged, {
     toolError: llmEventTagged.guards["tool-error"],
     stepFinish: llmEventTagged.guards["step-finish"],
     finish: llmEventTagged.guards.finish,
-    providerError: llmEventTagged.guards["provider-error"],
   },
 })
 export type LLMEvent = Schema.Schema.Type<typeof llmEventTagged>
@@ -372,13 +360,6 @@ const appendEvent = (state: ResponseState, event: LLMEvent): ResponseState => {
       events,
       usage: event.usage ?? state.usage,
       finishReason: event.reason,
-    }
-  }
-  if (LLMEvent.is.providerError(event)) {
-    return {
-      ...state,
-      events,
-      finishReason: state.finishReason ?? "error",
     }
   }
   return {
@@ -589,7 +570,7 @@ export namespace LLMResponse {
   /** Purely fold one provider-neutral event into the attempt assembly state. */
   export const reduce = reduceResponseState
 
-  /** Return a completed response only after a terminal finish or provider error. */
+  /** Return a completed response only after a terminal finish event. */
   export const complete = (state: State): LLMResponse | undefined =>
     state.finishReason === undefined
       ? undefined

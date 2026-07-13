@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  APIError,
   BadRequest,
   ConnectionError,
   ContextOverflow,
@@ -70,8 +71,9 @@ import { asc, eq } from "drizzle-orm"
 import { testEffect } from "./lib/effect"
 
 const requests: LLMRequest[] = []
+type ScriptedResponse = LLMEvent[] | Stream.Stream<LLMEvent, LLMError>
 let response: LLMEvent[] = []
-let responses: LLMEvent[][] | undefined
+let responses: ScriptedResponse[] | undefined
 let responseStream: Stream.Stream<LLMEvent, LLMError> | undefined
 let responseStreams: Stream.Stream<LLMEvent, LLMError>[] | undefined
 let streamGate: Deferred.Deferred<void> | undefined
@@ -94,9 +96,12 @@ const client = Layer.succeed(
         responseStream = undefined
         return stream
       }
+      const scripted = responses === undefined ? response : (responses.shift() ?? [])
       const events = streamFailure
         ? Stream.fail(streamFailure)
-        : Stream.fromIterable(responses === undefined ? response : (responses.shift() ?? []))
+        : Array.isArray(scripted)
+          ? Stream.fromIterable(scripted)
+          : scripted
       if (!streamGate) return events
       return Stream.unwrap(
         (streamStarted ? Deferred.succeed(streamStarted, undefined) : Effect.void).pipe(
@@ -485,6 +490,11 @@ const setup = Effect.gen(function* () {
 })
 
 const providerUnavailable = () => new ConnectionError({ message: "Provider unavailable" })
+
+const contextOverflow = () => new ContextOverflow({ message: "prompt too long" })
+
+const failingResponse = (events: LLMEvent[], failure: LLMError): Stream.Stream<LLMEvent, LLMError> =>
+  Stream.fromIterable(events).pipe(Stream.concat(Stream.fail(failure)))
 
 const invalidRequest = () => new BadRequest({ message: "Invalid request" })
 
@@ -1744,14 +1754,14 @@ describe("SessionRunnerLLM", () => {
       yield* admit(session, "Earlier question")
       yield* session.resume(sessionID)
 
-      response = [LLMEvent.providerError({ message: "summary unavailable" })]
+      responseStream = Stream.fail(new APIError({ message: "summary unavailable" }))
       const compaction = yield* session.compact({ sessionID })
       yield* session.resume(sessionID)
 
       expect((yield* session.messages({ sessionID })).find((message) => message.id === compaction.id)).toMatchObject({
         type: "compaction",
         status: "failed",
-        error: { type: "provider.error", message: "summary unavailable" },
+        error: { type: "provider.unknown", message: "summary unavailable" },
       })
     }),
   )
@@ -1861,7 +1871,7 @@ describe("SessionRunnerLLM", () => {
       currentModel = compactModel
       requests.length = 0
       responses = [
-        [LLMEvent.providerError({ message: "Unsupported parameter: max_output_tokens" })],
+        Stream.fail(new BadRequest({ message: "Unsupported parameter: max_output_tokens" })),
         reply.text("Must not run", "text-after-failed-compaction"),
       ]
       yield* admit(session, "Recent exact request ".repeat(180))
@@ -1884,10 +1894,7 @@ describe("SessionRunnerLLM", () => {
     Effect.gen(function* () {
       const session = yield* setupOverflowRecovery
       responses = [
-        [
-          LLMEvent.stepStart({ index: 0 }),
-          LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" }),
-        ],
+        failingResponse([LLMEvent.stepStart({ index: 0 })], contextOverflow()),
         reply.text("## Objective\n- Recover overflow", "text-summary"),
         reply.text("Recovered", "text-final"),
       ]
@@ -1914,7 +1921,7 @@ describe("SessionRunnerLLM", () => {
       const session = yield* setupOverflowRecovery
       currentModel = model
       responses = [
-        [LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" })],
+        Stream.fail(contextOverflow()),
         reply.text("## Objective\n- Recover unknown limit", "text-summary-unknown-limit"),
         reply.text("Recovered", "text-final-unknown-limit"),
       ]
@@ -1934,7 +1941,7 @@ describe("SessionRunnerLLM", () => {
       const session = yield* setupOverflowRecovery
       currentModel = undersizedContextModel
       responses = [
-        [LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" })],
+        Stream.fail(contextOverflow()),
         reply.text("## Objective\n- Recover undersized limit", "text-summary-undersized-limit"),
         reply.text("Recovered", "text-final-undersized-limit"),
       ]
@@ -1952,10 +1959,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("persists a second context overflow after one recovery", () =>
     Effect.gen(function* () {
       const session = yield* setupOverflowRecovery
-      const overflow = () => [
-        LLMEvent.stepStart({ index: 0 }),
-        LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" }),
-      ]
+      const overflow = () => failingResponse([LLMEvent.stepStart({ index: 0 })], contextOverflow())
       responses = [overflow(), reply.text("## Objective\n- Recover once", "text-summary"), overflow()]
       yield* admit(session, "Continue")
       expect((yield* session.resume(sessionID).pipe(Effect.flip)).message).toBe("prompt too long")
@@ -1971,7 +1975,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("recovers once from a raw context overflow failure", () =>
     Effect.gen(function* () {
       const session = yield* setupOverflowRecovery
-      responseStream = Stream.fail(new ContextOverflow({ message: "prompt too long" }))
+      responseStream = Stream.fail(contextOverflow())
       responses = [
         reply.text("## Objective\n- Recover raw overflow", "text-summary"),
         reply.text("Recovered", "text-final"),
@@ -1990,10 +1994,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("publishes the original overflow when recovery summarization fails", () =>
     Effect.gen(function* () {
       const session = yield* setupOverflowRecovery
-      responses = [
-        [LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" })],
-        [LLMEvent.providerError({ message: "summary unavailable" })],
-      ]
+      responses = [Stream.fail(contextOverflow()), Stream.fail(new APIError({ message: "summary unavailable" }))]
       yield* admit(session, "Continue")
       expect((yield* session.resume(sessionID).pipe(Effect.flip)).message).toBe("prompt too long")
 
@@ -2004,7 +2005,7 @@ describe("SessionRunnerLLM", () => {
           type: "compaction",
           status: "failed",
           reason: "auto",
-          error: { type: "provider.error", message: "summary unavailable" },
+          error: { type: "provider.unknown", message: "summary unavailable" },
         }),
       )
       expect(context.slice(-3)).toMatchObject([
@@ -2018,10 +2019,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("interrupts overflow recovery while the summary provider is running", () =>
     Effect.gen(function* () {
       const session = yield* setupOverflowRecovery
-      responses = [
-        [LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" })],
-        reply.text("## Objective\n- Interrupted", "text-summary"),
-      ]
+      responses = [Stream.fail(contextOverflow()), reply.text("## Objective\n- Interrupted", "text-summary")]
       const firstGate = yield* Deferred.make<void>()
       const summaryGate = yield* Deferred.make<void>()
       streamGate = firstGate
@@ -3604,7 +3602,10 @@ describe("SessionRunnerLLM", () => {
       const session = yield* setup
       yield* admit(session, "Fail durably")
 
-      response = [LLMEvent.stepStart({ index: 0 }), LLMEvent.providerError({ message: "Provider unavailable" })]
+      responseStream = failingResponse(
+        [LLMEvent.stepStart({ index: 0 })],
+        new APIError({ message: "Provider unavailable" }),
+      )
 
       expect((yield* session.resume(sessionID).pipe(Effect.flip)).message).toBe("Provider unavailable")
 
@@ -3621,7 +3622,7 @@ describe("SessionRunnerLLM", () => {
       const session = yield* setup
       yield* admit(session, "Fail before step")
 
-      response = [LLMEvent.providerError({ message: "Provider unavailable" })]
+      responseStream = Stream.fail(new APIError({ message: "Provider unavailable" }))
 
       expect((yield* session.resume(sessionID).pipe(Effect.flip)).message).toBe("Provider unavailable")
 
@@ -3709,13 +3710,15 @@ describe("SessionRunnerLLM", () => {
       const session = yield* setup
       yield* admit(session, "Fail after output")
 
-      response = [
-        LLMEvent.stepStart({ index: 0 }),
-        LLMEvent.textStart({ id: "text-partial" }),
-        LLMEvent.textDelta({ id: "text-partial", text: "Partial" }),
-        LLMEvent.textEnd({ id: "text-partial" }),
-        LLMEvent.providerError({ message: "prompt too long", classification: "context-overflow" }),
-      ]
+      responseStream = failingResponse(
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.textStart({ id: "text-partial" }),
+          LLMEvent.textDelta({ id: "text-partial", text: "Partial" }),
+          LLMEvent.textEnd({ id: "text-partial" }),
+        ],
+        contextOverflow(),
+      )
       expect((yield* session.resume(sessionID).pipe(Effect.flip)).message).toBe("prompt too long")
 
       expect(requests).toHaveLength(1)
@@ -3908,11 +3911,13 @@ describe("SessionRunnerLLM", () => {
       toolExecutionGate = yield* Deferred.make<void>()
       toolExecutionsStarted = yield* Deferred.make<void>()
       toolExecutionsReady = 1
-      response = [
-        LLMEvent.stepStart({ index: 0 }),
-        LLMEvent.toolCall({ id: "call-before-provider-error", name: "echo", input: { text: "settled" } }),
-        LLMEvent.providerError({ message: "Provider unavailable" }),
-      ]
+      responseStream = failingResponse(
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-before-provider-error", name: "echo", input: { text: "settled" } }),
+        ],
+        new APIError({ message: "Provider unavailable" }),
+      )
 
       const run = yield* session.resume(sessionID).pipe(Effect.forkChild)
       yield* Deferred.await(toolExecutionsStarted)
@@ -3939,11 +3944,10 @@ describe("SessionRunnerLLM", () => {
       const session = yield* setup
       yield* admit(session, "Fail hosted tool durably")
 
-      response = [
-        LLMEvent.stepStart({ index: 0 }),
-        hostedCall("call-hosted-provider-error", "effect"),
-        LLMEvent.providerError({ message: "Provider unavailable" }),
-      ]
+      responseStream = failingResponse(
+        [LLMEvent.stepStart({ index: 0 }), hostedCall("call-hosted-provider-error", "effect")],
+        new APIError({ message: "Provider unavailable" }),
+      )
 
       expect((yield* session.resume(sessionID).pipe(Effect.flip)).message).toBe("Provider unavailable")
 
@@ -3970,11 +3974,13 @@ describe("SessionRunnerLLM", () => {
     Effect.gen(function* () {
       const session = yield* setup
       yield* admit(session, "Defect while provider fails")
-      response = [
-        LLMEvent.stepStart({ index: 0 }),
-        LLMEvent.toolCall({ id: "call-defect-provider-error", name: "defect", input: {} }),
-        LLMEvent.providerError({ message: "Provider unavailable" }),
-      ]
+      responseStream = failingResponse(
+        [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolCall({ id: "call-defect-provider-error", name: "defect", input: {} }),
+        ],
+        new APIError({ message: "Provider unavailable" }),
+      )
 
       expect((yield* session.resume(sessionID).pipe(Effect.flip)).message).toBe("Provider unavailable")
 

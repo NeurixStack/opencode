@@ -49,7 +49,6 @@ const make = (dependencies: Dependencies) => {
     ).pipe(Effect.catch(() => Effect.succeed(undefined)))
     if (!resolved) return
     const chunks: string[] = []
-    let failed = false
     const streamed = yield* dependencies.llm
       .stream(
         LLM.request({
@@ -61,14 +60,13 @@ const make = (dependencies: Dependencies) => {
       )
       .pipe(
         Stream.runForEach((event) => {
-          if (LLMEvent.is.providerError(event)) failed = true
           if (LLMEvent.is.textDelta(event)) chunks.push(event.text)
           return Effect.void
         }),
         Effect.as(true),
         Effect.catchIf(isLLMError, () => Effect.succeed(false)),
       )
-    if (!streamed || failed) return
+    if (!streamed) return
     const title = chunks
       .join("")
       .split("\n")

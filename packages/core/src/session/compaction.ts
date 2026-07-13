@@ -247,11 +247,6 @@ const make = (dependencies: Dependencies) => {
       )
       .pipe(
         Stream.runForEach((event) => {
-          if (LLMEvent.is.providerError(event))
-            failure = {
-              type: event.classification === "context-overflow" ? "provider.invalid-request" : "provider.error",
-              message: event.message,
-            }
           if (LLMEvent.is.textDelta(event)) {
             chunks.push(event.text)
             return dependencies.events.publish(SessionEvent.Compaction.Delta, {
