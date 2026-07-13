@@ -90,6 +90,11 @@ export function DialogIntegration(props: { onConnected?: OnIntegrationConnected 
           <text fg={theme.textMuted}>No integrations available</text>
         </box>
       }
+      noMatchView={
+        <box paddingLeft={4} paddingRight={4} paddingTop={1}>
+          <text fg={theme.textMuted}>No integrations found</text>
+        </box>
+      }
     />
   )
 }
@@ -183,8 +188,8 @@ function KeyMethod(props: {
       placeholder="API key"
       onConfirm={(key) => {
         if (!key) return
-        void sdk.api.integration
-          .connect.key({
+        void sdk.api.integration.connect
+          .key({
             integrationID: props.integration.id,
             location: location(data),
             key,
@@ -222,8 +227,8 @@ function OAuthStarting(props: {
   const toast = useToast()
 
   onMount(() => {
-    void sdk.api.integration
-      .connect.oauth({
+    void sdk.api.integration.connect
+      .oauth({
         integrationID: props.integration.id,
         location: location(data),
         methodID: props.method.id,
@@ -291,8 +296,8 @@ function OAuthAuto(props: {
   }))
 
   const poll = () => {
-    void sdk.api.integration
-      .attempt.status({ attemptID: props.attempt.attemptID, location: location(data) })
+    void sdk.api.integration.attempt
+      .status({ attemptID: props.attempt.attemptID, location: location(data) })
       .then((result) => {
         const status = result.data
         if (status.status === "pending") {
@@ -357,8 +362,8 @@ function OAuthCode(props: {
       placeholder="Authorization code"
       onConfirm={(code) => {
         if (!code) return
-        void sdk.api.integration
-          .attempt.complete({ attemptID: props.attempt.attemptID, location: location(data), code })
+        void sdk.api.integration.attempt
+          .complete({ attemptID: props.attempt.attemptID, location: location(data), code })
           .then(() => {
             settled = true
             return connected(props.integration, data, dialog, toast, props.onConnected)
