@@ -1,6 +1,6 @@
 import { Config, Effect, Redacted } from "effect"
 import { Headers } from "effect/unstable/http"
-import { AuthenticationReason, InvalidRequestReason, LLMError, type LLMRequest } from "../schema"
+import { Authentication, BadRequest, type LLMError, type LLMRequest } from "../schema"
 
 export class MissingCredentialError extends Error {
   readonly _tag = "MissingCredentialError"
@@ -135,16 +135,9 @@ export function bearerHeader(name: string, source?: Secret | Credential) {
 }
 
 const toLLMError = (error: AuthError): LLMError => {
-  if (error instanceof MissingCredentialError || error instanceof Config.ConfigError) {
-    return new LLMError({
-      module: "Auth",
-      method: "apply",
-      reason:
-        error instanceof MissingCredentialError
-          ? new AuthenticationReason({ message: error.message, kind: "missing" })
-          : new InvalidRequestReason({ message: `Failed to resolve auth config: ${error.message}` }),
-    })
-  }
+  if (error instanceof MissingCredentialError) return new Authentication({ message: error.message })
+  if (error instanceof Config.ConfigError)
+    return new BadRequest({ message: `Failed to resolve auth config: ${error.message}` })
   return error
 }
 

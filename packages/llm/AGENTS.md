@@ -182,8 +182,8 @@ The dependency arrow points down: `providers/*.ts` files import protocol routes 
 - `joinText(parts)` — joins an array of `TextPart` (or anything with a `.text`) with newlines. Use this anywhere a protocol flattens text content into a single string for a provider field.
 - `parseToolInput(route, name, raw)` — Schema-decodes a tool-call argument string with the canonical "Invalid JSON input for `<route>` tool call `<name>`" error message. Treats empty input as `{}`.
 - `parseJson(route, raw, message)` — generic JSON-via-Schema decode for non-tool bodies.
-- `eventError(route, message, ...)` — typed `InvalidProviderOutput` constructor for stream-time decode failures.
-- `validateWith(decoder)` — maps Schema decode errors to `InvalidRequest`. `Route.make(...)` uses this for body validation; lower-level routes can reuse it.
+- `eventError(route, message, ...)` — typed `MalformedResponse` constructor for stream-time decode failures.
+- `validateWith(decoder)` — maps Schema decode errors to `BadRequest`. `Route.make(...)` uses this for body validation; lower-level routes can reuse it.
 - `matchToolChoice(provider, choice, branches)` — branches over `LLMRequest["toolChoice"]` for provider-specific lowering.
 
 If you find yourself copying a 3-to-5-line snippet between two protocols, lift it into `ProviderShared` next to these helpers rather than duplicating.

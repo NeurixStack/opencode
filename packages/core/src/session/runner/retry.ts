@@ -1,6 +1,6 @@
 export * as SessionRunnerRetry from "./retry"
 
-import { LLMError } from "@opencode-ai/llm"
+import type { LLMError } from "@opencode-ai/llm"
 import { SessionError } from "@opencode-ai/schema/session-error"
 import { Data, Duration, Effect, Schedule } from "effect"
 import { EventV2 } from "../../event"
@@ -17,29 +17,33 @@ export class RetryableFailure extends Data.TaggedError("SessionRunner.RetryableF
 }> {}
 
 export function isRetryable(error: LLMError) {
-  switch (error.reason._tag) {
-    case "RateLimit":
-    case "ProviderInternal":
-    case "Transport":
+  switch (error._tag) {
+    case "LLM.RateLimit":
+    case "LLM.ServerError":
+    case "LLM.ConnectionError":
+    case "LLM.TimeoutError":
       return true
-    case "Authentication":
-    case "QuotaExceeded":
-    case "ContentPolicy":
-    case "InvalidProviderOutput":
-    case "InvalidRequest":
-    case "NoRoute":
-    case "UnknownProvider":
+    case "LLM.Authentication":
+    case "LLM.PermissionDenied":
+    case "LLM.NotFound":
+    case "LLM.QuotaExceeded":
+    case "LLM.ContentPolicy":
+    case "LLM.ContextOverflow":
+    case "LLM.MalformedResponse":
+    case "LLM.BadRequest":
+    case "LLM.NoRoute":
+    case "LLM.APIError":
       return false
     default: {
-      const exhaustive: never = error.reason
+      const exhaustive: never = error
       return exhaustive
     }
   }
 }
 
 const retryAfter = (failure: RetryableFailure) => {
-  if (failure.cause.reason._tag === "RateLimit" || failure.cause.reason._tag === "ProviderInternal")
-    return failure.cause.reason.retryAfterMs
+  if (failure.cause._tag === "LLM.RateLimit" || failure.cause._tag === "LLM.ServerError")
+    return failure.cause.retryAfterMs
   return undefined
 }
 

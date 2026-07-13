@@ -3,8 +3,8 @@ import { LLMClient } from "./route/client"
 import {
   GenerationOptions,
   HttpOptions,
-  InvalidProviderOutputReason,
-  LLMError,
+  MalformedResponse,
+  type LLMError,
   LLMEvent,
   LLMRequest,
   LLMResponse,
@@ -121,22 +121,14 @@ const runGenerateObject = Effect.fn("LLM.generateObject")(function* (
     (event) => LLMEvent.is.toolCall(event) && event.name === GENERATE_OBJECT_TOOL_NAME,
   )
   if (!call || !LLMEvent.is.toolCall(call))
-    return yield* new LLMError({
-      module: "LLM",
-      method: "generateObject",
-      reason: new InvalidProviderOutputReason({
-        message: `generateObject: model did not call the forced \`${GENERATE_OBJECT_TOOL_NAME}\` tool`,
-      }),
+    return yield* new MalformedResponse({
+      message: `generateObject: model did not call the forced \`${GENERATE_OBJECT_TOOL_NAME}\` tool`,
     })
   const object = yield* tool._decode(call.input).pipe(
     Effect.mapError(
       (error) =>
-        new LLMError({
-          module: "LLM",
-          method: "generateObject",
-          reason: new InvalidProviderOutputReason({
-            message: `generateObject: tool input failed schema decode: ${error.message}`,
-          }),
+        new MalformedResponse({
+          message: `generateObject: tool input failed schema decode: ${error.message}`,
         }),
     ),
   )

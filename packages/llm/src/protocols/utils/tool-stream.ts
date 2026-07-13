@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { LLMError, LLMEvent, type ProviderMetadata, type ToolCall } from "../../schema"
+import { isLLMError, LLMEvent, type LLMError, type ProviderMetadata, type ToolCall } from "../../schema"
 import { eventError, parseToolInput, type ToolAccumulator } from "../shared"
 
 type StreamKey = string | number
@@ -95,7 +95,7 @@ const appendTool = <K extends StreamKey>(
 }
 
 export const isError = <K extends StreamKey>(result: AppendOutcome<K> | LLMError): result is LLMError =>
-  result instanceof LLMError
+  isLLMError(result)
 
 /**
  * Register a tool call whose start event arrived before any argument deltas.

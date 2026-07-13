@@ -1,6 +1,6 @@
 export * as SessionCompaction from "./compaction"
 
-import { LLM, LLMClient, LLMError, LLMEvent, Message, type LLMRequest, type Model } from "@opencode-ai/llm"
+import { LLM, LLMClient, LLMEvent, Message, isLLMError, type LLMError, type LLMRequest, type Model } from "@opencode-ai/llm"
 import { SessionError } from "@opencode-ai/schema/session-error"
 import { Context, Effect, Layer, Stream } from "effect"
 import { Config } from "../config"
@@ -261,7 +261,7 @@ const make = (dependencies: Dependencies) => {
           }
           return Effect.void
         }),
-        Effect.catchTag("LLM.Error", (error) =>
+        Effect.catchIf(isLLMError, (error) =>
           Effect.sync(() => {
             failure = toSessionError(error)
           }),

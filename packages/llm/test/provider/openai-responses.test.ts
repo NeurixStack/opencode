@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { ConfigProvider, Effect, Layer, Stream } from "effect"
 import { Headers, HttpClientRequest } from "effect/unstable/http"
-import { LLM, LLMError, Message, Model, ToolCallPart, Usage } from "../../src"
+import { isLLMError, LLM, Message, Model, ToolCallPart, Usage } from "../../src"
 import { Auth, LLMClient, RequestExecutor, WebSocketExecutor } from "../../src/route"
 import * as Azure from "../../src/providers/azure"
 import * as OpenAI from "../../src/providers/openai"
@@ -1562,8 +1562,8 @@ describe("OpenAI Responses route", () => {
         Effect.flip,
       )
 
-      expect(error).toBeInstanceOf(LLMError)
-      expect(error.reason).toMatchObject({ _tag: "InvalidRequest" })
+      expect(isLLMError(error)).toBe(true)
+      expect(error).toMatchObject({ _tag: "LLM.BadRequest" })
       expect(error.message).toContain("HTTP 400")
     }),
   )

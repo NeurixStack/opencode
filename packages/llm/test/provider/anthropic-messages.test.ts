@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { HttpClientRequest } from "effect/unstable/http"
-import { CacheHint, LLM, LLMError, Message, ToolCallPart, Usage } from "../../src"
+import { CacheHint, isLLMError, LLM, Message, ToolCallPart, Usage } from "../../src"
 import { Auth, LLMClient } from "../../src/route"
 import * as AnthropicMessages from "../../src/protocols/anthropic-messages"
 import { continuationRequest, nativeAnthropicMessagesContinuation } from "../continuation-scenarios"
@@ -553,8 +553,8 @@ describe("Anthropic Messages route", () => {
         Effect.flip,
       )
 
-      expect(error).toBeInstanceOf(LLMError)
-      expect(error.reason).toMatchObject({ _tag: "InvalidRequest" })
+      expect(isLLMError(error)).toBe(true)
+      expect(error).toMatchObject({ _tag: "LLM.BadRequest" })
       expect(error.message).toContain("HTTP 400")
     }),
   )

@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect, Schema, Stream } from "effect"
 import { HttpClientRequest } from "effect/unstable/http"
-import { LLM, LLMError, LLMEvent, Message, Model, ToolCallPart, Usage } from "../../src"
+import { isLLMError, LLM, LLMEvent, Message, Model, ToolCallPart, Usage } from "../../src"
 import * as Azure from "../../src/providers/azure"
 import * as OpenAI from "../../src/providers/openai"
 import * as OpenAIChat from "../../src/protocols/openai-chat"
@@ -662,8 +662,8 @@ describe("OpenAI Chat route", () => {
         Effect.flip,
       )
 
-      expect(error).toBeInstanceOf(LLMError)
-      expect(error.reason).toMatchObject({ _tag: "InvalidRequest" })
+      expect(isLLMError(error)).toBe(true)
+      expect(error).toMatchObject({ _tag: "LLM.BadRequest" })
       expect(error.message).toContain("HTTP 400")
     }),
   )

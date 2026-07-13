@@ -31,117 +31,149 @@ export class HttpContext extends Schema.Class<HttpContext>("LLM.HttpContext")({
   rateLimit: Schema.optional(HttpRateLimitDetails),
 }) {}
 
-export class InvalidRequestReason extends Schema.Class<InvalidRequestReason>("LLM.Error.InvalidRequest")({
-  _tag: Schema.tag("InvalidRequest"),
+/**
+ * Fields shared by every failure the remote API deliberately reported —
+ * whether as a non-2xx response, an SSE error event, a WebSocket error
+ * message, or a binary exception frame. `status` is absent when the error
+ * arrived mid-stream without an HTTP status; `code` carries the provider's
+ * machine-readable error code (e.g. `context_length_exceeded`) when one
+ * exists.
+ */
+const apiFailureFields = {
   message: Schema.String,
-  parameter: Schema.optional(Schema.String),
-  classification: Schema.optional(ProviderFailureClassification),
-  providerMetadata: Schema.optional(ProviderMetadata),
+  status: Schema.optional(Schema.Number),
+  code: Schema.optional(Schema.String),
+  requestID: Schema.optional(Schema.String),
   http: Schema.optional(HttpContext),
-}) {}
-
-export class NoRouteReason extends Schema.Class<NoRouteReason>("LLM.Error.NoRoute")({
-  _tag: Schema.tag("NoRoute"),
-  route: RouteID,
-  provider: ProviderID,
-  model: ModelID,
-}) {
-  get message() {
-    return `No LLM route for ${this.provider}/${this.model} using ${this.route}`
-  }
+  providerMetadata: Schema.optional(ProviderMetadata),
 }
 
-export class AuthenticationReason extends Schema.Class<AuthenticationReason>("LLM.Error.Authentication")({
-  _tag: Schema.tag("Authentication"),
-  message: Schema.String,
-  kind: Schema.Literals(["missing", "invalid", "expired", "insufficient-permissions", "unknown"]),
-  providerMetadata: Schema.optional(ProviderMetadata),
-  http: Schema.optional(HttpContext),
+/** Provider rejected the request as invalid (400/409/422, `invalid_request_error`, ...). */
+export class BadRequest extends Schema.TaggedErrorClass<BadRequest>()("LLM.BadRequest", {
+  ...apiFailureFields,
+  parameter: Schema.optional(Schema.String),
 }) {}
 
-export class RateLimitReason extends Schema.Class<RateLimitReason>("LLM.Error.RateLimit")({
-  _tag: Schema.tag("RateLimit"),
-  message: Schema.String,
+/** Credentials are missing, invalid, or expired (401). */
+export class Authentication extends Schema.TaggedErrorClass<Authentication>()("LLM.Authentication", {
+  ...apiFailureFields,
+}) {}
+
+/** Authenticated but not allowed (403). */
+export class PermissionDenied extends Schema.TaggedErrorClass<PermissionDenied>()("LLM.PermissionDenied", {
+  ...apiFailureFields,
+}) {}
+
+/** Model or endpoint does not exist (404). */
+export class NotFound extends Schema.TaggedErrorClass<NotFound>()("LLM.NotFound", {
+  ...apiFailureFields,
+}) {}
+
+/** Transient request throttling (429). Retryable; honor `retryAfterMs` when present. */
+export class RateLimit extends Schema.TaggedErrorClass<RateLimit>()("LLM.RateLimit", {
+  ...apiFailureFields,
   retryAfterMs: Schema.optional(Schema.Number),
   rateLimit: Schema.optional(HttpRateLimitDetails),
-  providerMetadata: Schema.optional(ProviderMetadata),
-  http: Schema.optional(HttpContext),
 }) {}
 
-export class QuotaExceededReason extends Schema.Class<QuotaExceededReason>("LLM.Error.QuotaExceeded")({
-  _tag: Schema.tag("QuotaExceeded"),
-  message: Schema.String,
-  providerMetadata: Schema.optional(ProviderMetadata),
-  http: Schema.optional(HttpContext),
+/** Account-level quota or billing exhaustion. Unlike `RateLimit`, waiting does not help. */
+export class QuotaExceeded extends Schema.TaggedErrorClass<QuotaExceeded>()("LLM.QuotaExceeded", {
+  ...apiFailureFields,
 }) {}
 
-export class ContentPolicyReason extends Schema.Class<ContentPolicyReason>("LLM.Error.ContentPolicy")({
-  _tag: Schema.tag("ContentPolicy"),
-  message: Schema.String,
-  providerMetadata: Schema.optional(ProviderMetadata),
-  http: Schema.optional(HttpContext),
+/** Provider refused the content for policy/safety reasons. */
+export class ContentPolicy extends Schema.TaggedErrorClass<ContentPolicy>()("LLM.ContentPolicy", {
+  ...apiFailureFields,
 }) {}
 
-export class ProviderInternalReason extends Schema.Class<ProviderInternalReason>("LLM.Error.ProviderInternal")({
-  _tag: Schema.tag("ProviderInternal"),
-  message: Schema.String,
-  status: Schema.Number,
+/**
+ * The request exceeds the model's context window. Designated tag because
+ * Core recovers from it structurally (compaction) rather than surfacing it.
+ * Upgraded from `BadRequest` by the shared classifier in `provider-error.ts`.
+ */
+export class ContextOverflow extends Schema.TaggedErrorClass<ContextOverflow>()("LLM.ContextOverflow", {
+  ...apiFailureFields,
+}) {}
+
+/** Provider-side failure (5xx, `overloaded_error`, internal exceptions). Retryable. */
+export class ServerError extends Schema.TaggedErrorClass<ServerError>()("LLM.ServerError", {
+  ...apiFailureFields,
   retryAfterMs: Schema.optional(Schema.Number),
-  providerMetadata: Schema.optional(ProviderMetadata),
-  http: Schema.optional(HttpContext),
 }) {}
 
-export class TransportReason extends Schema.Class<TransportReason>("LLM.Error.Transport")({
-  _tag: Schema.tag("Transport"),
+/** Any other deliberate API rejection that matches no designated tag (402, 405, 410, ...). */
+export class APIError extends Schema.TaggedErrorClass<APIError>()("LLM.APIError", {
+  ...apiFailureFields,
+}) {}
+
+/** Communication failed: connect failure, reset, socket close, DNS. No API response involved. */
+export class ConnectionError extends Schema.TaggedErrorClass<ConnectionError>()("LLM.ConnectionError", {
   message: Schema.String,
   kind: Schema.optional(Schema.String),
   url: Schema.optional(Schema.String),
   http: Schema.optional(HttpContext),
+  cause: Schema.optional(Schema.Defect()),
 }) {}
 
-export class InvalidProviderOutputReason extends Schema.Class<InvalidProviderOutputReason>(
-  "LLM.Error.InvalidProviderOutput",
-)({
-  _tag: Schema.tag("InvalidProviderOutput"),
+/** The request or stream read timed out before the provider answered. */
+export class TimeoutError extends Schema.TaggedErrorClass<TimeoutError>()("LLM.TimeoutError", {
+  message: Schema.String,
+  url: Schema.optional(Schema.String),
+  http: Schema.optional(HttpContext),
+}) {}
+
+/**
+ * Transport succeeded but the content broke the protocol contract:
+ * undecodable frames, premature EOF without a terminal `finish`, duplicate
+ * terminals, or output after a terminal event.
+ */
+export class MalformedResponse extends Schema.TaggedErrorClass<MalformedResponse>()("LLM.MalformedResponse", {
   message: Schema.String,
   route: Schema.optional(Schema.String),
   raw: Schema.optional(Schema.String),
   providerMetadata: Schema.optional(ProviderMetadata),
 }) {}
 
-export class UnknownProviderReason extends Schema.Class<UnknownProviderReason>("LLM.Error.UnknownProvider")({
-  _tag: Schema.tag("UnknownProvider"),
-  message: Schema.String,
-  status: Schema.optional(Schema.Number),
-  providerMetadata: Schema.optional(ProviderMetadata),
-  http: Schema.optional(HttpContext),
-}) {}
-
-export const LLMErrorReason = Schema.Union([
-  InvalidRequestReason,
-  NoRouteReason,
-  AuthenticationReason,
-  RateLimitReason,
-  QuotaExceededReason,
-  ContentPolicyReason,
-  ProviderInternalReason,
-  TransportReason,
-  InvalidProviderOutputReason,
-  UnknownProviderReason,
-]).pipe(Schema.toTaggedUnion("_tag"))
-export type LLMErrorReason = Schema.Schema.Type<typeof LLMErrorReason>
-
-export class LLMError extends Schema.TaggedErrorClass<LLMError>()("LLM.Error", {
-  module: Schema.String,
-  method: Schema.String,
-  reason: LLMErrorReason,
+/** Request construction failed locally: the selected model resolves to no executable route. */
+export class NoRoute extends Schema.TaggedErrorClass<NoRoute>()("LLM.NoRoute", {
+  route: RouteID,
+  provider: ProviderID,
+  model: ModelID,
 }) {
-  override readonly cause = this.reason
-
   override get message() {
-    return `${this.module}.${this.method}: ${this.reason.message}`
+    return `No LLM route for ${this.provider}/${this.model} using ${this.route}`
   }
 }
+
+const members = [
+  BadRequest,
+  Authentication,
+  PermissionDenied,
+  NotFound,
+  RateLimit,
+  QuotaExceeded,
+  ContentPolicy,
+  ContextOverflow,
+  ServerError,
+  APIError,
+  ConnectionError,
+  TimeoutError,
+  MalformedResponse,
+  NoRoute,
+] as const
+
+export const LLMErrorSchema = Schema.Union(members)
+
+/**
+ * Every failure of one LLM request. `LLMEvent` streams carry output only;
+ * all failures — HTTP rejections, in-stream provider error events, transport
+ * failures, and protocol-contract violations — exit through this union on
+ * the stream's error channel.
+ */
+export type LLMError = typeof LLMErrorSchema.Type
+
+export const isLLMError = (value: unknown): value is LLMError =>
+  members.some((member) => value instanceof member)
 
 /**
  * Failure type for tool execute handlers. Handlers must map their internal

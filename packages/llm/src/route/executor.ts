@@ -1,4 +1,4 @@
-import { Cause, Context, Effect, Layer } from "effect"
+import { Cause, Context, Effect, Layer, Option, Schema } from "effect"
 import {
   FetchHttpClient,
   Headers,
@@ -8,21 +8,15 @@ import {
   HttpClientResponse,
 } from "effect/unstable/http"
 import {
-  AuthenticationReason,
-  ContentPolicyReason,
+  ConnectionError,
   HttpContext,
   HttpRateLimitDetails,
   HttpRequestDetails,
   HttpResponseDetails,
-  InvalidRequestReason,
-  LLMError,
-  ProviderInternalReason,
-  QuotaExceededReason,
-  RateLimitReason,
-  TransportReason,
-  UnknownProviderReason,
+  TimeoutError,
+  type LLMError,
 } from "../schema"
-import { isContextOverflow } from "../provider-error"
+import { classifyApiFailure } from "../provider-error"
 
 export interface Interface {
   readonly execute: (
@@ -84,8 +78,6 @@ const requestId = (headers: Record<string, string>) => {
     headers["cf-ray"]
   )
 }
-
-const providerInternalStatus = (status: number) => status === 429 || status === 503 || status === 504 || status === 529
 
 const retryAfterMs = (headers: Record<string, string>) => {
   const millis = Number(headers["retry-after-ms"])
@@ -219,56 +211,21 @@ const responseHttp = (input: {
     rateLimit: input.rateLimit,
   })
 
-const statusReason = (input: {
-  readonly status: number
-  readonly message: string
-  readonly retryAfterMs?: number | undefined
-  readonly rateLimit?: HttpRateLimitDetails | undefined
-  readonly http: HttpContext
-}) => {
-  const body = input.http.body ?? ""
-  if (/content[-_\s]?policy|content_filter|safety/i.test(body)) {
-    return new ContentPolicyReason({ message: input.message, http: input.http })
-  }
-  if (input.status === 401) {
-    return new AuthenticationReason({ message: input.message, kind: "invalid", http: input.http })
-  }
-  if (input.status === 403) {
-    return new AuthenticationReason({ message: input.message, kind: "insufficient-permissions", http: input.http })
-  }
-  if (input.status === 429) {
-    if (/insufficient[-_\s]?quota|quota[-_\s]?exceeded/i.test(body)) {
-      return new QuotaExceededReason({ message: input.message, http: input.http })
-    }
-    return new RateLimitReason({
-      message: input.message,
-      retryAfterMs: input.retryAfterMs,
-      rateLimit: input.rateLimit,
-      http: input.http,
-    })
-  }
-  if (
-    input.status === 400 ||
-    input.status === 404 ||
-    input.status === 409 ||
-    input.status === 413 ||
-    input.status === 422
-  ) {
-    return new InvalidRequestReason({
-      message: input.message,
-      classification: isContextOverflow(body) ? "context-overflow" : undefined,
-      http: input.http,
-    })
-  }
-  if (input.status >= 500 || providerInternalStatus(input.status)) {
-    return new ProviderInternalReason({
-      message: input.message,
-      status: input.status,
-      retryAfterMs: input.retryAfterMs,
-      http: input.http,
-    })
-  }
-  return new UnknownProviderReason({ message: input.message, status: input.status, http: input.http })
+const decodeBodyJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
+
+// Provider machine code from a JSON error body (`error.code` / `error.type`),
+// fed to the shared classifier so code-based rules (overflow, quota) work on
+// HTTP rejections too. Truncated or non-JSON bodies yield undefined.
+const providerCode = (body: string | undefined) => {
+  if (!body) return undefined
+  const decoded = Option.getOrUndefined(decodeBodyJson(body))
+  if (typeof decoded !== "object" || decoded === null) return undefined
+  const error = (decoded as Record<string, unknown>).error
+  if (typeof error !== "object" || error === null) return undefined
+  const fields = error as Record<string, unknown>
+  if (typeof fields.code === "string") return fields.code
+  if (typeof fields.type === "string") return fields.type
+  return undefined
 }
 
 const statusError =
@@ -281,58 +238,55 @@ const statusError =
       const retryAfter = retryAfterMs(headers)
       const rateLimit = rateLimitDetails(headers, retryAfter)
       const details = responseBody(body, request)
-      return yield* new LLMError({
-        module: "RequestExecutor",
-        method: "execute",
-        reason: statusReason({
-          status: response.status,
-          message: providerMessage(response.status, details),
-          retryAfterMs: retryAfter,
+      return yield* classifyApiFailure({
+        status: response.status,
+        message: providerMessage(response.status, details),
+        code: providerCode(details.body),
+        retryAfterMs: retryAfter,
+        rateLimit,
+        requestID: requestId(headers),
+        http: responseHttp({
+          request,
+          response,
+          redactedNames,
+          body: details,
+          requestId: requestId(headers),
           rateLimit,
-          http: responseHttp({
-            request,
-            response,
-            redactedNames,
-            body: details,
-            requestId: requestId(headers),
-            rateLimit,
-          }),
         }),
       })
     })
 
 const toHttpError = (redactedNames: ReadonlyArray<string | RegExp>) => (error: unknown) => {
-  const transportError = (input: {
+  const httpContext = (request: HttpClientRequest.HttpClientRequest | undefined) =>
+    request ? new HttpContext({ request: requestDetails(request, redactedNames) }) : undefined
+  const connectionError = (input: {
     readonly message: string
     readonly kind?: string | undefined
     readonly request?: HttpClientRequest.HttpClientRequest | undefined
   }) =>
-    new LLMError({
-      module: "RequestExecutor",
-      method: "execute",
-      reason: new TransportReason({
-        message: input.message,
-        kind: input.kind,
-        url: input.request ? redactUrl(input.request.url) : undefined,
-        http: input.request ? new HttpContext({ request: requestDetails(input.request, redactedNames) }) : undefined,
-      }),
+    new ConnectionError({
+      message: input.message,
+      kind: input.kind,
+      url: input.request ? redactUrl(input.request.url) : undefined,
+      http: httpContext(input.request),
+      cause: error,
     })
 
   if (Cause.isTimeoutError(error)) {
-    return transportError({ message: error.message, kind: "Timeout" })
+    return new TimeoutError({ message: error.message })
   }
   if (!HttpClientError.isHttpClientError(error)) {
-    return transportError({ message: "HTTP transport failed" })
+    return connectionError({ message: "HTTP transport failed" })
   }
   const request = "request" in error ? error.request : undefined
   if (error.reason._tag === "TransportError") {
-    return transportError({
+    return connectionError({
       message: error.reason.description ?? "HTTP transport failed",
       kind: error.reason._tag,
       request,
     })
   }
-  return transportError({
+  return connectionError({
     message: `HTTP transport failed: ${error.reason._tag}`,
     kind: error.reason._tag,
     request,

@@ -14,11 +14,11 @@ import type { LLMError, LLMEvent, PreparedRequestOf, ProtocolID, ProviderOptions
 import {
   GenerationOptions,
   HttpOptions,
+  isLLMError,
   LLMRequest,
   LLMResponse,
   Model,
   ModelLimits,
-  LLMError as LLMErrorClass,
   PreparedRequest,
   ProviderID,
   mergeGenerationOptions,
@@ -225,7 +225,7 @@ export interface MakeTransportInput<Body, Prepared, Frame, Event, State> {
 
 const streamError = (route: string, message: string, cause: Cause.Cause<unknown>) => {
   const failed = cause.reasons.find(Cause.isFailReason)?.error
-  if (failed instanceof LLMErrorClass) return failed
+  if (failed !== undefined && isLLMError(failed)) return failed
   return ProviderShared.eventError(route, message, Cause.pretty(cause))
 }
 

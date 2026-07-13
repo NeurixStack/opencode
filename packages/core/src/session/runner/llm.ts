@@ -3,11 +3,11 @@ export * as SessionRunnerLLM from "./llm"
 import {
   LLM,
   LLMClient,
-  LLMError,
   LLMEvent,
   Message,
   SystemPart,
   isContextOverflowFailure,
+  isLLMError,
   type ProviderErrorEvent,
 } from "@opencode-ai/llm"
 import { SessionError } from "@opencode-ai/schema/session-error"
@@ -332,7 +332,7 @@ const layer = Layer.effect(
           // thrown LLM failure records the assistant failure unless a provider error was
           // already recorded from the stream. Terminal publication waits for owned tools.
           if (overflowFailure) yield* publish(overflowFailure)
-          const llmFailure = streamFailure instanceof LLMError ? streamFailure : undefined
+          const llmFailure = streamFailure !== undefined && isLLMError(streamFailure) ? streamFailure : undefined
           if (llmFailure && !publisher.hasProviderError()) {
             const error = toSessionError(llmFailure)
             if (

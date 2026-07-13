@@ -1,15 +1,16 @@
 import { describe, expect, test } from "bun:test"
 import {
+  BadRequest,
+  ConnectionError,
+  ContextOverflow,
   LLMClient,
-  LLMError,
   LLMEvent,
+  MalformedResponse,
   Model,
+  RateLimit,
   ToolFailure,
-  TransportReason,
-  InvalidProviderOutputReason,
-  InvalidRequestReason,
-  RateLimitReason,
   type LLMClientShape,
+  type LLMError,
   type LLMRequest,
 } from "@opencode-ai/llm"
 import * as OpenAIChat from "@opencode-ai/llm/protocols/openai-chat"
@@ -483,26 +484,11 @@ const setup = Effect.gen(function* () {
   return yield* SessionV2.Service
 })
 
-const providerUnavailable = () =>
-  new LLMError({
-    module: "test",
-    method: "stream",
-    reason: new TransportReason({ message: "Provider unavailable" }),
-  })
+const providerUnavailable = () => new ConnectionError({ message: "Provider unavailable" })
 
-const invalidRequest = () =>
-  new LLMError({
-    module: "test",
-    method: "stream",
-    reason: new InvalidRequestReason({ message: "Invalid request" }),
-  })
+const invalidRequest = () => new BadRequest({ message: "Invalid request" })
 
-const rateLimited = (retryAfterMs?: number) =>
-  new LLMError({
-    module: "test",
-    method: "stream",
-    reason: new RateLimitReason({ message: "Rate limited", retryAfterMs }),
-  })
+const rateLimited = (retryAfterMs?: number) => new RateLimit({ message: "Rate limited", retryAfterMs })
 
 const setupOverflowRecovery = Effect.gen(function* () {
   const session = yield* setup
@@ -1985,16 +1971,7 @@ describe("SessionRunnerLLM", () => {
   it.effect("recovers once from a raw context overflow failure", () =>
     Effect.gen(function* () {
       const session = yield* setupOverflowRecovery
-      responseStream = Stream.fail(
-        new LLMError({
-          module: "test",
-          method: "stream",
-          reason: new InvalidRequestReason({
-            message: "prompt too long",
-            classification: "context-overflow",
-          }),
-        }),
-      )
+      responseStream = Stream.fail(new ContextOverflow({ message: "prompt too long" }))
       responses = [
         reply.text("## Objective\n- Recover raw overflow", "text-summary"),
         reply.text("Recovered", "text-final"),
@@ -3892,11 +3869,7 @@ describe("SessionRunnerLLM", () => {
     Effect.gen(function* () {
       const session = yield* setup
       yield* admit(session, "Call a malformed tool")
-      const failure = new LLMError({
-        module: "test",
-        method: "stream",
-        reason: new InvalidProviderOutputReason({ message: "Invalid JSON input for tool call echo" }),
-      })
+      const failure = new MalformedResponse({ message: "Invalid JSON input for tool call echo" })
       responseStream = Stream.fromIterable([
         LLMEvent.stepStart({ index: 0 }),
         LLMEvent.toolInputStart({ id: "call-malformed", name: "echo" }),
