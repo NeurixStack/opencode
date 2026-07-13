@@ -105,9 +105,11 @@ export const Plugin = {
                     const external = target.externalDirectory
                     if (external) externalDirectories.set(external.resource, external)
                   }
+                  const resources = [...new Set(targets.map(({ target }) => target.resource))]
                   for (const external of externalDirectories.values()) {
                     yield* permission.assert({
                       ...LocationMutation.externalDirectoryPermission(external),
+                      metadata: { followup: { action: "edit", resources } },
                       sessionID: context.sessionID,
                       agent: context.agent,
                       source,
@@ -115,7 +117,7 @@ export const Plugin = {
                   }
                   yield* permission.assert({
                     action: "edit",
-                    resources: [...new Set(targets.map(({ target }) => target.resource))],
+                    resources,
                     save: ["*"],
                     sessionID: context.sessionID,
                     agent: context.agent,

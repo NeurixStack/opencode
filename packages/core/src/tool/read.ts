@@ -70,6 +70,7 @@ export const Plugin = {
                 if (external)
                   yield* permission.assert({
                     ...LocationMutation.externalDirectoryPermission(external),
+                    metadata: { followup: { action: "read", resources: [target.resource] } },
                     sessionID: context.sessionID,
                     agent: context.agent,
                     source,

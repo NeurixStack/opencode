@@ -86,10 +86,17 @@ transitions. `doom_loop` and `lsp` are not current V2 Core permission actions.
 
 ## External directories
 
-An external path requires a separate `external_directory` decision before the
-tool's own `read` or `edit` decision. This applies to external paths used by
-`read`, `edit`, `write`, and `patch`, and to an external `shell` working
-directory.
+An external path checks `external_directory` before the tool's own `read`,
+`edit`, or `shell` action. This applies to external paths used by `read`,
+`edit`, `write`, and `patch`, and to an external `shell` working directory.
+
+For the built-in file tools, approving an `external_directory` prompt also
+approves the exact `read` or `edit` operation described by that prompt. This
+avoids asking once for the directory boundary and again for the same operation.
+A configured `deny` for that exact action and resource still blocks it. An
+external `shell` working directory does not approve the command itself, and
+when a directory boundary is already allowed by configuration, the tool's own
+action is evaluated normally.
 
 ```jsonc
 {
@@ -201,8 +208,8 @@ Saved approvals are durable and project-scoped. They are additional `allow`
 rules, but they can never override a configured `deny`. The proposed saved
 pattern may be broader than the displayed resource: several tools propose `*`,
 shell proposes the exact command text, and skills and subagents propose their
-IDs. Review the confirmation carefully and remove saved approvals that are no
-longer needed.
+IDs. Review the displayed scope carefully and remove saved approvals that are
+no longer needed.
 
 For non-interactive runs, `opencode2 run --auto` replies `once` to permission
 requests. It does not save approvals, and explicit `deny` rules remain enforced.

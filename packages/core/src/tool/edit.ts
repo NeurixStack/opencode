@@ -142,6 +142,7 @@ export const Plugin = {
                     yield* unableToEdit(
                       permission.assert({
                         ...LocationMutation.externalDirectoryPermission(external),
+                        metadata: { followup: { action: "edit", resources: [target.resource] } },
                         sessionID: context.sessionID,
                         agent: context.agent,
                         source: permissionSource,

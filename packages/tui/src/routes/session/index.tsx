@@ -931,7 +931,14 @@ export function Session() {
                 <Switch>
                   <Match when={composer.open || (!!session()?.parentID && forms().length === 0)}>{null}</Match>
                   <Match when={permissions().length > 0}>
-                    <PermissionPrompt request={permissions()[0]} directory={session()?.location.directory} />
+                    <Show when={permissions()[0]?.id} keyed>
+                      {(_) => {
+                        const request = permissions()[0]
+                        return request ? (
+                          <PermissionPrompt request={request} directory={session()?.location.directory} />
+                        ) : null
+                      }}
+                    </Show>
                   </Match>
                   <Match when={forms().length > 0}>
                     <Show when={forms()[0]?.id} keyed>

@@ -134,26 +134,110 @@ function TextBody(props: { title: string; description?: string; icon?: string })
   )
 }
 
+function preview(input?: string) {
+  const text = input?.trim()
+  if (!text) return ""
+  const lines = text.split("\n")
+  const first = lines[0]!.length > 60 ? `${lines[0]!.slice(0, 57)}...` : lines[0]!
+  return lines.length === 1 ? first : `${first} ... (+${lines.length - 1} lines)`
+}
+
+function text(input: unknown) {
+  return typeof input === "string" ? input : undefined
+}
+
+function ExternalBody(props: {
+  file?: string
+  dir?: string
+  preview?: string
+  content?: string
+  syntaxType?: string
+  expanded?: boolean
+  note?: string
+}) {
+  const themeState = useTheme()
+  const theme = themeState.theme
+  const dimensions = useTerminalDimensions()
+  return (
+    <box flexDirection="column" gap={1} paddingLeft={1} flexGrow={props.expanded ? 1 : 0}>
+      <Show when={props.file}>
+        <text fg={theme.textMuted}>{"File: " + props.file}</text>
+      </Show>
+      <Show when={props.dir}>
+        <text fg={theme.textMuted}>{"Directory: " + props.dir}</text>
+      </Show>
+      <Show when={props.content && (props.expanded || dimensions().width >= 50)}>
+        <box flexDirection="column" gap={1}>
+          <text fg={theme.textMuted}>Preview</text>
+          <Show
+            when={props.expanded}
+            fallback={
+              <box paddingLeft={1}>
+                <text fg={theme.text}>{props.preview}</text>
+              </box>
+            }
+          >
+            <scrollbox height="100%">
+              <code
+                filetype={props.syntaxType ?? "text"}
+                drawUnstyledText={false}
+                streaming={true}
+                syntaxStyle={themeState.syntax()}
+                content={props.content}
+                fg={theme.text}
+              />
+            </scrollbox>
+          </Show>
+        </box>
+      </Show>
+      <Show when={props.note}>
+        <text fg={theme.textMuted}>{props.note}</text>
+      </Show>
+    </box>
+  )
+}
+
 export function PermissionPrompt(props: { request: PermissionV2Request; directory?: string }) {
   const sdk = useSDK()
   const data = useData()
   const [store, setStore] = createStore({
     stage: "permission" as PermissionStage,
+    submitting: false,
   })
   const pathFormatter = usePathFormatter()
   const session = createMemo(() => data.session.get(props.request.sessionID))
 
-  const input = createMemo(() => {
+  const part = createMemo(() => {
     const tool = props.request.source
-    if (!tool) return {}
+    if (!tool) return
     const message = data.session.message.get(props.request.sessionID, tool.messageID)
-    if (message?.type !== "assistant") return {}
-    const part = message.content.find((part) => part.type === "tool" && part.id === tool.callID)
-    if (part?.type === "tool" && part.state.status !== "streaming") return part.state.input
+    if (message?.type !== "assistant") return
+    return message.content.find((part) => part.type === "tool" && part.id === tool.callID)
+  })
+
+  const input = createMemo(() => {
+    const current = part()
+    if (current?.type === "tool" && current.state.status !== "streaming") return current.state.input
     return {}
+  })
+  const toolName = createMemo(() => {
+    const current = part()
+    return current?.type === "tool" ? current.name : ""
   })
 
   const { theme } = useTheme()
+  const respond = (reply: "once" | "always" | "reject", message?: string) => {
+    if (store.submitting) return
+    setStore("submitting", true)
+    void sdk.api.permission
+      .reply({
+        sessionID: props.request.sessionID,
+        reply,
+        requestID: props.request.id,
+        message: message || undefined,
+      })
+      .catch(() => setStore("submitting", false))
+  }
 
   return (
     <Switch>
@@ -163,11 +247,11 @@ export function PermissionPrompt(props: { request: PermissionV2Request; director
           body={
             <Switch>
               <Match when={props.request.save?.length === 1 && props.request.save[0] === "*"}>
-                <TextBody title={"This will allow " + props.request.action + " until OpenCode is restarted."} />
+                <TextBody title={"This will allow all " + props.request.action + " requests for this project."} />
               </Match>
               <Match when={true}>
                 <box paddingLeft={1} gap={1}>
-                  <text fg={theme.textMuted}>This will allow the following patterns until OpenCode is restarted</text>
+                  <text fg={theme.textMuted}>This will save the following scopes for this project</text>
                   <box>
                     <For each={props.request.save ?? []}>
                       {(pattern) => (
@@ -187,23 +271,14 @@ export function PermissionPrompt(props: { request: PermissionV2Request; director
           onSelect={(option) => {
             setStore("stage", "permission")
             if (option === "cancel") return
-            void sdk.api.permission.reply({
-              sessionID: props.request.sessionID,
-              reply: "always",
-              requestID: props.request.id,
-            })
+            respond("always")
           }}
         />
       </Match>
       <Match when={store.stage === "reject"}>
         <RejectPrompt
           onConfirm={(message) => {
-            void sdk.api.permission.reply({
-              sessionID: props.request.sessionID,
-              reply: "reject",
-              requestID: props.request.id,
-              message: message || undefined,
-            })
+            respond("reject", message)
           }}
           onCancel={() => {
             setStore("stage", "permission")
@@ -291,6 +366,8 @@ export function PermissionPrompt(props: { request: PermissionV2Request; director
             if (permission === "shell") {
               const command = typeof data.command === "string" ? data.command : ""
               return {
+                icon: "#",
+                title: "Run shell command",
                 body: (
                   <Show when={command}>
                     <box paddingLeft={1}>
@@ -359,24 +436,86 @@ export function PermissionPrompt(props: { request: PermissionV2Request; director
               const pattern = props.request.resources[0]
               const derived =
                 typeof pattern === "string" ? (pattern.includes("*") ? dirname(pattern) : pattern) : undefined
+              const rawFile = text(data.path) ?? filepath
+              const file = pathFormatter.format(rawFile)
+              const dir = pathFormatter.format(parent ?? derived)
+              const saved = props.request.save?.[0]
+              const remembered = pathFormatter.format(saved && saved !== "*" ? dirname(saved) : (parent ?? derived))
+              const note = remembered ? `Allow always remembers access to ${remembered} for this project.` : undefined
+              const tool = toolName()
 
-              const raw = parent ?? filepath ?? derived
-              const dir = pathFormatter.format(raw)
-              const patterns = props.request.resources.filter((p): p is string => typeof p === "string")
-
+              if (tool === "write") {
+                const content = text(data.content)
+                return {
+                  icon: "→",
+                  title: "Write file outside workspace",
+                  body: (expanded: boolean) => (
+                    <ExternalBody
+                      file={file}
+                      dir={dir}
+                      preview={preview(content)}
+                      content={content}
+                      syntaxType={filetype(file)}
+                      expanded={expanded}
+                      note={note}
+                    />
+                  ),
+                }
+              }
+              if (tool === "edit") {
+                const oldString = text(data.oldString)
+                const newString = text(data.newString)
+                const content =
+                  oldString === undefined ? newString : ["Replace", oldString, "", "With", newString ?? ""].join("\n")
+                return {
+                  icon: "→",
+                  title: "Edit file outside workspace",
+                  body: (expanded: boolean) => (
+                    <ExternalBody
+                      file={file}
+                      dir={dir}
+                      preview={preview(newString)}
+                      content={content}
+                      syntaxType={filetype(file)}
+                      expanded={expanded}
+                      note={note}
+                    />
+                  ),
+                }
+              }
+              if (tool === "patch") {
+                const content = text(data.patchText)
+                return {
+                  icon: "→",
+                  title: "Apply patch outside workspace",
+                  body: (expanded: boolean) => (
+                    <ExternalBody
+                      dir={dir}
+                      preview={preview(content)}
+                      content={content}
+                      syntaxType="diff"
+                      expanded={expanded}
+                      note={note}
+                    />
+                  ),
+                }
+              }
+              if (tool === "read")
+                return {
+                  icon: "→",
+                  title: "Read outside workspace",
+                  body: <ExternalBody file={file} dir={dir} note={note} />,
+                }
+              if (tool === "shell")
+                return {
+                  icon: "←",
+                  title: "Access external working directory",
+                  body: <ExternalBody dir={dir} note={note} />,
+                }
               return {
                 icon: "←",
                 title: `Access external directory ${dir}`,
-                body: (
-                  <Show when={patterns.length > 0}>
-                    <box paddingLeft={1} gap={1}>
-                      <text fg={theme.textMuted}>Patterns</text>
-                      <box>
-                        <For each={patterns}>{(p) => <text fg={theme.text}>{"- " + p}</text>}</For>
-                      </box>
-                    </box>
-                  </Show>
-                ),
+                body: <ExternalBody file={file} dir={dir} note={note} />,
               }
             }
 
@@ -433,7 +572,11 @@ export function PermissionPrompt(props: { request: PermissionV2Request; director
                   : { once: "Allow once", reject: "Reject" }
               }
               escapeKey="reject"
-              fullscreen
+              fullscreen={
+                props.request.action === "edit" ||
+                props.request.action === "shell" ||
+                (props.request.action === "external_directory" && ["write", "edit", "patch"].includes(toolName()))
+              }
               onSelect={(option) => {
                 if (option === "always") {
                   setStore("stage", "always")
@@ -444,18 +587,10 @@ export function PermissionPrompt(props: { request: PermissionV2Request; director
                     setStore("stage", "reject")
                     return
                   }
-                  void sdk.api.permission.reply({
-                    sessionID: props.request.sessionID,
-                    reply: "reject",
-                    requestID: props.request.id,
-                  })
+                  respond("reject")
                   return
                 }
-                void sdk.api.permission.reply({
-                  sessionID: props.request.sessionID,
-                  reply: "once",
-                  requestID: props.request.id,
-                })
+                respond("once")
               }}
             />
           )
@@ -551,7 +686,7 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
 function Prompt<const T extends Record<string, string>>(props: {
   title: string
   header?: JSX.Element
-  body: JSX.Element
+  body: JSX.Element | ((expanded: boolean) => JSX.Element)
   options: T
   escapeKey?: keyof T
   fullscreen?: boolean
@@ -566,7 +701,16 @@ function Prompt<const T extends Record<string, string>>(props: {
     expanded: false,
   })
   const narrow = createMemo(() => dimensions().width < 80)
+  const compact = createMemo(() => dimensions().width < 50)
   const fullscreenHint = useCommandShortcut("permission.prompt.fullscreen")
+  const escapeHint = createMemo(() =>
+    props.escapeKey ? String(props.options[props.escapeKey]).toLocaleLowerCase() : undefined,
+  )
+  const body = () => (typeof props.body === "function" ? props.body(store.expanded) : props.body)
+  const shift = (direction: -1 | 1) => {
+    const idx = keys.indexOf(store.selected)
+    setStore("selected", keys[(idx + direction + keys.length) % keys.length])
+  }
 
   useBindings(() => ({
     mode: OPENCODE_BASE_MODE,
@@ -595,42 +739,40 @@ function Prompt<const T extends Record<string, string>>(props: {
         key: "left",
         desc: "Previous permission option",
         group: "Permission",
-        cmd: () => {
-          const idx = keys.indexOf(store.selected)
-          const next = keys[(idx - 1 + keys.length) % keys.length]
-          setStore("selected", next)
-        },
+        cmd: () => shift(-1),
       },
       {
         key: "h",
         desc: "Previous permission option",
         group: "Permission",
-        cmd: () => {
-          const idx = keys.indexOf(store.selected)
-          const next = keys[(idx - 1 + keys.length) % keys.length]
-          setStore("selected", next)
-        },
+        cmd: () => shift(-1),
       },
       {
         key: "right",
         desc: "Next permission option",
         group: "Permission",
-        cmd: () => {
-          const idx = keys.indexOf(store.selected)
-          const next = keys[(idx + 1) % keys.length]
-          setStore("selected", next)
-        },
+        cmd: () => shift(1),
       },
       {
         key: "l",
         desc: "Next permission option",
         group: "Permission",
-        cmd: () => {
-          const idx = keys.indexOf(store.selected)
-          const next = keys[(idx + 1) % keys.length]
-          setStore("selected", next)
-        },
+        cmd: () => shift(1),
       },
+      ...(!props.fullscreen
+        ? [
+            { key: "up", desc: "Previous permission option", group: "Permission", cmd: () => shift(-1) },
+            { key: "k", desc: "Previous permission option", group: "Permission", cmd: () => shift(-1) },
+            { key: "down", desc: "Next permission option", group: "Permission", cmd: () => shift(1) },
+            { key: "j", desc: "Next permission option", group: "Permission", cmd: () => shift(1) },
+          ]
+        : []),
+      ...keys.slice(0, 9).map((option, index) => ({
+        key: String(index + 1),
+        desc: `Select ${props.options[option]}`,
+        group: "Permission",
+        cmd: () => props.onSelect(option),
+      })),
       {
         key: "return",
         desc: "Select permission option",
@@ -665,7 +807,7 @@ function Prompt<const T extends Record<string, string>>(props: {
         ? { top: dimensions().height * -1 + 1, bottom: 1, left: 2, right: 2, position: "absolute" }
         : {
             top: 0,
-            maxHeight: 15,
+            maxHeight: narrow() ? Math.min(24, dimensions().height - 2) : 15,
             bottom: 0,
             left: 0,
             right: 0,
@@ -686,12 +828,12 @@ function Prompt<const T extends Record<string, string>>(props: {
             {props.header}
           </box>
         </Show>
-        {props.body}
+        {body()}
       </box>
       <box
         flexDirection={narrow() ? "column" : "row"}
         flexShrink={0}
-        gap={1}
+        gap={2}
         paddingTop={1}
         paddingLeft={2}
         paddingRight={3}
@@ -700,13 +842,13 @@ function Prompt<const T extends Record<string, string>>(props: {
         justifyContent={narrow() ? "flex-start" : "space-between"}
         alignItems={narrow() ? "flex-start" : "center"}
       >
-        <box flexDirection="row" gap={1} flexShrink={0}>
+        <box flexDirection={compact() ? "column" : "row"} gap={1} flexShrink={0}>
           <For each={keys}>
-            {(option) => (
+            {(option, index) => (
               <box
                 paddingLeft={1}
                 paddingRight={1}
-                backgroundColor={option === store.selected ? theme.warning : theme.backgroundMenu}
+                backgroundColor={option === store.selected ? theme.warning : undefined}
                 onMouseOver={() => setStore("selected", option)}
                 onMouseUp={() => {
                   setStore("selected", option)
@@ -714,13 +856,13 @@ function Prompt<const T extends Record<string, string>>(props: {
                 }}
               >
                 <text fg={option === store.selected ? selectedForeground(theme, theme.warning) : theme.textMuted}>
-                  {props.options[option]}
+                  {`${index() + 1}. ${props.options[option]}`}
                 </text>
               </box>
             )}
           </For>
         </box>
-        <box flexDirection="row" gap={2} flexShrink={0}>
+        <box flexDirection={compact() ? "column" : "row"} gap={compact() ? 0 : 2} flexShrink={0}>
           <Show when={props.fullscreen}>
             <text fg={theme.text}>
               {fullscreenHint()} <span style={{ fg: theme.textMuted }}>{hint()}</span>
@@ -732,6 +874,11 @@ function Prompt<const T extends Record<string, string>>(props: {
           <text fg={theme.text}>
             enter <span style={{ fg: theme.textMuted }}>confirm</span>
           </text>
+          <Show when={props.escapeKey}>
+            <text fg={theme.text}>
+              esc <span style={{ fg: theme.textMuted }}>{escapeHint()}</span>
+            </text>
+          </Show>
         </box>
       </box>
     </box>

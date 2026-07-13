@@ -15,6 +15,7 @@ const PermissionEffect = Permission.Effect
 export { PermissionEffect as Effect }
 export { Rule, Ruleset } from "@opencode-ai/schema/permission"
 const missingAgentPermissions: Permission.Ruleset = [{ action: "*", resource: "*", effect: "deny" }]
+const externalFollowupLimit = 256
 
 export const ID = Permission.ID
 export type ID = typeof ID.Type
@@ -108,9 +109,15 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Permission") {}
 
+interface ExternalFollowup {
+  readonly action: "edit" | "read"
+  readonly resources: ReadonlyArray<string>
+}
+
 interface Pending {
   readonly request: Request
   readonly agent?: AgentV2.ID
+  readonly externalFollowup?: ExternalFollowup
   readonly deferred: Deferred.Deferred<void, DeclinedError | CorrectedError>
 }
 
@@ -123,6 +130,7 @@ const layer = Layer.effect(
     const sessions = yield* SessionStore.Service
     const saved = yield* PermissionSaved.Service
     const pending = new Map<ID, Pending>()
+    const externalFollowups = new Map<string, ExternalFollowup>()
 
     yield* Effect.addFinalizer(() =>
       Effect.forEach(pending.values(), (item) => Deferred.fail(item.deferred, new DeclinedError()), {
@@ -131,6 +139,7 @@ const layer = Layer.effect(
         Effect.ensuring(
           Effect.sync(() => {
             pending.clear()
+            externalFollowups.clear()
           }),
         ),
       ),
@@ -178,11 +187,52 @@ const layer = Layer.effect(
       }
     }
 
-    const create = (request: Request, agent?: AgentV2.ID) =>
+    function sourceKey(input: Pick<AssertInput, "sessionID" | "source">) {
+      if (input.source?.type !== "tool") return
+      return JSON.stringify([input.sessionID, input.source.messageID, input.source.callID])
+    }
+
+    function externalFollowup(input: AssertInput) {
+      if (input.action !== "external_directory") return
+      const value = input.metadata?.followup
+      if (!value || typeof value !== "object" || Array.isArray(value)) return
+      const action = Reflect.get(value, "action")
+      const resources = Reflect.get(value, "resources")
+      if (action !== "edit" && action !== "read") return
+      if (!Array.isArray(resources) || !resources.every((resource) => typeof resource === "string")) return
+      return { action, resources: [...resources] } satisfies ExternalFollowup
+    }
+
+    function rememberExternalFollowup(input: Pending) {
+      if (!input.externalFollowup) return
+      const key = sourceKey(input.request)
+      if (!key) return
+      externalFollowups.set(key, input.externalFollowup)
+      if (externalFollowups.size > externalFollowupLimit) {
+        const oldest = externalFollowups.keys().next()
+        if (!oldest.done) externalFollowups.delete(oldest.value)
+      }
+      return key
+    }
+
+    function consumeExternalFollowup(input: AssertInput) {
+      const key = sourceKey(input)
+      if (!key) return false
+      const followup = externalFollowups.get(key)
+      if (!followup) return false
+      externalFollowups.delete(key)
+      return (
+        followup.action === input.action &&
+        followup.resources.length === input.resources.length &&
+        followup.resources.every((resource, index) => resource === input.resources[index])
+      )
+    }
+
+    const create = (request: Request, agent?: AgentV2.ID, followup?: ExternalFollowup) =>
       Effect.uninterruptible(
         Effect.gen(function* () {
           const deferred = yield* Deferred.make<void, DeclinedError | CorrectedError>()
-          const item = { request, agent, deferred }
+          const item = { request, agent, externalFollowup: followup, deferred }
           if (pending.has(request.id))
             return yield* Effect.die(new Error(`Duplicate pending permission ID: ${request.id}`))
           pending.set(request.id, item)
@@ -204,6 +254,7 @@ const layer = Layer.effect(
       Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const result = yield* evaluateInput(input)
+          const approved = consumeExternalFollowup(input)
           if (result.effect === "deny") {
             return yield* new BlockedError({
               rules: relevant(input, result.rules),
@@ -211,8 +262,9 @@ const layer = Layer.effect(
               resources: input.resources,
             })
           }
+          if (approved) return
           if (result.effect === "allow") return
-          const item = yield* create(request(input), input.agent)
+          const item = yield* create(request(input), input.agent, externalFollowup(input))
           return yield* restore(Deferred.await(item.deferred)).pipe(
             Effect.catchTag("PermissionV2.DeclinedError", (error) => Effect.die(error)),
             Effect.ensuring(
@@ -262,7 +314,9 @@ const layer = Layer.effect(
               resources: existing.request.save,
             })
           }
-          yield* Deferred.succeed(existing.deferred, undefined)
+          const followup = rememberExternalFollowup(existing)
+          const resumed = yield* Deferred.succeed(existing.deferred, undefined)
+          if (!resumed && followup) externalFollowups.delete(followup)
           pending.delete(input.requestID)
           if (input.reply !== "always" || !existing.request.save?.length) return
 

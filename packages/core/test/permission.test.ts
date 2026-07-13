@@ -86,7 +86,7 @@ function assertion(input: Partial<PermissionV2.AssertInput> = {}) {
   } satisfies PermissionV2.AssertInput
 }
 
-function waitForRequest() {
+function waitForRequest(input = assertion()) {
   return Effect.gen(function* () {
     const service = yield* PermissionV2.Service
     const events = yield* EventV2.Service
@@ -97,7 +97,7 @@ function waitForRequest() {
         : Effect.void,
     )
     yield* Effect.addFinalizer(() => unsubscribe)
-    const fiber = yield* service.assert(assertion()).pipe(Effect.forkScoped)
+    const fiber = yield* service.assert(input).pipe(Effect.forkScoped)
     const request = yield* Deferred.await(asked)
     return { service, fiber, request }
   })
@@ -263,6 +263,88 @@ describe("PermissionV2", () => {
       yield* Fiber.join(fiber)
       expect(yield* service.list()).toEqual([])
       expect(yield* service.get(request.id)).toBeUndefined()
+    }),
+  )
+
+  it.effect("uses external approval only for the exact blocking follow-up", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      const source = { type: "tool" as const, messageID: "msg_1", callID: "call_1" }
+      const followup = { action: "edit" as const, resources: ["/tmp/work/file.ts"] }
+      const external = yield* waitForRequest(
+        assertion({
+          id: PermissionV2.ID.create("per_external"),
+          action: "external_directory",
+          resources: ["/tmp/work/*"],
+          metadata: { followup },
+          source,
+        }),
+      )
+      yield* external.service.reply({ requestID: external.request.id, reply: "once" })
+      yield* Fiber.join(external.fiber)
+
+      yield* external.service.assert(assertion({ ...followup, source }))
+      expect(yield* external.service.list()).toEqual([])
+
+      const repeated = yield* waitForRequest(
+        assertion({ id: PermissionV2.ID.create("per_repeated"), ...followup, source }),
+      )
+      yield* repeated.service.reply({ requestID: repeated.request.id, reply: "reject" })
+      yield* Fiber.await(repeated.fiber)
+
+      const next = yield* waitForRequest(
+        assertion({
+          id: PermissionV2.ID.create("per_external_2"),
+          action: "external_directory",
+          resources: ["/tmp/work/*"],
+          metadata: { followup },
+          source,
+        }),
+      )
+      yield* next.service.reply({ requestID: next.request.id, reply: "once" })
+      yield* Fiber.join(next.fiber)
+
+      const mismatch = yield* waitForRequest(
+        assertion({
+          id: PermissionV2.ID.create("per_mismatch"),
+          action: "edit",
+          resources: ["/tmp/work/other.ts"],
+          source,
+        }),
+      )
+      yield* mismatch.service.reply({ requestID: mismatch.request.id, reply: "reject" })
+      yield* Fiber.await(mismatch.fiber)
+    }),
+  )
+
+  it.effect("does not retain an external follow-up after a configured denial", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      const source = { type: "tool" as const, messageID: "msg_2", callID: "call_2" }
+      const followup = { action: "edit" as const, resources: ["/tmp/work/file.ts"] }
+      const external = yield* waitForRequest(
+        assertion({
+          id: PermissionV2.ID.create("per_external_deny"),
+          action: "external_directory",
+          resources: ["/tmp/work/*"],
+          metadata: { followup },
+          source,
+        }),
+      )
+      yield* external.service.reply({ requestID: external.request.id, reply: "once" })
+      yield* Fiber.join(external.fiber)
+
+      yield* setRules([{ action: "edit", resource: "*", effect: "deny" }])
+      expect(yield* external.service.assert(assertion({ ...followup, source })).pipe(Effect.flip)).toBeInstanceOf(
+        PermissionV2.BlockedError,
+      )
+
+      yield* setRules([])
+      const afterDeny = yield* waitForRequest(
+        assertion({ id: PermissionV2.ID.create("per_after_deny"), ...followup, source }),
+      )
+      yield* afterDeny.service.reply({ requestID: afterDeny.request.id, reply: "reject" })
+      yield* Fiber.await(afterDeny.fiber)
     }),
   )
 
