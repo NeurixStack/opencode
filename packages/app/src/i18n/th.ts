@@ -804,9 +804,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "เลย์เอาต์ใหม่",
   "settings.general.row.newInterface.badge": "ใหม่",
   "settings.general.row.newInterface.description":
-    "ใช้แท็บใหม่และเลย์เอาต์หน้าแรก สลับระหว่างเลย์เอาต์ได้จนถึง {{date}}",
+    "ใช้แท็บใหม่และเลย์เอาต์หน้าแรก คุณสามารถสลับระหว่างเลย์เอาต์ได้ในช่วงเวลาจำกัด",
   "settings.general.row.newInterfaceNotice.title": "ขณะนี้คุณกำลังใช้เลย์เอาต์ใหม่",
-  "settings.general.row.newInterfaceNotice.description": "เลย์เอาต์ก่อนหน้าถูกยกเลิกเมื่อวันที่ {{date}}",
+  "settings.general.row.newInterfaceNotice.description": "เลย์เอาต์ก่อนหน้าไม่พร้อมใช้งานอีกต่อไป",
   "settings.general.row.newInterfaceNotice.dismiss": "ปิด",
   "settings.general.row.pinchZoom.title": "บีบนิ้วเพื่อซูม",
   "settings.general.row.pinchZoom.description": "อนุญาตให้ใช้ท่าบีบนิ้วบนแทร็คแพดและ Ctrl-scroll เพื่อซูม",

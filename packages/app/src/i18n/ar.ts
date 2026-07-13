@@ -738,9 +738,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "التخطيط الجديد",
   "settings.general.row.newInterface.badge": "جديد",
   "settings.general.row.newInterface.description":
-    "استخدم علامات التبويب الجديدة وتخطيط الصفحة الرئيسية. يمكنك التبديل بين التخطيطات حتى {{date}}.",
+    "استخدم علامات التبويب الجديدة وتخطيط الصفحة الرئيسية. يمكنك التبديل بين التخطيطات لفترة محدودة.",
   "settings.general.row.newInterfaceNotice.title": "أنت تستخدم الآن التخطيط الجديد",
-  "settings.general.row.newInterfaceNotice.description": "تم إيقاف التخطيط السابق في {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "التخطيط السابق لم يعد متاحًا",
   "settings.general.row.newInterfaceNotice.dismiss": "رفض",
   "settings.general.row.pinchZoom.title": "التكبير بإيماءة القرص",
   "settings.general.row.pinchZoom.description": "السماح بإيماءة القرص على لوحة اللمس وإيماءة Ctrl-scroll للتكبير",

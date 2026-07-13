@@ -905,9 +905,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Новий макет",
   "settings.general.row.newInterface.badge": "Нове",
   "settings.general.row.newInterface.description":
-    "Використовуйте нові вкладки та макет головної сторінки. Перемикайтеся між макетами до {{date}}.",
+    "Використовуйте нові вкладки та макет головної сторінки. Протягом обмеженого часу можна перемикатися між макетами.",
   "settings.general.row.newInterfaceNotice.title": "Тепер ви використовуєте новий макет",
-  "settings.general.row.newInterfaceNotice.description": "Попередній макет було виведено з експлуатації {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "Попередній макет більше недоступний",
   "settings.general.row.newInterfaceNotice.dismiss": "Відхилити",
   "settings.general.row.pinchZoom.title": "Масштабування щипком",
   "settings.general.row.pinchZoom.description":

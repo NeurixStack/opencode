@@ -815,9 +815,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Новая компоновка",
   "settings.general.row.newInterface.badge": "Новое",
   "settings.general.row.newInterface.description":
-    "Используйте новые вкладки и компоновку главной страницы. Переключаться между вариантами компоновки можно до {{date}}.",
+    "Используйте новые вкладки и компоновку главной страницы. В течение ограниченного времени можно переключаться между вариантами компоновки.",
   "settings.general.row.newInterfaceNotice.title": "Теперь вы используете новую компоновку",
-  "settings.general.row.newInterfaceNotice.description": "Прежняя компоновка была окончательно отключена {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "Прежняя компоновка больше недоступна",
   "settings.general.row.newInterfaceNotice.dismiss": "Закрыть",
   "settings.general.row.pinchZoom.title": "Масштабирование щипком",
   "settings.general.row.pinchZoom.description":

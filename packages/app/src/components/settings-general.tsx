@@ -24,7 +24,6 @@ import {
   sansInput,
   terminalDefault,
   terminalFontFamily,
-  formatOldInterfaceSunset,
   terminalInput,
   useSettings,
 } from "@/context/settings"
@@ -260,9 +259,7 @@ export const SettingsGeneral: Component = () => {
               <Tag variant="accent">{language.t("settings.general.row.newInterface.badge")}</Tag>
             </span>
           }
-          description={language.t("settings.general.row.newInterface.description", {
-            date: formatOldInterfaceSunset(language.intl(), true),
-          })}
+          description={language.t("settings.general.row.newInterface.description")}
         >
           <div data-action="settings-new-layout-designs">
             <Switch
@@ -286,9 +283,7 @@ export const SettingsGeneral: Component = () => {
       <SettingsList>
         <SettingsRow
           title={language.t("settings.general.row.newInterfaceNotice.title")}
-          description={language.t("settings.general.row.newInterfaceNotice.description", {
-            date: formatOldInterfaceSunset(language.intl()),
-          })}
+          description={language.t("settings.general.row.newInterfaceNotice.description")}
         >
           <Button size="small" variant="ghost" onClick={settings.general.dismissNewInterfaceNotice}>
             {language.t("settings.general.row.newInterfaceNotice.dismiss")}

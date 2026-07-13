@@ -819,9 +819,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Nuevo diseño",
   "settings.general.row.newInterface.badge": "Nuevo",
   "settings.general.row.newInterface.description":
-    "Usa las nuevas pestañas y el diseño de la página de inicio. Cambia entre los diseños hasta el {{date}}.",
+    "Usa las nuevas pestañas y el diseño de la página de inicio. Durante un tiempo limitado, puedes cambiar entre los diseños.",
   "settings.general.row.newInterfaceNotice.title": "Ahora estás usando el nuevo diseño",
-  "settings.general.row.newInterfaceNotice.description": "El diseño anterior se retiró el {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "El diseño anterior ya no está disponible",
   "settings.general.row.newInterfaceNotice.dismiss": "Descartar",
   "settings.general.row.pinchZoom.title": "Pellizcar para ampliar",
   "settings.general.row.pinchZoom.description":

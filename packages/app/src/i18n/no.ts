@@ -1098,9 +1098,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Nytt oppsett",
   "settings.general.row.newInterface.badge": "Ny",
   "settings.general.row.newInterface.description":
-    "Bruk de nye fanene og startsidens oppsett. Bytt mellom oppsettene frem til {{date}}.",
+    "Bruk de nye fanene og startsidens oppsett. I en begrenset periode kan du bytte mellom oppsettene.",
   "settings.general.row.newInterfaceNotice.title": "Du bruker nå det nye oppsettet",
-  "settings.general.row.newInterfaceNotice.description": "Det forrige oppsettet ble faset ut {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "Det forrige oppsettet er ikke lenger tilgjengelig",
   "settings.general.row.newInterfaceNotice.dismiss": "Avvis",
   "settings.general.row.pinchZoom.title": "Knip for å zoome",
   "settings.general.row.pinchZoom.description": "Tillat knipebevegelser på styreflaten og Ctrl-rulling for å zoome",

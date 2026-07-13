@@ -762,9 +762,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Neues Layout",
   "settings.general.row.newInterface.badge": "Neu",
   "settings.general.row.newInterface.description":
-    "Verwenden Sie die neuen Tabs und das Startseitenlayout. Sie können bis zum {{date}} zwischen den Layouts wechseln.",
+    "Verwenden Sie die neuen Tabs und das Startseitenlayout. Für begrenzte Zeit können Sie zwischen den Layouts wechseln.",
   "settings.general.row.newInterfaceNotice.title": "Sie verwenden jetzt das neue Layout",
-  "settings.general.row.newInterfaceNotice.description": "Das vorherige Layout wurde am {{date}} eingestellt.",
+  "settings.general.row.newInterfaceNotice.description": "Das vorherige Layout ist nicht mehr verfügbar",
   "settings.general.row.newInterfaceNotice.dismiss": "Verwerfen",
   "settings.general.row.pinchZoom.title": "Zoom per Fingergeste",
   "settings.general.row.pinchZoom.description": "Zoomen per Zwei-Finger- und Ctrl-Scroll-Geste erlauben",

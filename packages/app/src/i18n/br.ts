@@ -749,9 +749,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Novo layout",
   "settings.general.row.newInterface.badge": "Novo",
   "settings.general.row.newInterface.description":
-    "Use as novas abas e o layout da página inicial. Alterne entre os layouts até {{date}}.",
+    "Use as novas abas e o layout da página inicial. Alterne entre os layouts por tempo limitado.",
   "settings.general.row.newInterfaceNotice.title": "Agora você está usando o novo layout",
-  "settings.general.row.newInterfaceNotice.description": "O layout anterior foi descontinuado em {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "O layout anterior não está mais disponível",
   "settings.general.row.newInterfaceNotice.dismiss": "Descartar",
   "settings.general.row.pinchZoom.title": "Zoom com gesto de pinça",
   "settings.general.row.pinchZoom.description":

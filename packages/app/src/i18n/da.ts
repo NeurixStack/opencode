@@ -807,9 +807,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Nyt layout",
   "settings.general.row.newInterface.badge": "Ny",
   "settings.general.row.newInterface.description":
-    "Brug de nye faner og startsidens layout. Skift mellem layoutene indtil {{date}}.",
+    "Brug de nye faner og startsidens layout. Du kan skifte mellem layoutene i en begrænset periode.",
   "settings.general.row.newInterfaceNotice.title": "Du bruger nu det nye layout",
-  "settings.general.row.newInterfaceNotice.description": "Det tidligere layout blev udfaset den {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "Det tidligere layout er ikke længere tilgængeligt",
   "settings.general.row.newInterfaceNotice.dismiss": "Afvis",
   "settings.general.row.pinchZoom.title": "Knib for at zoome",
   "settings.general.row.pinchZoom.description": "Tillad knibebevægelser på pegefeltet og Ctrl-rulning for at zoome",

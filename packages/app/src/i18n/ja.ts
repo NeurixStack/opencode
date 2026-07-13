@@ -744,9 +744,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "新しいレイアウト",
   "settings.general.row.newInterface.badge": "新機能",
   "settings.general.row.newInterface.description":
-    "新しいタブとホーム画面のレイアウトを使用します。{{date}}まではレイアウトを切り替えられます。",
+    "新しいタブとホーム画面のレイアウトを使用します。期間限定でレイアウトを切り替えられます。",
   "settings.general.row.newInterfaceNotice.title": "新しいレイアウトを使用しています",
-  "settings.general.row.newInterfaceNotice.description": "以前のレイアウトは{{date}}に廃止されました。",
+  "settings.general.row.newInterfaceNotice.description": "以前のレイアウトは利用できなくなりました",
   "settings.general.row.newInterfaceNotice.dismiss": "閉じる",
   "settings.general.row.pinchZoom.title": "ピンチでズーム",
   "settings.general.row.pinchZoom.description":

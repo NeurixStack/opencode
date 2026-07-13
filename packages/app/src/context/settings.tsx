@@ -60,21 +60,6 @@ export const newLayoutDesignsDefault = true
 // Existing users can switch layouts until local midnight on this date. Set new Date(YYYY, M-1, D) to show.
 export const oldInterfaceSunset = null as Date | null
 
-export function formatOldInterfaceSunset(locale: string, ordinal = false, sunset = oldInterfaceSunset) {
-  if (!sunset) return ""
-  const date = new Intl.DateTimeFormat(locale, { month: "long", day: "numeric" }).format(sunset)
-  if (!ordinal || !locale.startsWith("en")) return date
-  return `${date}${ordinalSuffix(sunset.getDate())}`
-}
-
-function ordinalSuffix(day: number) {
-  if (day % 100 >= 11 && day % 100 <= 13) return "th"
-  if (day % 10 === 1) return "st"
-  if (day % 10 === 2) return "nd"
-  if (day % 10 === 3) return "rd"
-  return "th"
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }

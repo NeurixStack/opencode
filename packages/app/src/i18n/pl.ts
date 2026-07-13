@@ -749,9 +749,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Nowy układ",
   "settings.general.row.newInterface.badge": "Nowość",
   "settings.general.row.newInterface.description":
-    "Używaj nowych kart i układu strony głównej. Możesz przełączać się między układami do {{date}}.",
+    "Używaj nowych kart i układu strony głównej. Przez ograniczony czas możesz przełączać się między układami.",
   "settings.general.row.newInterfaceNotice.title": "Korzystasz teraz z nowego układu",
-  "settings.general.row.newInterfaceNotice.description": "Poprzedni układ został wycofany {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "Poprzedni układ nie jest już dostępny",
   "settings.general.row.newInterfaceNotice.dismiss": "Odrzuć",
   "settings.general.row.pinchZoom.title": "Powiększanie gestem szczypania",
   "settings.general.row.pinchZoom.description":

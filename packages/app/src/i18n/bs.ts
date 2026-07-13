@@ -814,9 +814,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "Novi raspored",
   "settings.general.row.newInterface.badge": "Novo",
   "settings.general.row.newInterface.description":
-    "Koristite nove kartice i raspored početne stranice. Prebacujte se između rasporeda do {{date}}.",
+    "Koristite nove kartice i raspored početne stranice. Ograničeno vrijeme možete se prebacivati između rasporeda.",
   "settings.general.row.newInterfaceNotice.title": "Sada koristite novi raspored",
-  "settings.general.row.newInterfaceNotice.description": "Prethodni raspored je ukinut {{date}}.",
+  "settings.general.row.newInterfaceNotice.description": "Prethodni raspored više nije dostupan",
   "settings.general.row.newInterfaceNotice.dismiss": "Odbaci",
   "settings.general.row.pinchZoom.title": "Zumiranje štipanjem",
   "settings.general.row.pinchZoom.description":

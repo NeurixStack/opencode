@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test"
 import {
-  formatOldInterfaceSunset,
   hasMeaningfulLayoutData,
   layoutTransitionState,
   maximumSunsetTimeout,
@@ -34,15 +33,8 @@ describe("layout transition", () => {
     expect(resolveLayoutTransitionClassification(true, false)).toBe(true)
   })
 
-  test("formats the English deadline with an ordinal before sunset", () => {
-    const sunset = new Date(2026, 7, 6)
-    expect(formatOldInterfaceSunset("en-US", true, sunset)).toBe("August 6th")
-    expect(formatOldInterfaceSunset("en-US", false, sunset)).toBe("August 6")
-  })
-
   test("hides the transition until a sunset is scheduled", () => {
     expect(layoutTransitionState(false, true, false, false)).toEqual({ available: false, notice: false })
-    expect(formatOldInterfaceSunset("en-US")).toBe("")
   })
 
   test("existing profiles can switch before sunset", () => {

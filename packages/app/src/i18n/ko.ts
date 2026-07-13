@@ -1002,9 +1002,9 @@ export const dict = {
   "settings.general.row.newInterface.title": "새 레이아웃",
   "settings.general.row.newInterface.badge": "신규",
   "settings.general.row.newInterface.description":
-    "새 탭과 홈 화면 레이아웃을 사용합니다. {{date}}까지 레이아웃을 전환할 수 있습니다.",
+    "새 탭과 홈 화면 레이아웃을 사용합니다. 제한된 기간 동안 레이아웃을 전환할 수 있습니다.",
   "settings.general.row.newInterfaceNotice.title": "이제 새 레이아웃을 사용 중입니다",
-  "settings.general.row.newInterfaceNotice.description": "이전 레이아웃은 {{date}}에 사용이 중단되었습니다.",
+  "settings.general.row.newInterfaceNotice.description": "이전 레이아웃은 더 이상 사용할 수 없습니다",
   "settings.general.row.newInterfaceNotice.dismiss": "닫기",
   "settings.general.row.pinchZoom.title": "핀치 줌",
   "settings.general.row.pinchZoom.description": "트랙패드 핀치 및 Ctrl-스크롤 제스처로 확대/축소 허용",
