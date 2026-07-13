@@ -149,8 +149,8 @@ describe("request option precedence", () => {
         }),
       ).pipe(Effect.flip)
 
-      expect(error.reason).toMatchObject({
-        _tag: "InvalidRequest",
+      expect(error).toMatchObject({
+        _tag: "LLM.BadRequest",
         message: "http.body cannot overlay protocol-owned field(s): model, messages, tools",
       })
     }),

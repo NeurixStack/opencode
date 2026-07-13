@@ -2,7 +2,7 @@ import { EventStreamCodec } from "@smithy/eventstream-codec"
 import { fromUtf8, toUtf8 } from "@smithy/util-utf8"
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
-import { CacheHint, LLM, Message, ToolCallPart, ToolChoice } from "../../src"
+import { CacheHint, isLLMError, LLM, Message, ToolCallPart, ToolChoice } from "../../src"
 import { LLMClient } from "../../src/route"
 import { AmazonBedrock } from "../../src/providers"
 import * as BedrockConverse from "../../src/protocols/bedrock-converse"
@@ -355,33 +355,31 @@ describe("Bedrock Converse route", () => {
     }),
   )
 
-  it.effect("emits provider-error for throttlingException", () =>
+  it.effect("fails the stream for throttlingException", () =>
     Effect.gen(function* () {
       const body = eventStreamBody(
         ["messageStart", { role: "assistant" }],
         ["throttlingException", { message: "Slow down" }],
       )
-      const response = yield* LLMClient.generate(baseRequest).pipe(Effect.provide(fixedBytes(body)))
+      const error = yield* LLMClient.generate(baseRequest).pipe(Effect.provide(fixedBytes(body)), Effect.flip)
 
-      expect(response.events.find((event) => event.type === "provider-error")).toEqual({
-        type: "provider-error",
-        message: "Slow down",
-      })
+      expect(isLLMError(error)).toBe(true)
+      expect(error).toMatchObject({ _tag: "LLM.RateLimit", message: "Slow down" })
     }),
   )
 
   it.effect("classifies input-too-long validation exceptions", () =>
     Effect.gen(function* () {
-      const response = yield* LLMClient.generate(baseRequest).pipe(
+      const error = yield* LLMClient.generate(baseRequest).pipe(
         Effect.provide(
           fixedBytes(eventStreamBody(["validationException", { message: "Input is too long for requested model" }])),
         ),
+        Effect.flip,
       )
 
-      expect(response.events.find((event) => event.type === "provider-error")).toEqual({
-        type: "provider-error",
+      expect(error).toMatchObject({
+        _tag: "LLM.ContextOverflow",
         message: "Input is too long for requested model",
-        classification: "context-overflow",
       })
     }),
   )

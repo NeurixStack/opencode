@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer, Ref } from "effect"
 import { Headers, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
-import { LLM, LLMError } from "../src"
+import { LLM, isLLMError, type LLMError } from "../src"
 import { LLMClient, RequestExecutor } from "../src/route"
 import * as OpenAIChat from "../src/protocols/openai-chat"
 import { dynamicResponse } from "./lib/http"
@@ -59,12 +59,12 @@ const countedResponsesLayer = (attempts: Ref.Ref<number>, responses: ReadonlyArr
   )
 
 const expectLLMError = (error: unknown) => {
-  expect(error).toBeInstanceOf(LLMError)
-  if (!(error instanceof LLMError)) throw new Error("expected LLMError")
+  expect(isLLMError(error)).toBe(true)
+  if (!isLLMError(error)) throw new Error("expected LLMError")
   return error
 }
 
-const errorHttp = (error: LLMError) => ("http" in error.reason ? error.reason.http : undefined)
+const errorHttp = (error: LLMError) => ("http" in error ? error.http : undefined)
 
 describe("RequestExecutor", () => {
   it.effect("classifies context overflow responses", () =>
@@ -73,7 +73,7 @@ describe("RequestExecutor", () => {
       const error = yield* executor.execute(request).pipe(Effect.flip)
 
       expectLLMError(error)
-      expect(error.reason).toMatchObject({ _tag: "InvalidRequest", classification: "context-overflow" })
+      expect(error).toMatchObject({ _tag: "LLM.ContextOverflow" })
     }).pipe(
       Effect.provide(
         responsesLayer([
@@ -91,8 +91,7 @@ describe("RequestExecutor", () => {
       const error = yield* executor.execute(request).pipe(Effect.flip)
 
       expectLLMError(error)
-      expect(error.reason).toMatchObject({ _tag: "InvalidRequest" })
-      expect("classification" in error.reason ? error.reason.classification : undefined).toBeUndefined()
+      expect(error).toMatchObject({ _tag: "LLM.BadRequest" })
     }).pipe(Effect.provide(responsesLayer([new Response("request too large", { status: 413 })]))),
   )
 
@@ -102,8 +101,7 @@ describe("RequestExecutor", () => {
       const error = yield* executor.execute(request).pipe(Effect.flip)
 
       expectLLMError(error)
-      expect(error.reason).toMatchObject({ _tag: "InvalidRequest" })
-      expect("classification" in error.reason ? error.reason.classification : undefined).toBeUndefined()
+      expect(error).toMatchObject({ _tag: "LLM.BadRequest" })
     }).pipe(Effect.provide(responsesLayer([new Response("invalid parameter", { status: 400 })]))),
   )
 
@@ -114,24 +112,22 @@ describe("RequestExecutor", () => {
 
       expectLLMError(error)
       expect(error).toMatchObject({
-        reason: {
-          _tag: "RateLimit",
-          retryAfterMs: 0,
-          rateLimit: { retryAfterMs: 0 },
-          http: {
-            requestId: "req_123",
-            request: {
-              method: "POST",
-              url: "https://provider.test/v1/chat?api_key=%3Credacted%3E&key=%3Credacted%3E&debug=1",
-              headers: { authorization: "<redacted>", "x-safe": "visible" },
-            },
-            response: {
-              status: 429,
-              headers: {
-                "retry-after-ms": "0",
-                "x-request-id": "req_123",
-                "x-api-key": "<redacted>",
-              },
+        _tag: "LLM.RateLimit",
+        retryAfterMs: 0,
+        rateLimit: { retryAfterMs: 0 },
+        http: {
+          requestId: "req_123",
+          request: {
+            method: "POST",
+            url: "https://provider.test/v1/chat?api_key=%3Credacted%3E&key=%3Credacted%3E&debug=1",
+            headers: { authorization: "<redacted>", "x-safe": "visible" },
+          },
+          response: {
+            status: 429,
+            headers: {
+              "retry-after-ms": "0",
+              "x-request-id": "req_123",
+              "x-api-key": "<redacted>",
             },
           },
         },
@@ -169,8 +165,8 @@ describe("RequestExecutor", () => {
       const error = yield* executor.execute(request).pipe(Effect.flip)
 
       expectLLMError(error)
-      expect(error.reason).toMatchObject({ _tag: "RateLimit" })
-      expect(error.reason._tag === "RateLimit" ? error.reason.rateLimit : undefined).toEqual({
+      expect(error).toMatchObject({ _tag: "LLM.RateLimit" })
+      expect(error._tag === "LLM.RateLimit" ? error.rateLimit : undefined).toEqual({
         retryAfterMs: 0,
         limit: { requests: "500", tokens: "30000" },
         remaining: { requests: "499", tokens: "29900" },
@@ -202,7 +198,7 @@ describe("RequestExecutor", () => {
       const error = yield* executor.execute(request).pipe(Effect.flip)
 
       expectLLMError(error)
-      expect(error.reason).toMatchObject({ _tag: "ProviderInternal" })
+      expect(error).toMatchObject({ _tag: "LLM.ServerError" })
       expect(errorHttp(error)?.rateLimit).toEqual({
         retryAfterMs: 0,
         limit: { requests: "100", "input-tokens": "10000" },
@@ -245,12 +241,12 @@ describe("RequestExecutor", () => {
       )
 
       expectLLMError(error)
-      expect(error.reason).toMatchObject({ _tag: "ProviderInternal", status: 503 })
+      expect(error).toMatchObject({ _tag: "LLM.ServerError", status: 503 })
       expect(yield* Ref.get(attempts)).toBe(1)
     }),
   )
 
-  it.effect("marks 504 and 529 status responses as provider-internal", () =>
+  it.effect("marks 504 and 529 status responses as server errors", () =>
     Effect.gen(function* () {
       const failWith = (status: number) =>
         Effect.gen(function* () {
@@ -258,7 +254,7 @@ describe("RequestExecutor", () => {
           const error = yield* executor.execute(request).pipe(Effect.flip)
 
           expectLLMError(error)
-          expect(error.reason).toMatchObject({ _tag: "ProviderInternal", status })
+          expect(error).toMatchObject({ _tag: "LLM.ServerError", status })
         }).pipe(
           Effect.provide(
             responsesLayer([
@@ -281,7 +277,7 @@ describe("RequestExecutor", () => {
       const error = yield* executor.execute(request).pipe(Effect.flip)
 
       expectLLMError(error)
-      expect(error.reason).toMatchObject({ _tag: "Authentication" })
+      expect(error).toMatchObject({ _tag: "LLM.Authentication" })
       expect(errorHttp(error)?.bodyTruncated).toBe(true)
       expect(errorHttp(error)?.body).toHaveLength(16_384)
     }).pipe(
@@ -360,7 +356,7 @@ describe("RequestExecutor", () => {
       )
 
       expectLLMError(error)
-      expect(error.reason).toMatchObject({ _tag: "InvalidProviderOutput" })
+      expect(error).toMatchObject({ _tag: "LLM.MalformedResponse" })
       expect(yield* Ref.get(attempts)).toBe(1)
     }),
   )

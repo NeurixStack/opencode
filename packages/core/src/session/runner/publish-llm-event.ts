@@ -428,10 +428,6 @@ export const createLLMEventPublisher = (events: Pick<EventV2.Interface, "publish
         return
       case "finish":
         return
-      case "provider-error":
-        providerFailed = true
-        yield* failAssistant({ type: "provider.unknown", message: event.message }, true)
-        return
     }
   })
 

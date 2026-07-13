@@ -3,9 +3,9 @@ import { Effect, Schema, Stream } from "effect"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { Headers, HttpClientRequest } from "effect/unstable/http"
 import {
-  InvalidProviderOutputReason,
-  InvalidRequestReason,
-  LLMError,
+  BadRequest,
+  MalformedResponse,
+  type LLMError,
   type ContentPart,
   type LLMRequest,
   type MediaPart,
@@ -88,11 +88,7 @@ export const sumTokens = (...values: ReadonlyArray<number | undefined>): number 
 }
 
 export const eventError = (route: string, message: string, raw?: string) =>
-  new LLMError({
-    module: "ProviderShared",
-    method: "stream",
-    reason: new InvalidProviderOutputReason({ route, message, raw }),
-  })
+  new MalformedResponse({ route, message, raw })
 
 export const parseJson = (route: string, input: string, message: string) =>
   Effect.try({
@@ -252,15 +248,9 @@ export const sseFraming = (bytes: Stream.Stream<Uint8Array, LLMError>): Stream.S
  * Canonical invalid-request constructor. Lift one-line `const invalid =
  * (message) => invalidRequest(message)` aliases out of every
  * route so the error constructor lives in one place. If we ever extend
- * `InvalidRequestReason` with route context or trace metadata, the change
- * lands here.
+ * `BadRequest` with route context or trace metadata, the change lands here.
  */
-export const invalidRequest = (message: string) =>
-  new LLMError({
-    module: "ProviderShared",
-    method: "request",
-    reason: new InvalidRequestReason({ message }),
-  })
+export const invalidRequest = (message: string) => new BadRequest({ message })
 
 export const matchToolChoice = <Auto, None, Required, Tool>(
   route: string,

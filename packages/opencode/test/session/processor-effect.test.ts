@@ -219,8 +219,7 @@ const fragmentFailureLLM = Layer.succeed(
         LLMEvent.reasoningDelta({ id: "reasoning-1", text: "thinking" }),
         LLMEvent.textStart({ id: "text-1" }),
         LLMEvent.textDelta({ id: "text-1", text: "partial" }),
-        LLMEvent.providerError({ message: "provider boom" }),
-      ),
+      ).pipe(Stream.concat(Stream.fail(new Error("provider boom")))),
   }),
 )
 const fragmentFailureEnv = LayerNode.compile(root, [...replacements, [LLM.node, fragmentFailureLLM]])

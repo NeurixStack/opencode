@@ -1,6 +1,6 @@
 export * as SessionTitle from "./title"
 
-import { LLM, LLMClient, LLMError, LLMEvent, Message, type LLMRequest } from "@opencode-ai/llm"
+import { LLM, LLMClient, LLMEvent, Message, isLLMError, type LLMError, type LLMRequest } from "@opencode-ai/llm"
 import { Context, DateTime, Effect, Layer, Stream } from "effect"
 import { AgentV2 } from "../agent"
 import { Database } from "../database/database"
@@ -49,7 +49,6 @@ const make = (dependencies: Dependencies) => {
     ).pipe(Effect.catch(() => Effect.succeed(undefined)))
     if (!resolved) return
     const chunks: string[] = []
-    let failed = false
     const streamed = yield* dependencies.llm
       .stream(
         LLM.request({
@@ -61,14 +60,13 @@ const make = (dependencies: Dependencies) => {
       )
       .pipe(
         Stream.runForEach((event) => {
-          if (LLMEvent.is.providerError(event)) failed = true
           if (LLMEvent.is.textDelta(event)) chunks.push(event.text)
           return Effect.void
         }),
         Effect.as(true),
-        Effect.catchTag("LLM.Error", () => Effect.succeed(false)),
+        Effect.catchIf(isLLMError, () => Effect.succeed(false)),
       )
-    if (!streamed || failed) return
+    if (!streamed) return
     const title = chunks
       .join("")
       .split("\n")

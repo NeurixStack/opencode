@@ -182,8 +182,8 @@ The dependency arrow points down: `providers/*.ts` files import protocol routes 
 - `joinText(parts)` — joins an array of `TextPart` (or anything with a `.text`) with newlines. Use this anywhere a protocol flattens text content into a single string for a provider field.
 - `parseToolInput(route, name, raw)` — Schema-decodes a tool-call argument string with the canonical "Invalid JSON input for `<route>` tool call `<name>`" error message. Treats empty input as `{}`.
 - `parseJson(route, raw, message)` — generic JSON-via-Schema decode for non-tool bodies.
-- `eventError(route, message, ...)` — typed `InvalidProviderOutput` constructor for stream-time decode failures.
-- `validateWith(decoder)` — maps Schema decode errors to `InvalidRequest`. `Route.make(...)` uses this for body validation; lower-level routes can reuse it.
+- `eventError(route, message, ...)` — typed `MalformedResponse` constructor for stream-time decode failures.
+- `validateWith(decoder)` — maps Schema decode errors to `BadRequest`. `Route.make(...)` uses this for body validation; lower-level routes can reuse it.
 - `matchToolChoice(provider, choice, branches)` — branches over `LLMRequest["toolChoice"]` for provider-specific lowering.
 
 If you find yourself copying a 3-to-5-line snippet between two protocols, lift it into `ProviderShared` next to these helpers rather than duplicating.
@@ -291,7 +291,7 @@ Use this order for every protocol module:
 
 - Keep protocol files focused on the protocol. Move provider-specific projection, signing, media normalization, or other bulky transformations into `src/protocols/utils/*`.
 - Use `Effect.fn("Provider.fromRequest")` for request body construction entrypoints. Use `Effect.fn(...)` for event handlers that yield effects; keep purely synchronous handlers as plain functions returning a `StepResult` that the dispatcher lifts via `Effect.succeed(...)`.
-- Parser state owns terminal information. The state machine records finish reason, usage, and pending tool calls; emit one terminal `finish` event (or `provider-error`) for each completed response. If a provider splits reason and usage across events, merge them in parser state before flushing.
+- Parser state owns terminal information. The state machine records finish reason, usage, and pending tool calls; emit one terminal `finish` event for each completed response. Provider-reported failures (SSE error events, exception frames) fail the stream with a typed `LLMError` via `classifyApiFailure` — never an ordinary event. If a provider splits reason and usage across events, merge them in parser state before flushing.
 - Emit exactly one terminal `finish` event for a completed response, normally after a matching `step-finish`. Use `stream.terminal` to stop reading when the provider has a completion sentinel; use `stream.onHalt` when the final event must be flushed after the framed stream ends.
 - Use shared helpers for repeated protocol policy such as text joining, usage totals, JSON parsing, and tool-call accumulation. `ToolStream` (`protocols/utils/tool-stream.ts`) accumulates streamed tool-call arguments uniformly.
 - Make intentional provider differences explicit in helper names or comments. If two protocol files differ visually, the reason should be obvious from the names.

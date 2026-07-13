@@ -15,20 +15,43 @@ import type {
   SharedV3ProviderOptions,
 } from "@ai-sdk/provider"
 import {
+  APIError,
+  Authentication,
+  BadRequest,
+  ConnectionError,
   FinishReason,
-  InvalidProviderOutputReason,
+  HttpContext,
+  HttpRequestDetails,
+  HttpResponseDetails,
   LLMEvent,
-  LLMError,
+  MalformedResponse,
   Model,
+  NotFound,
   ProviderID,
   ProviderMetadata,
   ToolResultValue,
-  UnknownProviderReason,
+  classifyApiFailure,
+  isLLMError,
+  type LLMError,
   type ContentPart,
   type LLMRequest,
   type ToolDefinition,
   type UsageInput,
 } from "@opencode-ai/llm"
+import {
+  APICallError,
+  EmptyResponseBodyError,
+  InvalidArgumentError,
+  InvalidPromptError,
+  InvalidResponseDataError,
+  JSONParseError,
+  LoadAPIKeyError,
+  LoadSettingError,
+  NoContentGeneratedError,
+  NoSuchModelError,
+  TypeValidationError,
+  UnsupportedFunctionalityError,
+} from "@ai-sdk/provider"
 import { Auth, Endpoint, type AnyRoute } from "@opencode-ai/llm/route"
 import { Cause, Context, Effect, Layer, Option, Schema, Scope, Stream } from "effect"
 import { ModelV2 } from "./model"
@@ -490,12 +513,12 @@ function streamLanguage(language: LanguageModelV3, options: LanguageModelV3CallO
     Stream.unwrap(
       Effect.tryPromise({
         try: () => language.doStream(options),
-        catch: (error) => llmError("doStream", error),
+        catch: (error) => llmError(error),
       }).pipe(
         Effect.map((result) =>
           Stream.fromReadableStream({
             evaluate: () => result.stream,
-            onError: (error) => llmError("readStream", error),
+            onError: (error) => llmError(error),
           }).pipe(
             Stream.mapEffect((event) => streamPartEvents(state, event)),
             Stream.flatMap((events) => Stream.fromIterable(events)),
@@ -608,7 +631,7 @@ function streamPartEvents(
         }),
       ])
     case "error":
-      return Effect.fail(llmError("stream", event.error))
+      return Effect.fail(llmError(event.error))
   }
 }
 
@@ -666,16 +689,65 @@ function messageValue(input: unknown) {
   }
 }
 
-function llmError(method: string, error: unknown) {
-  const reason =
-    error instanceof LLMError
-      ? new InvalidProviderOutputReason({ message: error.message })
-      : new UnknownProviderReason({ message: error instanceof Error ? error.message : String(error) })
-  return new LLMError({
-    module: "AISDK",
-    method,
-    reason,
-  })
+const BODY_LIMIT = 16_384
+
+const headerRetryAfterMs = (headers: Record<string, string> | undefined) => {
+  if (!headers) return undefined
+  const millis = Number(headers["retry-after-ms"])
+  if (Number.isFinite(millis)) return Math.max(0, millis)
+  const value = headers["retry-after"]
+  if (!value) return undefined
+  const seconds = Number(value)
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+  const date = Date.parse(value)
+  if (!Number.isNaN(date)) return Math.max(0, date - Date.now())
+  return undefined
+}
+
+// Classify AI SDK failures into the shared `LLMError` union so the synthetic
+// AI SDK route reports failures identically to native protocol routes. An
+// `APICallError` without a status code is the AI SDK's representation of a
+// network-level failure (connect refused, reset, DNS), not an API rejection.
+function llmError(error: unknown): LLMError {
+  if (isLLMError(error)) return error
+  if (APICallError.isInstance(error)) {
+    if (error.statusCode === undefined) {
+      return new ConnectionError({ message: error.message, url: error.url, cause: error })
+    }
+    return classifyApiFailure({
+      message: error.message,
+      status: error.statusCode,
+      retryAfterMs: headerRetryAfterMs(error.responseHeaders),
+      requestID: error.responseHeaders?.["x-request-id"] ?? error.responseHeaders?.["request-id"],
+      http: new HttpContext({
+        request: new HttpRequestDetails({ method: "POST", url: error.url, headers: {} }),
+        response: new HttpResponseDetails({ status: error.statusCode, headers: error.responseHeaders ?? {} }),
+        body: error.responseBody === undefined ? undefined : error.responseBody.slice(0, BODY_LIMIT),
+        bodyTruncated: error.responseBody !== undefined && error.responseBody.length > BODY_LIMIT ? true : undefined,
+      }),
+    })
+  }
+  if (LoadAPIKeyError.isInstance(error) || LoadSettingError.isInstance(error)) {
+    return new Authentication({ message: error.message })
+  }
+  if (NoSuchModelError.isInstance(error)) return new NotFound({ message: error.message })
+  if (
+    InvalidPromptError.isInstance(error) ||
+    InvalidArgumentError.isInstance(error) ||
+    UnsupportedFunctionalityError.isInstance(error)
+  ) {
+    return new BadRequest({ message: error.message })
+  }
+  if (
+    InvalidResponseDataError.isInstance(error) ||
+    JSONParseError.isInstance(error) ||
+    TypeValidationError.isInstance(error) ||
+    EmptyResponseBodyError.isInstance(error) ||
+    NoContentGeneratedError.isInstance(error)
+  ) {
+    return new MalformedResponse({ message: error.message })
+  }
+  return new APIError({ message: error instanceof Error ? error.message : String(error) })
 }
 
 export const node = makeLocationNode({ service: Service, layer: locationLayer, deps: [] })

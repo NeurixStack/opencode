@@ -1,6 +1,6 @@
 import { Cause, Context, Effect, Layer, Queue, Stream } from "effect"
 import { Headers } from "effect/unstable/http"
-import { LLMError, TransportReason } from "../../schema"
+import { ConnectionError, type LLMError } from "../../schema"
 import * as HttpTransport from "./http"
 import type { Transport } from "./index"
 
@@ -27,15 +27,10 @@ type WebSocketConstructorWithHeaders = new (
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM/WebSocketExecutor") {}
 
 const transportError = (
-  method: string,
+  _method: string,
   message: string,
   input: { readonly url?: string; readonly kind?: string } = {},
-) =>
-  new LLMError({
-    module: "WebSocketExecutor",
-    method,
-    reason: new TransportReason({ message, url: input.url, kind: input.kind }),
-  })
+) => new ConnectionError({ message, url: input.url, kind: input.kind })
 
 const eventMessage = (event: Event) => {
   if ("message" in event && typeof event.message === "string") return event.message

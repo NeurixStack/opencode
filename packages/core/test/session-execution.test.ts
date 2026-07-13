@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { LLMError, TransportReason } from "@opencode-ai/llm"
+import { ConnectionError } from "@opencode-ai/llm"
 import { Database } from "@opencode-ai/core/database/database"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -25,17 +25,10 @@ const it = testEffect(AppNodeBuilder.build(LayerNode.group([Database.node, Event
 describe("SessionExecution lifecycle", () => {
   test("classifies success and typed failure terminals", () => {
     expect(SessionExecution.terminal(Exit.succeed(undefined))).toEqual({ type: "succeeded" })
-    expect(
-      SessionExecution.terminal(
-        Exit.fail(
-          new LLMError({
-            module: "test",
-            method: "stream",
-            reason: new TransportReason({ message: "Disconnected" }),
-          }),
-        ),
-      ),
-    ).toEqual({ type: "failed", error: { type: "provider.transport", message: "Disconnected" } })
+    expect(SessionExecution.terminal(Exit.fail(new ConnectionError({ message: "Disconnected" })))).toEqual({
+      type: "failed",
+      error: { type: "provider.transport", message: "Disconnected" },
+    })
     const storage = new ToolOutputStore.StorageError({ operation: "encode", cause: new Error("invalid output") })
     expect(SessionExecution.terminal(Exit.fail(storage))).toEqual({
       type: "failed",
