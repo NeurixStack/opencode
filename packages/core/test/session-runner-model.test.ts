@@ -64,6 +64,20 @@ describe("SessionRunnerModel", () => {
     }),
   )
 
+  it.effect("requests OpenAI reasoning summaries for default reasoning models", () =>
+    Effect.gen(function* () {
+      const resolved = yield* SessionRunnerModel.fromCatalogModel(
+        model(ProviderV2.aisdk("@ai-sdk/openai"), {
+          modelID: "gpt-5.2",
+          settings: { baseURL: "https://openai.example/v1" },
+        }),
+      )
+      const prepared = yield* LLMClient.prepare(LLM.request({ model: resolved, prompt: "Hello" }))
+
+      expect(prepared.body).toMatchObject({ reasoning: { summary: "auto" } })
+    }),
+  )
+
   it.effect("keeps catalog apiKey credentials out of provider JSON", () =>
     Effect.gen(function* () {
       const resolved = yield* SessionRunnerModel.fromCatalogModel(

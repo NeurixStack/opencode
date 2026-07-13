@@ -7,6 +7,7 @@ import * as OpenAIResponses from "../protocols/openai-responses"
 import { withOpenAIOptions, type OpenAIProviderOptionsInput } from "./openai-options"
 
 export type { OpenAIOptionsInput, OpenAIResponseIncludable } from "./openai-options"
+export * as OpenAIProviderOptions from "./openai-options"
 
 export const id = ProviderID.make("openai")
 

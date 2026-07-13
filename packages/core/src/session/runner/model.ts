@@ -2,6 +2,7 @@ export * as SessionRunnerModel from "./model"
 
 import { makeLocationNode } from "../../effect/app-node"
 import { Model } from "@opencode-ai/llm"
+import { OpenAI } from "@opencode-ai/llm/providers"
 // ast-grep-ignore: no-star-import
 import * as AnthropicMessages from "@opencode-ai/llm/protocols/anthropic-messages"
 // ast-grep-ignore: no-star-import
@@ -191,20 +192,18 @@ export const fromCatalogModel = (
   const packageName = ProviderV2.packageName(resolved.package)
   const key = apiKey(resolved, credential)
 
-  if (
-    OpenAICodex.isChatGPT(credential) &&
-    !ProviderV2.isAISDK(resolved.package) &&
-    isNativeOpenAI(resolved.package)
-  ) {
+  if (OpenAICodex.isChatGPT(credential) && !ProviderV2.isAISDK(resolved.package) && isNativeOpenAI(resolved.package)) {
     return Effect.succeed(codexModel(resolved, credential, key))
   }
 
   if (ProviderV2.isAISDK(resolved.package) && packageName === "@ai-sdk/openai") {
     if (OpenAICodex.isChatGPT(credential)) return Effect.succeed(codexModel(resolved, credential, key))
+    const id = resolved.modelID ?? resolved.id
     return Effect.succeed(
       withDefaults(resolved, OpenAIResponses.route)
+        .with(OpenAI.OpenAIProviderOptions.withOpenAIOptions(id, {}))
         .with({ auth: key === undefined ? Auth.none : Auth.bearer(key) })
-        .model({ id: resolved.modelID ?? resolved.id }),
+        .model({ id }),
     )
   }
   if (ProviderV2.isAISDK(resolved.package) && packageName === "@ai-sdk/anthropic") {
