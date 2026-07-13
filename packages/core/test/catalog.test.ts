@@ -411,6 +411,9 @@ describe("CatalogV2", () => {
       })
 
       expect((yield* catalog.model.small(providerID))?.id).toBe(ModelV2.ID.make("gpt-5.4-nano"))
+      expect((yield* catalog.model.available()).some((model) => model.id === ModelV2.ID.make("gpt-5.4-nano"))).toBe(
+        false,
+      )
     }),
   )
 

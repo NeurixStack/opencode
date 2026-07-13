@@ -55,6 +55,21 @@ const models = Layer.mock(SessionRunnerModel.Service)({
       : model
     return Effect.succeed(SessionRunnerModel.resolved(selected))
   },
+  resolveCatalogModel: (session, selected) => {
+    resolvedModels.push({ id: selected.id, provider: selected.providerID })
+    if (failSmallResolve && selected.id === ModelV2.ID.make("mini")) {
+      return Effect.fail(new Error("small unavailable") as never)
+    }
+    return Effect.succeed(
+      SessionRunnerModel.resolved(
+        Model.make({
+          id: selected.id,
+          provider: selected.providerID,
+          route: OpenAIChat.route.with({ limits: { context: 10_000, output: 1_000 } }),
+        }),
+      ),
+    )
+  },
 })
 const it = testEffect(
   AppNodeBuilder.build(
@@ -152,9 +167,11 @@ const seedSmallModel = () =>
         model.time.released = Date.now()
       })
       catalog.model.update(providerID, ModelV2.ID.make("mini"), (model) => {
+        model.enabled = false
         model.family = ModelV2.Family.make("gpt-nano")
         model.time.released = Date.now()
       })
+      catalog.model.small.set(providerID, ModelV2.ID.make("mini"))
     })
   })
 

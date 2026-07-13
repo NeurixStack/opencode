@@ -88,12 +88,23 @@ export interface Resolved {
 
 export interface Interface {
   readonly resolve: (session: SessionSchema.Info) => Effect.Effect<Resolved, Error>
+  readonly resolveCatalogModel: (
+    session: SessionSchema.Info,
+    model: ModelV2.Info,
+  ) => Effect.Effect<Resolved, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SessionRunnerModel") {}
 
 /** Test or embedding seam for supplying a model resolver directly. */
-export const layerWith = (resolve: Interface["resolve"]) => Layer.succeed(Service, Service.of({ resolve }))
+export const layerWith = (
+  resolve: Interface["resolve"],
+  resolveCatalogModel: Interface["resolveCatalogModel"] = (session, model) =>
+    resolve({
+      ...session,
+      model: ModelV2.Ref.make({ id: model.id, providerID: model.providerID }),
+    }),
+) => Layer.succeed(Service, Service.of({ resolve, resolveCatalogModel }))
 
 /** Builds a Resolved whose catalog identity mirrors the route model. Test or embedding seam. */
 export const resolved = (model: Model, variant?: ModelV2.VariantID, cost: ModelV2.Info["cost"] = []): Resolved => ({
@@ -307,7 +318,43 @@ const layer = Layer.effect(
     const integrations = yield* Integration.Service
     const npm = yield* Npm.Service
     const aisdk = yield* AISDK.Service
+    const resolveCatalogModel = Effect.fn("SessionRunnerModel.resolveCatalogModel")(function* (
+      session: SessionSchema.Info,
+      selected: ModelV2.Info,
+      variant?: ModelV2.VariantID,
+    ) {
+      const provider = yield* catalog.provider.get(selected.providerID)
+      const connection = yield* integrations.connection.active(
+        provider?.integrationID ?? Integration.ID.make(selected.providerID),
+      )
+      const model = yield* resolve(
+        {
+          ...session,
+          model: ModelV2.Ref.make({
+            id: selected.id,
+            providerID: selected.providerID,
+            ...(variant === undefined ? {} : { variant }),
+          }),
+        },
+        selected,
+        connection ? yield* integrations.connection.resolve(connection) : undefined,
+        {
+          loadPackage: (specifier) => ProviderV2.loadPackage(specifier, npm),
+          loadAISDK: (model) => aisdk.model(model),
+        },
+      )
+      return {
+        model,
+        ref: ModelV2.Ref.make({
+          id: selected.id,
+          providerID: selected.providerID,
+          ...(variant === undefined ? {} : { variant }),
+        }),
+        cost: selected.cost,
+      }
+    })
     return Service.of({
+      resolveCatalogModel,
       resolve: Effect.fn("SessionRunnerModel.resolve")(function* (session) {
         // Location plugins populate and filter the catalog asynchronously during layer startup.
         const defaultModel = session.model ? undefined : yield* catalog.model.default()
@@ -324,28 +371,7 @@ const layer = Layer.effect(
             modelID: session.model.id,
           })
         if (!selected) return yield* new ModelNotSelectedError({ sessionID: session.id })
-        const provider = yield* catalog.provider.get(selected.providerID)
-        const connection = yield* integrations.connection.active(
-          provider?.integrationID ?? Integration.ID.make(selected.providerID),
-        )
-        const model = yield* resolve(
-          session,
-          selected,
-          connection ? yield* integrations.connection.resolve(connection) : undefined,
-          {
-            loadPackage: (specifier) => ProviderV2.loadPackage(specifier, npm),
-            loadAISDK: (model) => aisdk.model(model),
-          },
-        )
-        return {
-          model,
-          ref: ModelV2.Ref.make({
-            id: selected.id,
-            providerID: selected.providerID,
-            ...(session.model?.variant === undefined ? {} : { variant: session.model.variant }),
-          }),
-          cost: selected.cost,
-        }
+        return yield* resolveCatalogModel(session, selected, session.model?.variant)
       }),
     })
   }),

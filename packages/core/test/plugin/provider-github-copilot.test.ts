@@ -289,6 +289,28 @@ describe("GithubCopilotPlugin", () => {
     }),
   )
 
+  it.effect("pins picker-hidden utility models for internal small-model work", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.githubCopilot
+      yield* catalog.transform((catalog) => {
+        catalog.provider.update(providerID, () => {})
+        catalog.model.update(providerID, ModelV2.ID.make("gpt-4.1"), (model) => {
+          model.enabled = false
+        })
+        catalog.model.update(providerID, ModelV2.ID.make("gpt-5.4-nano"), (model) => {
+          model.enabled = false
+        })
+      })
+      yield* addPlugin()
+
+      expect((yield* catalog.model.small(providerID))?.id).toBe(ModelV2.ID.make("gpt-5.4-nano"))
+      expect((yield* catalog.model.available()).some((model) => model.id === ModelV2.ID.make("gpt-5.4-nano"))).toBe(
+        false,
+      )
+    }),
+  )
+
   it.effect("does not disable gpt-5-chat-latest for non-Copilot providers", () =>
     Effect.gen(function* () {
       const catalog = yield* Catalog.Service

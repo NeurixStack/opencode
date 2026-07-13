@@ -8,7 +8,6 @@ import { Database } from "../database/database"
 import { EventV2 } from "../event"
 import { makeLocationNode } from "../effect/app-node"
 import { llmClient } from "../effect/app-node-platform"
-import { ModelV2 } from "../model"
 import { SessionEvent } from "./event"
 import { SessionHistory } from "./history"
 import { SessionRunnerModel } from "./runner/model"
@@ -53,10 +52,7 @@ const make = (dependencies: Dependencies) => {
             const small = providerID ? yield* dependencies.catalog.model.small(providerID) : undefined
             if (!small) return yield* dependencies.models.resolve(session)
             return yield* dependencies.models
-              .resolve({
-                ...session,
-                model: ModelV2.Ref.make({ id: small.id, providerID: small.providerID }),
-              })
+              .resolveCatalogModel(session, small)
               .pipe(Effect.catch(() => dependencies.models.resolve(session)))
           })
     ).pipe(Effect.catch(() => Effect.succeed(undefined)))
