@@ -31,8 +31,9 @@ export function DesktopPromo() {
           <video src={desktopPromoVideo} autoplay playsinline loop muted preload="metadata" aria-hidden="true" />
           <span data-slot="desktop-promo-copy">
             <strong>{i18n.t("home.promo.title")}</strong>
-            <span>{i18n.t("home.promo.body")}</span>
-            <span>{i18n.t("home.promo.cta")}</span>
+            <span>
+              {i18n.t("home.promo.body")} {i18n.t("home.promo.cta")}
+            </span>
           </span>
         </A>
         <button type="button" data-slot="desktop-promo-close" onClick={() => setVisible(false)}>

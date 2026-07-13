@@ -108,8 +108,8 @@ export const dict = {
   "home.banner.downloadNow": "立即下载",
   "home.banner.downloadBetaNow": "立即下载桌面 Beta 版",
   "home.promo.title": "桌面版标签页现已推出",
-  "home.promo.body": "轻松处理多个会话。",
-  "home.promo.cta": "更新至最新版桌面应用即可开始使用。",
+  "home.promo.body": "使用标签页整理工作和活跃会话。",
+  "home.promo.cta": "下载最新版本即可开始使用。",
   "home.promo.close": "关闭桌面应用公告",
 
   "home.hero.title": "开源 AI 编程代理",

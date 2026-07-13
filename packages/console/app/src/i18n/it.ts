@@ -107,8 +107,8 @@ export const dict = {
   "home.banner.downloadNow": "Scarica ora",
   "home.banner.downloadBetaNow": "Scarica ora la beta desktop",
   "home.promo.title": "Scopri Tabs per Desktop",
-  "home.promo.body": "Lavora facilmente su più sessioni.",
-  "home.promo.cta": "Aggiorna l’app Desktop all’ultima versione per iniziare.",
+  "home.promo.body": "Organizza il tuo lavoro e le sessioni attive con le schede.",
+  "home.promo.cta": "Scarica l’ultima versione per iniziare.",
   "home.promo.close": "Chiudi l’annuncio dell’app Desktop",
 
   "home.hero.title": "L'agente di coding IA open source",

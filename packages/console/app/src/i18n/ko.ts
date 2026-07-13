@@ -107,8 +107,8 @@ export const dict = {
   "home.banner.downloadNow": "지금 다운로드",
   "home.banner.downloadBetaNow": "데스크톱 베타 다운로드",
   "home.promo.title": "데스크톱 탭을 소개합니다",
-  "home.promo.body": "여러 세션을 간편하게 오가며 작업하세요.",
-  "home.promo.cta": "최신 데스크톱 앱으로 업데이트하고 시작하세요.",
+  "home.promo.body": "탭으로 작업과 활성 세션을 정리하세요.",
+  "home.promo.cta": "최신 버전을 다운로드하여 시작하세요.",
   "home.promo.close": "데스크톱 앱 안내 닫기",
 
   "home.hero.title": "오픈 소스 AI 코딩 에이전트",

@@ -107,8 +107,8 @@ export const dict = {
   "home.banner.downloadNow": "Download nu",
   "home.banner.downloadBetaNow": "Download desktop-betaen nu",
   "home.promo.title": "Introduktion af Tabs til Desktop",
-  "home.promo.body": "Arbejd nemt på tværs af flere sessioner.",
-  "home.promo.cta": "Opdater til den nyeste Desktop-app for at komme i gang.",
+  "home.promo.body": "Organiser dit arbejde og aktive sessioner med faner.",
+  "home.promo.cta": "Download den nyeste version for at komme i gang.",
   "home.promo.close": "Luk meddelelsen om Desktop-appen",
 
   "home.hero.title": "Den open source AI-kodningsagent",

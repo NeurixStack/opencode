@@ -106,8 +106,8 @@ export const dict = {
   "home.banner.downloadNow": "Pobierz teraz",
   "home.banner.downloadBetaNow": "Pobierz betę wersji desktopowej",
   "home.promo.title": "Przedstawiamy karty w aplikacji desktopowej",
-  "home.promo.body": "Pracuj wygodnie w wielu sesjach.",
-  "home.promo.cta": "Zaktualizuj aplikację desktopową do najnowszej wersji, aby zacząć.",
+  "home.promo.body": "Organizuj swoją pracę i aktywne sesje za pomocą kart.",
+  "home.promo.cta": "Pobierz najnowszą wersję, aby rozpocząć.",
   "home.promo.close": "Zamknij ogłoszenie o aplikacji desktopowej",
 
   "home.hero.title": "Open source'owy agent AI do kodowania",

@@ -107,8 +107,8 @@ export const dict = {
   "home.banner.downloadNow": "今すぐダウンロード",
   "home.banner.downloadBetaNow": "デスクトップベータ版を今すぐダウンロード",
   "home.promo.title": "デスクトップ版にタブが登場",
-  "home.promo.body": "複数のセッションを簡単に切り替えて作業できます。",
-  "home.promo.cta": "利用するには、デスクトップアプリを最新版にアップデートしてください。",
+  "home.promo.body": "タブで作業とアクティブなセッションを整理できます。",
+  "home.promo.cta": "始めるには最新版をダウンロードしてください。",
   "home.promo.close": "デスクトップアプリのお知らせを閉じる",
 
   "home.hero.title": "オープンソースのAIコーディングエージェント",
