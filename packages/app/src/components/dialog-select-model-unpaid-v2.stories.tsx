@@ -4,7 +4,14 @@ import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { createSignal, onMount } from "solid-js"
 import { DialogSelectModelUnpaidV2 } from "./dialog-select-model-unpaid-v2"
 
-const names = ["MiMo V2.5", "Nemotron 3 Ultra", "Deepseek V4 Flash", "North Mini Code", "Hy3", "Big Pickle"]
+const names = [
+  "MiMo V2.5 Free",
+  "Nemotron 3 Ultra Free",
+  "Deepseek V4 Flash Free",
+  "North Mini Code Free",
+  "Hy3 Free",
+  "Big Pickle",
+]
 
 function SelectModelWithoutProviders() {
   const dialog = useDialog()

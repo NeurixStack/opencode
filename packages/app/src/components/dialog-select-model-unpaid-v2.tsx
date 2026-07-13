@@ -4,6 +4,7 @@ import { ProviderIcon } from "@opencode-ai/ui/provider-icon"
 import { Tag } from "@opencode-ai/ui/v2/badge-v2"
 import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { useTheme } from "@opencode-ai/ui/theme"
 import { createMemo, onCleanup, onMount, type Component, For, Show } from "solid-js"
 import { useLocal } from "@/context/local"
 import { useProviders } from "@/hooks/use-providers"
@@ -13,11 +14,13 @@ import { ModelTooltip } from "./model-tooltip"
 
 type ModelState = ReturnType<typeof useLocal>["model"]
 const featuredProviders = ["opencode", "opencode-go", "openai", "anthropic", "google", "github-copilot"]
+const displayModelName = (name: string) => name.replace(/\s+(?:\(free\)|free)$/i, "")
 
 export const DialogSelectModelUnpaidV2: Component<{ model?: ModelState }> = (props) => {
   const local = useLocal()
   const model = props.model ?? local.model
   const dialog = useDialog()
+  const theme = useTheme()
   const directory = () => decode64(local.slug())
   const providers = useProviders(directory)
   const language = useLanguage()
@@ -71,7 +74,7 @@ export const DialogSelectModelUnpaidV2: Component<{ model?: ModelState }> = (pro
       <DialogHeader closeLabel={language.t("common.close")}>
         <DialogTitle>{language.t("dialog.model.select.title")}</DialogTitle>
       </DialogHeader>
-      <DialogBody class="min-h-0 flex-none gap-0 overflow-y-auto px-2 pb-2">
+      <DialogBody class="max-h-[calc(100vh_-_68px)] min-h-0 flex-none gap-0 overflow-y-auto px-2 pb-2">
         <div ref={listEl} class="flex min-h-0 flex-col">
           <div class="flex w-full flex-col items-start pb-3">
             <div class="flex h-8 w-full flex-none select-none flex-row items-center px-3 pb-2">
@@ -87,14 +90,21 @@ export const DialogSelectModelUnpaidV2: Component<{ model?: ModelState }> = (pro
                   gutter={6}
                   openDelay={0}
                   contentStyle={{ "font-family": "var(--v2-font-family-sans)" }}
-                  value={<ModelTooltip model={item} latest={item.latest} free={isFree(item)} v2 />}
+                  value={
+                    <ModelTooltip
+                      model={{ ...item, name: displayModelName(item.name) }}
+                      latest={item.latest}
+                      free={isFree(item)}
+                      v2
+                    />
+                  }
                 >
                   <button
                     type="button"
                     class="flex w-full scroll-my-3.5 flex-row items-center gap-1.5 rounded-md px-3 py-2 text-left text-[13px] font-[530] leading-5 tracking-[-0.04px] text-v2-text-text-base [font-family:var(--v2-font-family-sans)] [font-variation-settings:'slnt'_0] hover:bg-v2-overlay-simple-overlay-hover focus:bg-v2-overlay-simple-overlay-hover focus:outline-none"
                     onClick={() => selectModel(item)}
                   >
-                    <span class="min-w-0 truncate">{item.name}</span>
+                    <span class="min-w-0 truncate">{displayModelName(item.name)}</span>
                     <Tag class="shrink-0">{language.t("model.tag.free")}</Tag>
                     <Show when={item.latest}>
                       <Tag class="shrink-0">{language.t("model.tag.latest")}</Tag>
@@ -115,7 +125,7 @@ export const DialogSelectModelUnpaidV2: Component<{ model?: ModelState }> = (pro
                   {language.t("dialog.model.unpaid.addMore.title")}
                 </div>
               </div>
-              <div class="grid w-full grid-cols-1 gap-1.5 sm:grid-cols-2">
+              <div class="grid w-full grid-cols-1 gap-y-1.5 gap-x-2 sm:grid-cols-2">
                 <For
                   each={[...providers.popular()]
                     .filter((provider) => featuredProviders.includes(provider.id))
@@ -124,7 +134,12 @@ export const DialogSelectModelUnpaidV2: Component<{ model?: ModelState }> = (pro
                   {(provider) => (
                     <button
                       type="button"
-                      class="flex min-h-11 w-full scroll-my-3.5 flex-row items-start gap-2 rounded-md bg-v2-background-bg-base px-3 py-2.5 text-left text-[13px] font-[530] leading-5 tracking-[-0.04px] text-v2-text-text-base shadow-[var(--v2-elevation-raised)] [font-family:var(--v2-font-family-sans)] [font-variation-settings:'slnt'_0] hover:bg-v2-background-bg-layer-01 focus:bg-v2-background-bg-layer-01 focus:outline-none"
+                      class="flex min-h-11 w-full scroll-my-3.5 flex-row items-start gap-2 rounded-md bg-v2-background-bg-base px-3 py-2.5 text-left text-[13px] font-[530] leading-5 tracking-[-0.04px] text-v2-text-text-base [font-family:var(--v2-font-family-sans)] [font-variation-settings:'slnt'_0] hover:bg-v2-background-bg-layer-01 focus:bg-v2-background-bg-layer-01 focus:outline-none"
+                      classList={{
+                        "border-[0.5px] border-transparent shadow-[var(--v2-elevation-raised)]":
+                          theme.mode() !== "dark",
+                        "border-[0.5px] border-v2-border-border-strong": theme.mode() === "dark",
+                      }}
                       onClick={() => openProviders(provider.id)}
                     >
                       <ProviderIcon id={provider.id} class="mt-0.5 size-4 shrink-0 text-v2-icon-icon-base" />
