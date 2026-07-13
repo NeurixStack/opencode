@@ -54,7 +54,6 @@ import { filetype } from "../../util/filetype"
 import parsers from "../../parsers-config"
 import { errorMessage } from "../../util/error"
 import { Toast, useToast } from "../../ui/toast"
-import { useKV } from "../../context/kv.tsx"
 import stripAnsi from "strip-ansi"
 import { usePromptRef } from "../../context/prompt"
 import { useEpilogue } from "../../context/epilogue"
@@ -64,9 +63,9 @@ import { FormPrompt } from "./form"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
 import { DialogExportResult } from "../../ui/dialog-export-result"
 import { sessionEpilogue } from "../../util/presentation"
-import { useTuiConfig } from "../../config/v1"
+import { useConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
-import { nextThinkingMode, reasoningSummary, useThinkingMode, type ThinkingMode } from "../../context/thinking"
+import { nextThinkingMode, reasoningSummary, type ThinkingMode } from "../../context/thinking"
 import { getScrollAcceleration } from "../../util/scroll"
 import { collapseToolOutput } from "../../util/collapse-tool-output"
 import { usePluginRuntime } from "../../plugin/runtime"
@@ -88,7 +87,6 @@ const sessionBindingCommands = [
   "session.undo",
   "session.redo",
   "session.sidebar.toggle",
-  "session.toggle.conceal",
   "session.toggle.thinking",
   "session.toggle.scrollbar",
   "session.toggle.exploration_grouping",
@@ -121,13 +119,13 @@ const sessionGlobalUnfocusedBindingCommands = ["session.first", "session.last"] 
 const context = createContext<{
   width: number
   sessionID: string
-  conceal: () => boolean
   thinkingMode: () => ThinkingMode
   showThinking: () => boolean
+  markdownMode: () => "source" | "rendered"
   groupExploration: () => boolean
   diffWrapMode: () => "word" | "none"
   models: () => ModelInfo[]
-  tui: ReturnType<typeof useTuiConfig>
+  config: ReturnType<typeof useConfig>["data"]
 }>()
 
 function use() {
@@ -149,8 +147,8 @@ export function Session() {
   const data = useData()
   const project = useProject()
   const paths = useTuiPaths()
-  const tuiConfig = useTuiConfig()
-  const kv = useKV()
+  const configState = useConfig()
+  const config = configState.data
   const { theme } = useTheme()
   const promptRef = usePromptRef()
   const session = createMemo(() => data.session.get(route.sessionID))
@@ -196,16 +194,14 @@ export function Session() {
   })
 
   const dimensions = useTerminalDimensions()
-  const [sidebar, setSidebar] = kv.signal<"auto" | "hide">("sidebar", "auto")
+  const sidebar = createMemo(() => config.session?.sidebar ?? "auto")
   const [sidebarOpen, setSidebarOpen] = createSignal(false)
-  const [conceal, setConceal] = createSignal(true)
-  const thinking = useThinkingMode()
-  const thinkingMode = thinking.mode
+  const thinkingMode = createMemo<ThinkingMode>(() => config.session?.thinking ?? "hide")
   const showThinking = createMemo(() => true)
-  const [showScrollbar, setShowScrollbar] = kv.signal("scrollbar_visible", false)
-  const [diffWrapMode] = kv.signal<"word" | "none">("diff_wrap_mode", "word")
-  const [_animationsEnabled, _setAnimationsEnabled] = kv.signal("animations_enabled", true)
-  const [groupExploration, setGroupExploration] = kv.signal("exploration_grouping", true)
+  const showScrollbar = createMemo(() => config.session?.scrollbar ?? false)
+  const markdownMode = createMemo(() => config.session?.markdown ?? "rendered")
+  const diffWrapMode = createMemo(() => config.diffs?.wrap ?? "word")
+  const groupExploration = createMemo(() => config.session?.grouping !== "none")
 
   const wide = createMemo(() => dimensions().width > 120)
   const sidebarVisible = createMemo(() => {
@@ -217,7 +213,7 @@ export function Session() {
   const contentWidth = createMemo(() => dimensions().width - (sidebarVisible() ? 42 : 0) - 4)
   const models = createMemo(() => data.location.model.list(location()) ?? [])
 
-  const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
+  const scrollAcceleration = createMemo(() => getScrollAcceleration(config))
   const toast = useToast()
   const sdk = useSDK()
   const editor = useEditorContext()
@@ -465,18 +461,13 @@ export function Session() {
       run: () => {
         batch(() => {
           const isVisible = sidebarVisible()
-          setSidebar(() => (isVisible ? "hide" : "auto"))
+          void configState
+            .update((draft) => {
+              draft.session = { ...draft.session, sidebar: isVisible ? "hide" : "auto" }
+            })
+            .catch(toast.error)
           setSidebarOpen(!isVisible)
         })
-        dialog.clear()
-      },
-    },
-    {
-      title: conceal() ? "Disable code concealment" : "Enable code concealment",
-      value: "session.toggle.conceal",
-      category: "Session",
-      run: () => {
-        setConceal((prev) => !prev)
         dialog.clear()
       },
     },
@@ -488,12 +479,17 @@ export function Session() {
       })(),
       value: "session.toggle.thinking",
       category: "Session",
+      hidden: true,
       slash: {
         name: "thinking",
         aliases: ["toggle-thinking"],
       },
       run: () => {
-        thinking.set(nextThinkingMode(thinkingMode()))
+        void configState
+          .update((draft) => {
+            draft.session = { ...draft.session, thinking: nextThinkingMode(thinkingMode()) }
+          })
+          .catch(toast.error)
         dialog.clear()
       },
     },
@@ -501,17 +497,27 @@ export function Session() {
       title: "Toggle session scrollbar",
       value: "session.toggle.scrollbar",
       category: "Session",
+      hidden: true,
       run: () => {
-        setShowScrollbar((prev) => !prev)
+        void configState
+          .update((draft) => {
+            draft.session = { ...draft.session, scrollbar: !showScrollbar() }
+          })
+          .catch(toast.error)
         dialog.clear()
       },
     },
     {
-      title: groupExploration() ? "Show exploration tools individually" : "Group exploration tools",
+      title: groupExploration() ? "Show tool calls individually" : "Group related tool calls",
       value: "session.toggle.exploration_grouping",
       category: "Session",
+      hidden: true,
       run: () => {
-        setGroupExploration((prev) => !prev)
+        void configState
+          .update((draft) => {
+            draft.session = { ...draft.session, grouping: groupExploration() ? "none" : "auto" }
+          })
+          .catch(toast.error)
         dialog.clear()
       },
     },
@@ -835,17 +841,17 @@ export function Session() {
   }))
 
   useBindings(() => ({
-    bindings: tuiConfig.keybinds.gather("session.global", sessionGlobalBindingCommands),
+    bindings: config.keybinds.gather("session.global", sessionGlobalBindingCommands),
   }))
 
   useBindings(() => ({
     enabled: () => renderer.currentFocusedEditor === null,
-    bindings: tuiConfig.keybinds.gather("session.global.unfocused", sessionGlobalUnfocusedBindingCommands),
+    bindings: config.keybinds.gather("session.global.unfocused", sessionGlobalUnfocusedBindingCommands),
   }))
 
   useBindings(() => ({
     mode: OPENCODE_BASE_MODE,
-    bindings: tuiConfig.keybinds.gather("session", sessionBindingCommands),
+    bindings: config.keybinds.gather("session", sessionBindingCommands),
   }))
 
   // snap to bottom when session changes
@@ -865,13 +871,13 @@ export function Session() {
             return contentWidth()
           },
           sessionID: route.sessionID,
-          conceal,
           thinkingMode,
           showThinking,
+          markdownMode,
           groupExploration,
           diffWrapMode,
           models,
-          tui: tuiConfig,
+          config,
         }}
       >
         <box flexDirection="row" flexGrow={1} minHeight={0}>
@@ -1244,21 +1250,27 @@ function SessionSwitchMessageV2(props: { message: SessionMessageInfo }) {
 }
 
 function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
+  const ctx = use()
   const { theme } = useTheme()
   const metadata = () => (props.message.type === "synthetic" ? props.message.metadata : undefined)
-  const completion = () => metadata()?.source === "subagent"
+  const source = () => stringValue(metadata()?.source)
+  const completion = () => source() === "subagent" || source() === "shell"
   const state = () => stringValue(metadata()?.state)
-  const agent = () => Locale.titlecase(stringValue(metadata()?.agent) ?? "Subagent")
+  const actor = () => (source() === "shell" ? "Shell" : Locale.titlecase(stringValue(metadata()?.agent) ?? "Subagent"))
   const text = () => {
     if (props.message.type === "system") return props.message.text
     if (props.message.type === "synthetic") return props.message.description ?? ""
     return ""
   }
+  const description = () => (source() === "shell" ? text().replace(/\s+/g, " ").trim() : text())
   const status = () => {
     if (state() === "completed") return "finished"
     if (state() === "error") return "failed"
     return state() ?? "finished"
   }
+  const heading = () => `${state() === "completed" ? "↳" : "!"} ${actor()} ${status()}`
+  const suffix = () =>
+    Locale.truncateWidth(` · ${description()}`, Math.max(0, ctx.width - 3 - Bun.stringWidth(heading())))
   const color = () => {
     if (state() === "error") return theme.error
     if (state() === "cancelled") return theme.warning
@@ -1274,11 +1286,9 @@ function SessionNoticeMessageV2(props: { message: SessionMessageInfo }) {
       }
     >
       <box marginLeft={3}>
-        <text>
-          <span style={{ fg: color() }}>
-            {state() === "completed" ? "↳" : "!"} {agent()} {status()}
-          </span>
-          <span style={{ fg: theme.textMuted }}> · {text()}</span>
+        <text wrapMode="none">
+          <span style={{ fg: color() }}>{heading()}</span>
+          <span style={{ fg: theme.textMuted }}>{suffix()}</span>
         </text>
       </box>
     </Show>
@@ -1296,7 +1306,6 @@ function SessionSkillMessage(props: { message: Extract<SessionMessageInfo, { typ
 
 function CompactionMessage(props: { message: Extract<SessionMessageInfo, { type: "compaction" }> }) {
   const ctx = use()
-  const kv = useKV()
   const { theme, syntax } = useTheme()
   const status = () => props.message.status
   const text = () => (props.message.status === "failed" ? props.message.error.message : props.message.summary)
@@ -1309,7 +1318,7 @@ function CompactionMessage(props: { message: Extract<SessionMessageInfo, { type:
         <box flexDirection="row" gap={1} paddingLeft={1} paddingRight={1}>
           <Switch>
             <Match when={status() === "running"}>
-              <Show when={kv.get("animations_enabled", true)} fallback={<text fg={color()}>⋯</text>}>
+              <Show when={ctx.config.animations ?? true} fallback={<text fg={color()}>⋯</text>}>
                 <spinner frames={SPINNER_FRAMES} interval={80} color={color()} />
               </Show>
             </Match>
@@ -1329,7 +1338,7 @@ function CompactionMessage(props: { message: Extract<SessionMessageInfo, { type:
             internalBlockMode="top-level"
             content={content()}
             tableOptions={{ style: "grid" }}
-            conceal={ctx.conceal()}
+            conceal={ctx.markdownMode() === "rendered"}
             fg={theme.markdownText}
             bg={theme.background}
           />
@@ -1477,6 +1486,7 @@ function UserMessage(props: { message: SessionMessageUser }) {
   )
   const dialog = useDialog()
   const renderer = useRenderer()
+  const promptRef = usePromptRef()
 
   return (
     <Show when={props.message.text.trim() || files().length}>
@@ -1495,7 +1505,13 @@ function UserMessage(props: { message: SessionMessageUser }) {
           }}
           onMouseUp={() => {
             if (renderer.getSelection()?.getSelectedText()) return
-            dialog.replace(() => <DialogMessage messageID={props.message.id} sessionID={ctx.sessionID} />)
+            dialog.replace(() => (
+              <DialogMessage
+                messageID={props.message.id}
+                sessionID={ctx.sessionID}
+                setPrompt={(value) => promptRef.current?.set(value)}
+              />
+            ))
           }}
           paddingTop={1}
           paddingBottom={1}
@@ -1747,7 +1763,7 @@ function ReasoningPart(props: {
               streaming={true}
               syntaxStyle={syntax()}
               content={summary().body}
-              conceal={ctx.conceal()}
+              conceal={ctx.markdownMode() === "rendered"}
               fg={theme.textMuted}
             />
           </box>
@@ -1813,7 +1829,7 @@ function TextPart(props: { last: boolean; part: SessionMessageAssistantText }) {
           internalBlockMode="top-level"
           content={props.part.text.trim()}
           tableOptions={{ style: "grid" }}
-          conceal={ctx.conceal()}
+          conceal={ctx.markdownMode() === "rendered"}
           fg={theme.markdownText}
           bg={theme.background}
         />
@@ -2382,21 +2398,12 @@ function Subagent(props: ToolProps) {
   )
 }
 
-export function formatSubagentToolcalls(count: number) {
-  return `${count} toolcall${count === 1 ? "" : "s"}`
-}
-
 export function formatSubagentTitle(agent: string, description: string, background: boolean) {
   return `${agent} Subagent — ${description}${background ? " [background]" : ""}`
 }
 
 export function formatSubagentRetry(attempt: number, message: string) {
   return `Retrying (attempt ${attempt}) · ${message}`
-}
-
-export function formatCompletedSubagentDetail(toolcalls: number, duration: string) {
-  if (toolcalls === 0) return duration
-  return `${formatSubagentToolcalls(toolcalls)} · ${duration}`
 }
 
 type ExecuteCall = { tool: string; status: "running" | "completed" | "error"; input?: Record<string, unknown> }
@@ -2465,8 +2472,9 @@ function Edit(props: ToolProps) {
   const pathFormatter = usePathFormatter()
 
   const view = createMemo(() => {
-    const diffStyle = ctx.tui.diff_style
-    if (diffStyle === "stacked") return "unified"
+    const diffView = ctx.config.diffs?.view
+    if (diffView === "unified") return "unified"
+    if (diffView === "split") return "split"
     // Default to "auto" behavior
     return ctx.width > 120 ? "split" : "unified"
   })
@@ -2541,7 +2549,8 @@ function ApplyPatch(props: ToolProps) {
     })
   })
   const view = createMemo(() => {
-    if (ctx.tui.diff_style === "stacked") return "unified"
+    if (ctx.config.diffs?.view === "unified") return "unified"
+    if (ctx.config.diffs?.view === "split") return "split"
     return ctx.width > 120 ? "split" : "unified"
   })
 
