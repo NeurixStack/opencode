@@ -240,8 +240,8 @@ function useHomeSessionHeaderOpacity(groups: () => HomeSessionGroup[]) {
   return { setViewport, setContentRef, setHeaderRef, update, titleOpacity }
 }
 
-// Middle-click or Cmd+click on macOS (Ctrl+click elsewhere) opens a session
-// tab in the background without navigating, matching browser conventions.
+// Cmd+click on macOS (Ctrl+click elsewhere) opens a session tab in the
+// background without navigating, matching browser conventions.
 function isBackgroundOpen(event: MouseEvent) {
   return shouldOpenSessionInBackground({
     button: event.button,
@@ -466,8 +466,8 @@ export function NewHome() {
   }
 
   function editProject(conn: ServerConnection.Any, project: LocalProject) {
-    void import("@/components/dialog-edit-project-v2").then((x) => {
-      void dialog.show(() => <x.DialogEditProjectV2 server={conn} project={project} />)
+    void import("@/components/dialog-edit-project").then((x) => {
+      dialog.show(() => <x.DialogEditProject server={conn} project={project} />)
     })
   }
 
@@ -1387,15 +1387,7 @@ function HomeSessionSearchResultRow(props: {
         group: !!showProjectName(),
       }}
       onMouseEnter={() => props.onHighlight()}
-      onMouseDown={(event) => {
-        if (event.button === 1) event.preventDefault()
-      }}
       onClick={(event) => props.onSelect(props.record.session, { background: isBackgroundOpen(event) })}
-      onAuxClick={(event) => {
-        if (!isBackgroundOpen(event)) return
-        event.preventDefault()
-        props.onSelect(props.record.session, { background: true })
-      }}
     >
       <HomeSessionLeading
         project={props.record.project}
@@ -1455,15 +1447,7 @@ function HomeSessionRow(props: {
         type="button"
         data-component="home-session-row"
         class={`${HOME_ROW} h-10 min-w-0 flex-1 gap-2 py-3 pl-3 pr-10`}
-        onMouseDown={(event) => {
-          if (event.button === 1) event.preventDefault()
-        }}
         onClick={(event) => props.openSession(props.record.session, { background: isBackgroundOpen(event) })}
-        onAuxClick={(event) => {
-          if (!isBackgroundOpen(event)) return
-          event.preventDefault()
-          props.openSession(props.record.session, { background: true })
-        }}
       >
         <HomeSessionLeading
           project={props.record.project}
