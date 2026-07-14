@@ -18,23 +18,18 @@ afterEach(() => {
   mock.restore()
 })
 
-function userMessage(
-  id: string,
-  text: string,
-  input: Pick<SessionMessageUser, "files" | "agents"> = {},
-): SessionMessageUser {
+function userMessage(id: string, text: string, input: Partial<SessionMessageUser> = {}): SessionMessageUser {
   return {
     id,
     type: "user",
-    time: { created: 1 },
     text,
-    files: input.files,
-    agents: input.agents,
+    time: { created: 1 },
+    ...input,
   }
 }
 
 describe("run session shared", () => {
-  test("builds user prompt text from text, file, and agent attachments", () => {
+  test("builds user prompts from projected text and attachments", () => {
     const msgs: SessionMessages = [
       userMessage("msg-user-1", "look @scan @note.ts", {
         agents: [{ name: "scan", mention: { start: 5, end: 10, text: "@scan" } }],
@@ -42,7 +37,6 @@ describe("run session shared", () => {
           {
             data: "",
             mime: "text/plain",
-            name: "note.ts",
             source: { type: "uri", uri: "file:///tmp/note.ts" },
             mention: { start: 11, end: 19, text: "@note.ts" },
           },
@@ -53,39 +47,58 @@ describe("run session shared", () => {
     const out = createSession(msgs)
     expect(out.first).toBe(false)
     expect(out.turns).toHaveLength(1)
-    expect(out.turns[0]?.prompt).toEqual({
-      text: "look @scan @note.ts",
-      parts: [
-        { type: "file", url: "file:///tmp/note.ts", mime: "text/plain", filename: "note.ts", source: {
+    expect(out.turns[0]?.prompt.text).toBe("look @scan @note.ts")
+    expect(out.turns[0]?.prompt.parts).toEqual([
+      {
+        type: "file",
+        mime: "text/plain",
+        filename: undefined,
+        url: "file:///tmp/note.ts",
+        source: {
           type: "file",
-          path: "note.ts",
-          text: { start: 11, end: 19, value: "@note.ts" },
-        } },
-        { type: "agent", name: "scan", source: { start: 5, end: 10, value: "@scan" } },
-      ],
-    })
+          path: "file:///tmp/note.ts",
+          text: {
+            start: 11,
+            end: 19,
+            value: "@note.ts",
+          },
+        },
+      },
+      {
+        type: "agent",
+        name: "scan",
+        source: {
+          start: 5,
+          end: 10,
+          value: "@scan",
+        },
+      },
+    ])
   })
 
-  test("supports attachments without mentions", () => {
+  test("leaves attachment sources undefined when projected mentions are absent", () => {
     const out = createSession([
-      userMessage("msg-user-1", "look", {
+      userMessage("msg-user-1", "look @scan @note.ts", {
         agents: [{ name: "scan" }],
-        files: [
-          {
-            data: "",
-            mime: "text/plain",
-            name: "note.ts",
-            source: { type: "uri", uri: "file:///tmp/note.ts" },
-          },
-        ],
+        files: [{ data: "", mime: "text/plain", source: { type: "uri", uri: "file:///tmp/note.ts" } }],
       }),
     ])
 
     expect(out.turns[0]?.prompt).toEqual({
-      text: "look",
+      text: "look @scan @note.ts",
       parts: [
-        { type: "file", url: "file:///tmp/note.ts", mime: "text/plain", filename: "note.ts", source: undefined },
-        { type: "agent", name: "scan", source: undefined },
+        {
+          type: "file",
+          mime: "text/plain",
+          filename: undefined,
+          url: "file:///tmp/note.ts",
+          source: undefined,
+        },
+        {
+          type: "agent",
+          name: "scan",
+          source: undefined,
+        },
       ],
     })
   })
@@ -95,7 +108,11 @@ describe("run session shared", () => {
       {
         type: "agent" as const,
         name: "scan",
-        source: { start: 0, end: 5, value: "@scan" },
+        source: {
+          start: 0,
+          end: 5,
+          value: "@scan",
+        },
       },
     ]
     const session: RunSession = {
@@ -109,6 +126,7 @@ describe("run session shared", () => {
     }
 
     const out = sessionHistory(session)
+
     expect(out.map((item) => item.text)).toEqual(["one", "two"])
     expect(out[0]?.parts).toEqual(parts)
     expect(out[0]?.parts).not.toBe(parts)
@@ -126,12 +144,14 @@ describe("run session shared", () => {
     }
 
     expect(sessionVariant(session, model)).toBeUndefined()
+
     session.turns.push({
       prompt: { text: "four", parts: [] },
       provider: "openai",
       model: "gpt-5",
       variant: "minimal",
     })
+
     expect(sessionVariant(session, model)).toBe("minimal")
   })
 
@@ -140,7 +160,10 @@ describe("run session shared", () => {
     spyOn(client.message, "list").mockImplementation(() =>
       Promise.resolve({
         data: [
-          userMessage("msg_prompt", "Review @note.ts", {
+          {
+            id: "msg_prompt",
+            type: "user",
+            text: "Review @note.ts",
             files: [
               {
                 data: "",
@@ -151,7 +174,8 @@ describe("run session shared", () => {
               },
             ],
             agents: [],
-          }),
+            time: { created: 1 },
+          },
         ],
         cursor: {},
       }),
@@ -170,6 +194,7 @@ describe("run session shared", () => {
     )
 
     const out = await resolveCurrentSession(client, "ses_1")
+
     expect(out.model).toEqual({ providerID: "openai", modelID: "gpt-5" })
     expect(out.variant).toBe("high")
     expect(out.turns[0]?.prompt).toEqual({

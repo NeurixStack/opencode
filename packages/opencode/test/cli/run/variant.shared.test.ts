@@ -8,8 +8,10 @@ import {
   createVariantRuntime,
   cycleVariant,
   formatModelLabel,
+  pickVariant,
   resolveVariant,
 } from "@opencode-ai/cli/mini/variant.shared"
+import type { RunSession } from "@opencode-ai/cli/mini/session.shared"
 import type { RunProvider } from "@opencode-ai/cli/mini/types"
 import { testEffect } from "../../lib/effect"
 
@@ -124,6 +126,19 @@ describe("run variant shared", () => {
     expect(formatModelLabel(model, "high")).toBe("gpt-5 · openai · high")
     expect(formatModelLabel(model, undefined, providers)).toBe("GPT-5 · OpenAI")
     expect(formatModelLabel(model, "high", providers)).toBe("GPT-5 · OpenAI · high")
+  })
+
+  test("picks the latest matching variant from session history", () => {
+    const session: RunSession = {
+      first: false,
+      turns: [
+        { prompt: { text: "one", parts: [] }, provider: "openai", model: "gpt-5", variant: "high" },
+        { prompt: { text: "two", parts: [] }, provider: "anthropic", model: "sonnet", variant: "max" },
+        { prompt: { text: "three", parts: [] }, provider: "openai", model: "gpt-5", variant: "minimal" },
+      ],
+    }
+
+    expect(pickVariant(model, session)).toBe("minimal")
   })
 
   it.live("reads and writes saved variants through a runtime-backed app fs layer", () =>
